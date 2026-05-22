@@ -140,6 +140,16 @@ Host omen
   ForwardAgent yes
 ```
 
+Configuration de git host
+
+```
+git config --global user.name "Ton Nom"
+git config --global user.email "ton@email.com"
+git config --global gpg.format ssh
+git config --global user.signingkey "$(ssh-add -L | head -1)"
+git config --global commit.gpgsign true
+```
+
 ## Usage
 
 ### Create a new agent container
