@@ -1,0 +1,20 @@
+name: agent
+description: Agent profile
+config:
+  environment.HOME: /home/aiuser
+  limits.cpu: "2"
+  limits.memory: 4GB
+devices:
+  eth0:
+    name: eth0
+    network: lxdbr0
+    type: nic
+  root:
+    path: /
+    pool: default
+    size: 20GB
+    type: disk
+used_by:
+- /1.0/instances/test-agent
+- /1.0/instances/agent-test-project
+project: default
