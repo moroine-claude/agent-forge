@@ -42,6 +42,15 @@ git config --global user.signingkey /home/aiuser/.ssh/id_ed25519_signing
 git config --global commit.gpgsign true
 "
 
+echo "Installing Claude security hooks..."
+lxc exec "$CONTAINER" -- su - aiuser -c "mkdir -p /home/aiuser/.claude/hooks"
+lxc file push /home/moroine/agent-forge/.claude/hooks/pre-bash.sh \
+  "$CONTAINER"/home/aiuser/.claude/hooks/pre-bash.sh \
+  --uid 1001 --gid 1001 --mode 755
+lxc file push /home/moroine/agent-forge/config/claude-container-settings.json \
+  "$CONTAINER"/home/aiuser/.claude/settings.json \
+  --uid 1001 --gid 1001 --mode 644
+
 echo "Detecting repo from Deploy Key..."
 REPO=$(lxc exec "$CONTAINER" -- su - aiuser -c "ssh -T git@github.com 2>&1" | grep -oP "Hi \K[^!]+")
 echo "Repo: $REPO"
