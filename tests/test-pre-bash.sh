@@ -54,6 +54,11 @@ expect_block 'git push -d origin agent/test-project'
 expect_block 'git push origin :agent/test-project'
 expect_block 'git push origin main:agent/test-project'
 expect_block 'git push origin agent/test-project main'
+# Un push autorisé ne doit pas masquer un push interdit dans la même commande
+expect_block 'git push origin agent/test-project && git push origin main'
+expect_block 'git push origin main && git push origin agent/test-project'
+expect_block 'git push origin agent/test-project; git push origin main'
+expect_block "$(printf 'git push origin agent/foo\ngit push origin main')"
 
 # --- commandes ordinaires : toujours autorisées ---
 expect_allow 'git status'

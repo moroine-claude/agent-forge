@@ -34,10 +34,18 @@ if echo "$COMMAND" | grep -qE 'git[[:space:]]+push'; then
      || echo "$COMMAND" | grep -qE 'git[[:space:]]+push[^;&|]*[[:space:]][^[:space:]]*:'; then
     block "Suppression de branche distante / refspec non autorisée."
   fi
-  # Default-deny : tout push qui n'est pas exactement origin agent/* est bloqué
-  if ! echo "$COMMAND" | grep -qE '(^|[;&|][[:space:]]*)git[[:space:]]+push[[:space:]]+(-u[[:space:]]+)?origin[[:space:]]+agent/[A-Za-z0-9._/-]+[[:space:]]*([;&|]|$)'; then
-    block "git push autorisé uniquement vers origin agent/*."
-  fi
+  # Default-deny : tout push qui n'est pas exactement origin agent/* est bloqué.
+  # La commande est découpée en segments (;, &, |, retours à la ligne) et
+  # CHAQUE segment contenant "git push" doit être de la forme autorisée —
+  # sinon un push interdit pourrait se cacher derrière un push autorisé
+  # (ex: git push origin agent/x && git push origin main).
+  while IFS= read -r SEGMENT; do
+    if printf '%s\n' "$SEGMENT" | grep -qE 'git[[:space:]]+push'; then
+      if ! printf '%s\n' "$SEGMENT" | grep -qE '^[[:space:]]*git[[:space:]]+push[[:space:]]+(-u[[:space:]]+)?origin[[:space:]]+agent/[A-Za-z0-9._/-]+[[:space:]]*$'; then
+        block "git push autorisé uniquement vers origin agent/*."
+      fi
+    fi
+  done <<< "$(printf '%s\n' "$COMMAND" | tr ';&|' '\n\n\n')"
 fi
 
 # Bloquer le passage sur main/master
