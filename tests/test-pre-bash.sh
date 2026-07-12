@@ -60,6 +60,20 @@ expect_block 'git push origin main && git push origin agent/test-project'
 expect_block 'git push origin agent/test-project; git push origin main'
 expect_block "$(printf 'git push origin agent/foo\ngit push origin main')"
 
+# --- gh : créer/mettre à jour des PRs oui, merger/API brute/repo non ---
+expect_allow 'gh pr create --base main --title "feat: x" --body "..."'
+expect_allow 'gh pr view 42'
+expect_allow 'gh pr list'
+expect_allow 'gh auth status'
+
+expect_block 'gh pr merge 42'
+expect_block 'gh pr merge --auto --squash'
+expect_block 'gh api user'
+expect_block 'gh api /repos/foo/bar'
+expect_block 'gh repo view'
+expect_block 'gh repo delete foo/bar'
+expect_block 'cd /workspace && gh pr merge 42'
+
 # --- commandes ordinaires : toujours autorisées ---
 expect_allow 'git status'
 expect_allow 'git commit -m "feat: x"'

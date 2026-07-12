@@ -48,6 +48,18 @@ if echo "$COMMAND" | grep -qE 'git[[:space:]]+push'; then
   done <<< "$(printf '%s\n' "$COMMAND" | tr ';&|' '\n\n\n')"
 fi
 
+# gh : l'agent crée et met à jour des PRs, ne merge jamais,
+# ne parle jamais à l'API brute ni à l'administration de repo.
+if echo "$COMMAND" | grep -qE '(^|[[:space:];&|])gh[[:space:]]+pr[[:space:]]+merge'; then
+  block "gh pr merge non autorisé. La PR est revue et mergée par un humain."
+fi
+if echo "$COMMAND" | grep -qE '(^|[[:space:];&|])gh[[:space:]]+api([[:space:]]|$)'; then
+  block "gh api non autorisé."
+fi
+if echo "$COMMAND" | grep -qE '(^|[[:space:];&|])gh[[:space:]]+repo([[:space:]]|$)'; then
+  block "gh repo non autorisé."
+fi
+
 # Bloquer le passage sur main/master
 if echo "$COMMAND" | grep -qE 'git[[:space:]]+(checkout|switch)[[:space:]]+(main|master)'; then
   block "Passage sur main/master non autorisé. Rester sur la branche agent/*."
