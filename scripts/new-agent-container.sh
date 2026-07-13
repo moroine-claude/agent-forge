@@ -42,6 +42,7 @@ lxc exec "$CONTAINER" -- rm -f /etc/sudoers.d/90-cloud-init-users
 
 echo "Mounting workspace..."
 mkdir -p "/home/moroine/workspaces/$PROJECT"
+chmod 750 "/home/moroine/workspaces/$PROJECT"
 # shift=true : idmap shifting LXD — le dossier reste possédé par l'utilisateur
 # hôte courant, pas besoin de chown vers l'UID mappé du container.
 # Scopé à ce seul point de montage, n'ouvre aucun accès host plus large.
