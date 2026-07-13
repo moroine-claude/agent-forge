@@ -41,14 +41,14 @@ lxc exec "$CONTAINER" -- deluser --remove-home ubuntu 2>/dev/null || true
 lxc exec "$CONTAINER" -- rm -f /etc/sudoers.d/90-cloud-init-users
 
 echo "Mounting workspace..."
-if [ ! -d "/home/moroine/workspaces/$PROJECT" ]; then
-  sudo mkdir -p "/home/moroine/workspaces/$PROJECT"
-  sudo chown 1001001:1001001 "/home/moroine/workspaces/$PROJECT"
-  sudo chmod 750 "/home/moroine/workspaces/$PROJECT"
-fi
+mkdir -p "/home/moroine/workspaces/$PROJECT"
+# shift=true : idmap shifting LXD — le dossier reste possédé par l'utilisateur
+# hôte courant, pas besoin de chown vers l'UID mappé du container.
+# Scopé à ce seul point de montage, n'ouvre aucun accès host plus large.
 lxc config device add "$CONTAINER" workspace disk \
   source="/home/moroine/workspaces/$PROJECT" \
-  path=/workspace
+  path=/workspace \
+  shift=true
 
 echo "Copying signing key..."
 lxc file push /home/moroine/.ssh/github_agents_signing "$CONTAINER"/home/aiuser/.ssh/id_ed25519_signing --uid 1001 --gid 1001 --mode 600
