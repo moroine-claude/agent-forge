@@ -46,6 +46,12 @@ bash -n "$SCRIPT"
 assert_contains 'shift=true'
 assert_not_contains '1001001'
 
+# --- Task 2: Claude credential + onboarding reuse, before plugin install ---
+assert_contains '.credentials.json'
+assert_contains 'claude-onboarding-state.json'
+assert_line_before '.credentials.json' 'Installing Claude plugins'
+assert_line_before 'claude-onboarding-state.json' 'Installing Claude plugins'
+
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

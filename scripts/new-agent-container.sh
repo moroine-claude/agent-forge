@@ -63,6 +63,17 @@ git config --global user.signingkey /home/aiuser/.ssh/id_ed25519_signing
 git config --global commit.gpgsign true
 "
 
+echo "Reusing Claude Code credentials from host..."
+if [ ! -f "/home/moroine/.claude/.credentials.json" ]; then
+  echo "Error: /home/moroine/.claude/.credentials.json not found. Run 'claude auth login' on the host first."
+  exit 1
+fi
+lxc exec "$CONTAINER" -- mkdir -p /home/aiuser/.claude
+lxc file push /home/moroine/.claude/.credentials.json "$CONTAINER"/home/aiuser/.claude/.credentials.json --uid 1001 --gid 1001 --mode 600
+
+echo "Pre-accepting Claude Code onboarding..."
+lxc file push /home/moroine/agent-forge/config/claude-onboarding-state.json "$CONTAINER"/home/aiuser/.claude.json --uid 1001 --gid 1001 --mode 600
+
 echo "Updating Claude Code to latest..."
 lxc exec "$CONTAINER" -- npm install -g @anthropic-ai/claude-code@latest
 
