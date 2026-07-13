@@ -1,13 +1,36 @@
 #!/bin/bash
 set -e
 
-if [ -z "$1" ]; then
-  echo "Usage: $0 <project-name>"
+# Provisions an autonomous-mode agent container: it authenticates to GitHub
+# with a fine-grained PAT from the bot account (pasted at creation time,
+# never written to host disk), pushes over HTTPS and opens PRs with gh.
+
+if [ -z "$1" ] || [ -z "$2" ]; then
+  echo "Usage: $0 <project-name> <owner/repo>"
   exit 1
 fi
 
-PROJECT=$1
+PROJECT="$1"
+REPO="$2"
 CONTAINER="agent-$PROJECT"
+
+# Preconditions
+if ! echo "$PROJECT" | grep -qE '^[A-Za-z0-9._-]+$'; then
+  echo "Error: project name must only contain [A-Za-z0-9._-], got: $PROJECT"
+  exit 1
+fi
+if ! echo "$REPO" | grep -qE '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$'; then
+  echo "Error: repo must be <owner>/<repo>, got: $REPO"
+  exit 1
+fi
+if ! lxc image info agent-base > /dev/null 2>&1; then
+  echo "Error: image agent-base not found. Build the base image first (see README)."
+  exit 1
+fi
+if lxc info "$CONTAINER" > /dev/null 2>&1; then
+  echo "Error: container $CONTAINER already exists."
+  exit 1
+fi
 
 echo "Creating container $CONTAINER..."
 lxc launch agent-base "$CONTAINER" --profile agent
@@ -19,30 +42,16 @@ lxc exec "$CONTAINER" -- rm -f /etc/sudoers.d/90-cloud-init-users
 
 echo "Mounting workspace..."
 if [ ! -d "/home/moroine/workspaces/$PROJECT" ]; then
-  sudo mkdir -p /home/moroine/workspaces/$PROJECT
-  sudo chown 1001001:1001001 /home/moroine/workspaces/$PROJECT
-  sudo chmod 750 /home/moroine/workspaces/$PROJECT
+  sudo mkdir -p "/home/moroine/workspaces/$PROJECT"
+  sudo chown 1001001:1001001 "/home/moroine/workspaces/$PROJECT"
+  sudo chmod 750 "/home/moroine/workspaces/$PROJECT"
 fi
 lxc config device add "$CONTAINER" workspace disk \
-  source=/home/moroine/workspaces/$PROJECT \
+  source="/home/moroine/workspaces/$PROJECT" \
   path=/workspace
 
-echo "Copying Claude credentials..."
-lxc exec "$CONTAINER" -- mkdir -p /home/aiuser/.claude
-lxc file push /home/moroine/.claude/.credentials.json \
-  "$CONTAINER"/home/aiuser/.claude/.credentials.json \
-  --uid 1001 --gid 1001 --mode 600
-
-echo "Copying GitHub SSH keys..."
-lxc file push /home/moroine/.ssh/github_agents "$CONTAINER"/home/aiuser/.ssh/id_ed25519 --uid 1001 --gid 1001 --mode 600
+echo "Copying signing key..."
 lxc file push /home/moroine/.ssh/github_agents_signing "$CONTAINER"/home/aiuser/.ssh/id_ed25519_signing --uid 1001 --gid 1001 --mode 600
-
-echo "Adding GitHub known_hosts..."
-lxc exec "$CONTAINER" -- su - aiuser -c "cat >> /home/aiuser/.ssh/known_hosts << KEYS
-github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
-github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFoVAbemAniT4QKZaTaQFe3JTCEJnqxlxbZ7mFRoNUFH2VoMiKNHzLq51Rcfoto=
-github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHZtalk9Sh9VTGjRz+O7vGnGBulJ7KorCAMHsSMHHXblDZyh/Gi36Q3Nqz4iat7uCMFHDR9hI+kOUGMU9R7YLCVMmHjfC/C8B/Z2jyNfHfGcHfnCakGNdNKkAlP27eTSIb1PKdwOOQ0GCTj7gUQbWMMd9fFWzToMWFGvhpHxSKJDmCqrLtEJNv6RqJd4pHxFHVp4Vq7sCiF/o5i9yHrHhA5RwMW4AaKuVjFT5c6BO7OB2yzLMzTQPzHBHMHEDxM83I3JxJA9n1Z+rHNEZ8Bvkz7Dxs4Mik3C6pInRvYDxGiMiQ4CPQM5BDQCo+3MaVLCmJzZNKSwLqB9WJ0MPMZq5aPR1sMzJ6pM8FUCGcqv7p+7gShBnxLsRKcg2i9gfFQTmXCVuRicF3grFVvt0q8=
-KEYS"
 
 echo "Configuring git..."
 lxc exec "$CONTAINER" -- su - aiuser -c "
@@ -57,7 +66,7 @@ echo "Updating Claude Code to latest..."
 lxc exec "$CONTAINER" -- npm install -g @anthropic-ai/claude-code@latest
 
 echo "Installing Claude plugins..."
-lxc exec "$CONTAINER" -- su - aiuser -c "claude plugin install superpowers@claude-plugins-official"
+lxc exec "$CONTAINER" -- su - aiuser -c "claude plugin marketplace add anthropics/claude-plugins-official && claude plugin install superpowers@claude-plugins-official"
 
 echo "Installing Claude security hooks..."
 lxc exec "$CONTAINER" -- mkdir -p /home/aiuser/.claude/hooks
@@ -69,22 +78,30 @@ lxc file push /home/moroine/agent-forge/config/claude-container-settings.json \
   "$CONTAINER"/home/aiuser/.claude/settings.json \
   --uid 0 --gid 0 --mode 644
 
-echo "Detecting repo from Deploy Key..."
-REPO=$(lxc exec "$CONTAINER" -- su - aiuser -c "ssh -T git@github.com 2>&1" | grep -oP "Hi \K[^!]+")
-if [ -z "$REPO" ]; then
-  echo "ERROR: Could not detect GitHub repo from deploy key. Check that the key is added to the repo." >&2
-  lxc delete "$CONTAINER" --force
+echo ""
+echo "=============================================================="
+echo "  GitHub token required (BOT account, fine-grained PAT)"
+echo "  Scoped to: $REPO only"
+echo "  Permissions: Contents RW, Pull requests RW, Metadata R"
+echo "  The token is piped into the container and never written"
+echo "  to host disk."
+echo "=============================================================="
+read -r -s -p "Paste the token (input hidden): " GH_TOKEN
+echo ""
+if [ -z "$GH_TOKEN" ]; then
+  echo "Error: empty token."
   exit 1
 fi
-echo "Repo: $REPO"
 
-echo "Cloning and creating branch..."
-if lxc exec "$CONTAINER" -- su - aiuser -c "[ -d /workspace/.git ]"; then
-  echo "Workspace already cloned, reusing existing repo..."
-  lxc exec "$CONTAINER" -- su - aiuser -c "cd /workspace && git checkout agent/$PROJECT 2>/dev/null || git checkout -b agent/$PROJECT"
-else
-  lxc exec "$CONTAINER" -- su - aiuser -c "git clone git@github.com:$REPO.git /workspace && cd /workspace && git checkout -b agent/$PROJECT"
-fi
+echo "Authenticating gh inside the container..."
+printf '%s' "$GH_TOKEN" | lxc exec "$CONTAINER" -- su - aiuser -c "gh auth login --hostname github.com --with-token"
+unset GH_TOKEN
+# Fail fast if the token is invalid (set -e aborts on non-zero)
+lxc exec "$CONTAINER" -- su - aiuser -c "gh auth status --hostname github.com"
+lxc exec "$CONTAINER" -- su - aiuser -c "gh auth setup-git"
+
+echo "Cloning $REPO and creating branch agent/$PROJECT..."
+lxc exec "$CONTAINER" -- su - aiuser -c "git clone https://github.com/$REPO.git /workspace && cd /workspace && git checkout -b agent/$PROJECT"
 
 echo "Container $CONTAINER ready."
 lxc list "$CONTAINER"

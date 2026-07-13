@@ -18,7 +18,7 @@ SSH (port 2222, Ed25519, no password)
 - Ubuntu 24.04 fresh install
 - SSH access (keyboard/screen) for initial setup
 - Claude Pro account
-- GitHub bot account with Deploy Keys
+- GitHub bot account, invited as a **write collaborator** on each target repo
 
 ## Setup
 
@@ -115,6 +115,9 @@ lxc exec agent-base-setup -- bash -c "curl -fsSL https://deb.nodesource.com/setu
 lxc exec agent-base-setup -- apt install -y nodejs
 lxc exec agent-base-setup -- npm install -g pnpm
 lxc exec agent-base-setup -- npm install -g @anthropic-ai/claude-code
+lxc exec agent-base-setup -- bash -c 'mkdir -p -m 755 /etc/apt/keyrings && wget -qO /etc/apt/keyrings/githubcli-archive-keyring.gpg https://cli.github.com/packages/githubcli-archive-keyring.gpg && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg'
+lxc exec agent-base-setup -- bash -c 'echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list'
+lxc exec agent-base-setup -- bash -c 'apt update && apt install -y gh'
 lxc exec agent-base-setup -- bash -c "wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/chrome.deb && apt install -y --fix-missing /tmp/chrome.deb"
 lxc exec agent-base-setup -- useradd -m -s /bin/bash aiuser
 lxc exec agent-base-setup -- bash -c "mkdir -p /workspace /home/aiuser/.ssh /home/aiuser/.claude && chown aiuser:aiuser /workspace /home/aiuser/.ssh /home/aiuser/.claude && chmod 750 /workspace && chmod 700 /home/aiuser/.ssh"
@@ -123,6 +126,8 @@ lxc stop agent-base-setup
 lxc publish agent-base-setup --alias agent-base
 lxc delete agent-base-setup
 ```
+
+> **Note:** if you built `agent-base` before `gh` was part of the build, rebuild it — autonomous containers need the GitHub CLI.
 
 Create the agent LXD profile:
 
@@ -133,18 +138,49 @@ lxc profile edit agent
 
 Paste the content of `config/lxd-agent-profile.yaml`.
 
-### 6. GitHub Deploy Keys
+### 6. GitHub bot account: signing key, PAT, branch protection
 
-Generate two SSH keys on the server:
+#### Signing key
+
+Generate the commit-signing key on the server:
 
 ```bash
-ssh-keygen -t ed25519 -C "agents-server@github" -f ~/.ssh/github_agents -N ""
 ssh-keygen -t ed25519 -C "agents-server-signing@github" -f ~/.ssh/github_agents_signing -N ""
 ```
 
-On your GitHub bot account:
-- Add `github_agents.pub` as a **Deploy Key** (read-only) on the target repo
-- Add `github_agents_signing.pub` as a **Signing Key** under Settings → SSH and GPG keys
+On the GitHub bot account, add `github_agents_signing.pub` as a **Signing Key** under Settings → SSH and GPG keys. Agent commits then show as **Verified**.
+
+> The old read-only deploy key (`~/.ssh/github_agents`) is no longer used by
+> autonomous containers — they authenticate with a PAT over HTTPS. It will
+> return in supervised mode as the fetch-only credential; keep it if present.
+
+#### Fine-grained PAT (one per target repo)
+
+Created from **your laptop**, in the **bot account's** web UI — your personal
+credentials never touch the server or the containers. GitHub has no API to
+mint fine-grained PATs, so this step is manual:
+
+1. Invite the bot account as a collaborator with **write** access on the target repo (and accept the invitation as the bot).
+2. Logged in as the bot: Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token.
+3. Resource owner: the repo's owner. Repository access: **Only select repositories** → the target repo.
+4. Permissions: **Contents: Read and write**, **Pull requests: Read and write**, **Metadata: Read** (added automatically).
+5. Expiration: maximum (1 year).
+6. Keep the token in your password manager; you'll paste it when creating the container.
+
+> **Fallback:** fine-grained PATs targeting a repo owned by another account
+> are recent on GitHub's side. If token creation or usage fails cross-owner,
+> use a classic PAT (`repo` scope) on the bot instead — same effective
+> boundary, since the bot is only invited to agent-approved repos.
+
+#### Branch protection (required before the first autonomous container)
+
+On each autonomous repo, protect `main`: Settings → Branches → Add branch
+ruleset (or classic protection rule) on `main`, with **Require a pull request
+before merging** and **Require approvals: 1**.
+
+This is the real security boundary — even a leaked token cannot land code on
+`main`, and since GitHub forbids approving your own PR, the bot can never
+merge its own work. You review and approve as yourself.
 
 ### 7. SSH Agent Forwarding (YubiKey)
 
@@ -182,15 +218,36 @@ git config --global commit.gpgsign true
 ### Create a new agent container
 
 ```bash
-./scripts/new-agent-container.sh <project-name>
+./scripts/new-agent-container.sh <project-name> <owner/repo>
 ```
 
 This will:
 - Create an LXD container from `agent-base`
 - Mount `/workspace` with correct permissions
-- Copy GitHub SSH keys
-- Configure git (signed commits)
-- Clone the repo and create branch `agent/<project-name>`
+- Copy the signing key and configure git (signed commits)
+- Prompt for the bot's fine-grained PAT (see setup §6) and authenticate `gh` inside the container — the token is never written to host disk
+- Clone `https://github.com/<owner/repo>.git` and create branch `agent/<project-name>`
+
+### Autonomous PR flow
+
+The agent works on `agent/<project-name>`, pushes with
+`git push -u origin agent/<project-name>` and opens a PR with
+`gh pr create --base main`, all authenticated as the bot. The `pre-bash.sh`
+hook only allows pushes to `origin agent/*` (no force, no delete) and blocks
+`gh pr merge`, `gh api`, `gh repo`, `gh alias`, `gh extension` and
+`gh auth token`. You review, approve and merge the PR as yourself.
+
+### Token renewal
+
+Fine-grained PATs expire (max 1 year). To renew: create a new PAT in the bot's
+web UI (same repo, same permissions), then re-authenticate the affected
+container:
+
+```bash
+read -r -s TOKEN && printf '%s' "$TOKEN" | lxc exec agent-<project-name> -- su - aiuser -c "gh auth login --hostname github.com --with-token"; unset TOKEN
+```
+
+(`read -r -s` keeps the token out of your shell history and off the terminal.)
 
 ### Start a Claude Code session
 
