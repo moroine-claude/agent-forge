@@ -42,12 +42,39 @@ sudo systemctl restart ssh
 
 ```bash
 sudo apt install -y ufw
+
+# Détecter l'interface sortante (wlo1 pour WiFi, eth0/enp3s0 pour filaire)
+IFACE=$(ip route get 8.8.8.8 | awk '{print $5; exit}')
+
 sudo ufw default deny incoming
 sudo ufw default allow outgoing
 sudo ufw allow 2222/tcp comment "SSH"
-sudo ufw route deny in on lxdbr0 out on wlo1 to 192.168.1.0/24
-sudo ufw route allow in on lxdbr0 out on wlo1 to any
+
+# Bloquer les containers LXD depuis toutes les plages privées/spéciales (IPv4)
+# Empêche un container compromis d'atteindre le LAN ou des services internes
+sudo ufw route deny in on lxdbr0 out on "$IFACE" to 10.0.0.0/8      comment "Block RFC1918 10/8"
+sudo ufw route deny in on lxdbr0 out on "$IFACE" to 172.16.0.0/12   comment "Block RFC1918 172.16/12"
+sudo ufw route deny in on lxdbr0 out on "$IFACE" to 192.168.0.0/16  comment "Block RFC1918 192.168/16"
+sudo ufw route deny in on lxdbr0 out on "$IFACE" to 169.254.0.0/16  comment "Block link-local"
+sudo ufw route deny in on lxdbr0 out on "$IFACE" to 100.64.0.0/10   comment "Block CGNAT"
+sudo ufw route deny in on lxdbr0 out on "$IFACE" to 224.0.0.0/4     comment "Block multicast"
+
+# Bloquer les plages privées IPv6 (le bridge lxdbr0 a IPv6 NAT activé par défaut)
+sudo ufw route deny in on lxdbr0 out on "$IFACE" to fc00::/7        comment "Block IPv6 ULA"
+sudo ufw route deny in on lxdbr0 out on "$IFACE" to fe80::/10       comment "Block IPv6 link-local"
+sudo ufw route deny in on lxdbr0 out on "$IFACE" to ff00::/8        comment "Block IPv6 multicast"
+
+# Autoriser internet (GitHub, Anthropic API, etc.)
+sudo ufw route allow in on lxdbr0 out on "$IFACE" to any            comment "Allow internet"
+
 sudo ufw enable
+```
+
+Optionnel — désactiver IPv6 sur le bridge LXD pour éliminer toute surface d'attaque IPv6 :
+
+```bash
+lxc network set lxdbr0 ipv6.address none
+lxc network set lxdbr0 ipv6.nat false
 ```
 
 ### 3. Fail2ban
@@ -170,6 +197,19 @@ This will:
 ```bash
 ./scripts/start-agent.sh <project-name>
 ```
+
+This starts Claude with Remote Control enabled, named after the project. A session URL and QR code are displayed at startup.
+
+### Remote access
+
+Once the session is running, connect from any device:
+
+- **Browser**: open the session URL printed at startup, or go to [claude.ai/code](https://claude.ai/code) and find the session by project name
+- **Mobile app**: tap **Code** in the Claude app navigation
+
+The session stays accessible as long as the container is running and the `claude` process is alive in tmux. If the Remote Control connection times out (network outage >10 min), re-run `start-agent.sh` to start a fresh session — or type `/remote-control` inside an existing session to re-enable it.
+
+**Requirements**: the host must be authenticated with a claude.ai account (`claude auth login`). API key auth does not support Remote Control.
 
 ### tmux cheatsheet
 
