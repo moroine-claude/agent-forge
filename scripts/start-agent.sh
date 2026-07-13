@@ -18,5 +18,5 @@ fi
 echo "Attaching to $CONTAINER as aiuser..."
 lxc exec "$CONTAINER" -- su - aiuser -c "
   cd /workspace
-  tmux new-session -A -s claude 'claude --dangerously-skip-permissions'
+  tmux new-session -A -s claude 'claude --dangerously-skip-permissions --remote-control ${PROJECT}'
 "

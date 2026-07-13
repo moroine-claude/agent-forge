@@ -35,6 +35,11 @@ fi
 echo "Creating container $CONTAINER..."
 lxc launch agent-base "$CONTAINER" --profile agent
 
+# Supprime le compte ubuntu laissé par cloud-init qui peut avoir NOPASSWD:ALL sudo
+echo "Removing cloud-init ubuntu backdoor..."
+lxc exec "$CONTAINER" -- deluser --remove-home ubuntu 2>/dev/null || true
+lxc exec "$CONTAINER" -- rm -f /etc/sudoers.d/90-cloud-init-users
+
 echo "Mounting workspace..."
 if [ ! -d "/home/moroine/workspaces/$PROJECT" ]; then
   mkdir -p "/home/moroine/workspaces/$PROJECT"
@@ -57,14 +62,21 @@ git config --global user.signingkey /home/aiuser/.ssh/id_ed25519_signing
 git config --global commit.gpgsign true
 "
 
+echo "Updating Claude Code to latest..."
+lxc exec "$CONTAINER" -- npm install -g @anthropic-ai/claude-code@latest
+
+echo "Installing Claude plugins..."
+lxc exec "$CONTAINER" -- su - aiuser -c "claude plugin install superpowers@claude-plugins-official"
+
 echo "Installing Claude security hooks..."
-lxc exec "$CONTAINER" -- su - aiuser -c "mkdir -p /home/aiuser/.claude/hooks"
+lxc exec "$CONTAINER" -- mkdir -p /home/aiuser/.claude/hooks
+# Hooks possédés par root (uid 0) : aiuser peut les lire/exécuter mais pas les écraser
 lxc file push /home/moroine/agent-forge/.claude/hooks/pre-bash.sh \
   "$CONTAINER"/home/aiuser/.claude/hooks/pre-bash.sh \
-  --uid 1001 --gid 1001 --mode 755
+  --uid 0 --gid 0 --mode 755
 lxc file push /home/moroine/agent-forge/config/claude-container-settings.json \
   "$CONTAINER"/home/aiuser/.claude/settings.json \
-  --uid 1001 --gid 1001 --mode 644
+  --uid 0 --gid 0 --mode 644
 
 echo ""
 echo "=============================================================="
