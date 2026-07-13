@@ -67,6 +67,8 @@ expect_block 'git -c user.email=x@y push origin main'
 expect_block 'git -C /workspace push origin agent/test-project'
 # Fail-closed assumé : redirection en fin de push autorisé (tr coupe sur &)
 expect_block 'git push origin agent/test-project 2>&1'
+# Séparateur collé au mot-clé : ne doit pas esquiver le déclencheur
+expect_block 'git push;true'
 # Pas de faux positif sur un message de commit contenant "push"
 expect_allow 'git commit -m "docs: explain push policy"'
 
@@ -90,6 +92,7 @@ expect_block 'gh pr --repo owner/repo merge 42'
 expect_block 'gh alias set pm "pr merge"'
 expect_block 'gh extension install owner/gh-ext'
 expect_block 'gh auth token'
+expect_block 'gh auth token|cat'
 # Pas de faux positif sur un titre de PR contenant "merge"
 expect_allow 'gh pr create --title "fix: merge conflict" --body "x"'
 

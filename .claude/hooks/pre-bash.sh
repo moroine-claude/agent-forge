@@ -28,7 +28,7 @@ block() {
 # La vraie frontière est la branch protection sur main côté GitHub ; ce hook
 # est de la défense en profondeur — un filtre regex ne peut pas tout attraper
 # (variables, scripts intermédiaires, appels API via curl) et ne prétend pas le faire.
-GIT_PUSH_RE='git[[:space:]]+(-[^[:space:]]+([[:space:]]+[^-][^[:space:]]*)?[[:space:]]+)*push([[:space:]]|$)'
+GIT_PUSH_RE='git[[:space:]]+(-[^[:space:]]+([[:space:]]+[^-][^[:space:]]*)?[[:space:]]+)*push([[:space:];&|]|$)'
 if echo "$COMMAND" | grep -qE "$GIT_PUSH_RE"; then
   # Force push interdit (préserve l'historique de la branche agent)
   if echo "$COMMAND" | grep -qE 'git[[:space:]]+push[^;&|]*[[:space:]](-[A-Za-z]*f[A-Za-z]*|--force(-with-lease)?(=[^[:space:]]+)?)([[:space:]]|$)'; then
@@ -56,7 +56,7 @@ fi
 # gh : l'agent crée et met à jour des PRs, ne merge jamais, ne parle jamais
 # à l'API brute, ne touche ni aux repos, ni aux alias, ni aux extensions,
 # et ne lit jamais le token.
-if echo "$COMMAND" | grep -qE '(^|[[:space:];&|])gh[[:space:]]+pr[[:space:]]+(-[^[:space:]]+([[:space:]]+[^-][^[:space:]]*)?[[:space:]]+)*merge([[:space:]]|$)'; then
+if echo "$COMMAND" | grep -qE '(^|[[:space:];&|])gh[[:space:]]+pr[[:space:]]+(-[^[:space:]]+([[:space:]]+[^-][^[:space:]]*)?[[:space:]]+)*merge([[:space:];&|]|$)'; then
   block "gh pr merge non autorisé. La PR est revue et mergée par un humain."
 fi
 if echo "$COMMAND" | grep -qE '(^|[[:space:];&|])gh[[:space:]]+alias([[:space:]]|$)'; then
@@ -65,7 +65,7 @@ fi
 if echo "$COMMAND" | grep -qE '(^|[[:space:];&|])gh[[:space:]]+ext(ension)?s?([[:space:]]|$)'; then
   block "gh extension non autorisé."
 fi
-if echo "$COMMAND" | grep -qE '(^|[[:space:];&|])gh[[:space:]]+auth[[:space:]]+token([[:space:]]|$)'; then
+if echo "$COMMAND" | grep -qE '(^|[[:space:];&|])gh[[:space:]]+auth[[:space:]]+token([[:space:];&|]|$)'; then
   block "gh auth token non autorisé."
 fi
 if echo "$COMMAND" | grep -qE '(^|[[:space:];&|])gh[[:space:]]+api([[:space:]]|$)'; then
