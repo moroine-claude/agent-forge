@@ -15,6 +15,10 @@ REPO="$2"
 CONTAINER="agent-$PROJECT"
 
 # Preconditions
+if ! echo "$PROJECT" | grep -qE '^[A-Za-z0-9._-]+$'; then
+  echo "Error: project name must only contain [A-Za-z0-9._-], got: $PROJECT"
+  exit 1
+fi
 if ! echo "$REPO" | grep -qE '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$'; then
   echo "Error: repo must be <owner>/<repo>, got: $REPO"
   exit 1
