@@ -52,6 +52,10 @@ assert_contains 'claude-onboarding-state.json'
 assert_line_before '.credentials.json' 'Installing Claude plugins'
 assert_line_before 'claude-onboarding-state.json' 'Installing Claude plugins'
 
+# --- Regression pin: mkdir must run as aiuser, not root, so the dir is
+# writable by aiuser for the subsequent plugin-install step ---
+assert_contains 'su - aiuser -c "mkdir -p /home/aiuser/.claude"'
+
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

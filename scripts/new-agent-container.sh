@@ -23,6 +23,10 @@ if ! echo "$REPO" | grep -qE '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$'; then
   echo "Error: repo must be <owner>/<repo>, got: $REPO"
   exit 1
 fi
+if [ ! -f "/home/moroine/.claude/.credentials.json" ]; then
+  echo "Error: /home/moroine/.claude/.credentials.json not found. Run 'claude auth login' on the host first."
+  exit 1
+fi
 if ! lxc image info agent-base > /dev/null 2>&1; then
   echo "Error: image agent-base not found. Build the base image first (see README)."
   exit 1
@@ -64,10 +68,6 @@ git config --global commit.gpgsign true
 "
 
 echo "Reusing Claude Code credentials from host..."
-if [ ! -f "/home/moroine/.claude/.credentials.json" ]; then
-  echo "Error: /home/moroine/.claude/.credentials.json not found. Run 'claude auth login' on the host first."
-  exit 1
-fi
 lxc exec "$CONTAINER" -- su - aiuser -c "mkdir -p /home/aiuser/.claude"
 lxc file push /home/moroine/.claude/.credentials.json "$CONTAINER"/home/aiuser/.claude/.credentials.json --uid 1001 --gid 1001 --mode 600
 
