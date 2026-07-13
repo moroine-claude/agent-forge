@@ -42,9 +42,9 @@ lxc exec "$CONTAINER" -- rm -f /etc/sudoers.d/90-cloud-init-users
 
 echo "Mounting workspace..."
 if [ ! -d "/home/moroine/workspaces/$PROJECT" ]; then
-  mkdir -p "/home/moroine/workspaces/$PROJECT"
+  sudo mkdir -p "/home/moroine/workspaces/$PROJECT"
   sudo chown 1001001:1001001 "/home/moroine/workspaces/$PROJECT"
-  chmod 750 "/home/moroine/workspaces/$PROJECT"
+  sudo chmod 750 "/home/moroine/workspaces/$PROJECT"
 fi
 lxc config device add "$CONTAINER" workspace disk \
   source="/home/moroine/workspaces/$PROJECT" \
@@ -66,7 +66,7 @@ echo "Updating Claude Code to latest..."
 lxc exec "$CONTAINER" -- npm install -g @anthropic-ai/claude-code@latest
 
 echo "Installing Claude plugins..."
-lxc exec "$CONTAINER" -- su - aiuser -c "claude plugin install superpowers@claude-plugins-official"
+lxc exec "$CONTAINER" -- su - aiuser -c "claude plugin marketplace add anthropics/claude-plugins-official && claude plugin install superpowers@claude-plugins-official"
 
 echo "Installing Claude security hooks..."
 lxc exec "$CONTAINER" -- mkdir -p /home/aiuser/.claude/hooks
