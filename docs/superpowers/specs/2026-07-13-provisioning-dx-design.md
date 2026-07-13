@@ -156,16 +156,22 @@ replacing `--dangerously-skip-permissions`.
 
 ```
 1. lxc launch + remove cloud-init ubuntu backdoor
-2. mkdir workspace (no sudo) + shift=true device add
+2. mkdir workspace (no sudo) + chmod 750 + shift=true device add
 3. push signing key + configure git
-4. push .claude/.credentials.json (NEW)
+4. push .claude/.credentials.json (NEW; existence precondition-checked up front)
 5. push .claude.json onboarding state (NEW)
 6. npm install -g @anthropic-ai/claude-code@latest
-7. push claude-container-settings.json (extended: enabledPlugins)
-8. claude plugin marketplace add + install (now authenticated)
-9. push .claude/hooks/pre-bash.sh
-10. gh auth (PAT) + clone repo + create branch
+7. claude plugin marketplace add + install (now authenticated)
+8. push .claude/hooks/pre-bash.sh + push claude-container-settings.json (extended: enabledPlugins)
+9. gh auth (PAT) + clone repo + create branch
 ```
+
+Note: `claude-container-settings.json` is pushed *after* plugin install, not
+before — this is the pre-existing "Installing Claude security hooks" step,
+which neither the credential/onboarding work nor the plugin-declaration
+work moved. Pushing it last is actually safer: it guarantees the
+`pre-bash.sh` hook wiring and `enabledPlugins` are the final authoritative
+state even if `claude plugin install` itself rewrote `settings.json`.
 
 ## Verification checklist
 
