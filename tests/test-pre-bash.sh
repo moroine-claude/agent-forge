@@ -59,6 +59,16 @@ expect_block 'git push origin agent/test-project && git push origin main'
 expect_block 'git push origin main && git push origin agent/test-project'
 expect_block 'git push origin agent/test-project; git push origin main'
 expect_block "$(printf 'git push origin agent/foo\ngit push origin main')"
+# Les options globales de git ne doivent pas contourner la politique
+expect_block 'git -C /workspace push origin main'
+expect_block 'git -C /workspace push --force origin agent/test-project'
+expect_block 'git --git-dir=/workspace/.git push origin main'
+expect_block 'git -c user.email=x@y push origin main'
+expect_block 'git -C /workspace push origin agent/test-project'
+# Fail-closed assumé : redirection en fin de push autorisé (tr coupe sur &)
+expect_block 'git push origin agent/test-project 2>&1'
+# Pas de faux positif sur un message de commit contenant "push"
+expect_allow 'git commit -m "docs: explain push policy"'
 
 # --- gh : créer/mettre à jour des PRs oui, merger/API brute/repo non ---
 expect_allow 'gh pr create --base main --title "feat: x" --body "..."'
@@ -73,6 +83,15 @@ expect_block 'gh api /repos/foo/bar'
 expect_block 'gh repo view'
 expect_block 'gh repo delete foo/bar'
 expect_block 'cd /workspace && gh pr merge 42'
+# Le flag --repo intercalé ne doit pas contourner le blocage du merge
+expect_block 'gh pr --repo=owner/repo merge 42'
+expect_block 'gh pr --repo owner/repo merge 42'
+# Pas d'alias/extension pour renommer des commandes bloquées, pas de lecture du token
+expect_block 'gh alias set pm "pr merge"'
+expect_block 'gh extension install owner/gh-ext'
+expect_block 'gh auth token'
+# Pas de faux positif sur un titre de PR contenant "merge"
+expect_allow 'gh pr create --title "fix: merge conflict" --body "x"'
 
 # --- commandes ordinaires : toujours autorisées ---
 expect_allow 'git status'

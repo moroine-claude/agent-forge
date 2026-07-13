@@ -22,9 +22,14 @@ block() {
 # Politique git push : default-deny.
 # Seule forme autorisée : git push [-u] origin agent/<branche>
 # (éventuellement comme segment d'une chaîne && ou ;).
-# La vraie frontière est la branch protection sur main côté GitHub ;
-# ce hook est de la défense en profondeur.
-if echo "$COMMAND" | grep -qE 'git[[:space:]]+push'; then
+# Le déclencheur tolère les options globales de git (-C, -c, --git-dir…)
+# pour qu'elles ne contournent pas la politique ; la forme autorisée, elle,
+# reste stricte (fail-closed : git -C … push est toujours bloqué).
+# La vraie frontière est la branch protection sur main côté GitHub ; ce hook
+# est de la défense en profondeur — un filtre regex ne peut pas tout attraper
+# (variables, scripts intermédiaires, appels API via curl) et ne prétend pas le faire.
+GIT_PUSH_RE='git[[:space:]]+(-[^[:space:]]+([[:space:]]+[^-][^[:space:]]*)?[[:space:]]+)*push([[:space:]]|$)'
+if echo "$COMMAND" | grep -qE "$GIT_PUSH_RE"; then
   # Force push interdit (préserve l'historique de la branche agent)
   if echo "$COMMAND" | grep -qE 'git[[:space:]]+push[^;&|]*[[:space:]](-[A-Za-z]*f[A-Za-z]*|--force(-with-lease)?(=[^[:space:]]+)?)([[:space:]]|$)'; then
     block "git push --force non autorisé."
@@ -40,7 +45,7 @@ if echo "$COMMAND" | grep -qE 'git[[:space:]]+push'; then
   # sinon un push interdit pourrait se cacher derrière un push autorisé
   # (ex: git push origin agent/x && git push origin main).
   while IFS= read -r SEGMENT; do
-    if printf '%s\n' "$SEGMENT" | grep -qE 'git[[:space:]]+push'; then
+    if printf '%s\n' "$SEGMENT" | grep -qE "$GIT_PUSH_RE"; then
       if ! printf '%s\n' "$SEGMENT" | grep -qE '^[[:space:]]*git[[:space:]]+push[[:space:]]+(-u[[:space:]]+)?origin[[:space:]]+agent/[A-Za-z0-9._/-]+[[:space:]]*$'; then
         block "git push autorisé uniquement vers origin agent/*."
       fi
@@ -48,10 +53,20 @@ if echo "$COMMAND" | grep -qE 'git[[:space:]]+push'; then
   done <<< "$(printf '%s\n' "$COMMAND" | tr ';&|' '\n\n\n')"
 fi
 
-# gh : l'agent crée et met à jour des PRs, ne merge jamais,
-# ne parle jamais à l'API brute ni à l'administration de repo.
-if echo "$COMMAND" | grep -qE '(^|[[:space:];&|])gh[[:space:]]+pr[[:space:]]+merge'; then
+# gh : l'agent crée et met à jour des PRs, ne merge jamais, ne parle jamais
+# à l'API brute, ne touche ni aux repos, ni aux alias, ni aux extensions,
+# et ne lit jamais le token.
+if echo "$COMMAND" | grep -qE '(^|[[:space:];&|])gh[[:space:]]+pr[[:space:]]+(-[^[:space:]]+([[:space:]]+[^-][^[:space:]]*)?[[:space:]]+)*merge([[:space:]]|$)'; then
   block "gh pr merge non autorisé. La PR est revue et mergée par un humain."
+fi
+if echo "$COMMAND" | grep -qE '(^|[[:space:];&|])gh[[:space:]]+alias([[:space:]]|$)'; then
+  block "gh alias non autorisé."
+fi
+if echo "$COMMAND" | grep -qE '(^|[[:space:];&|])gh[[:space:]]+ext(ension)?s?([[:space:]]|$)'; then
+  block "gh extension non autorisé."
+fi
+if echo "$COMMAND" | grep -qE '(^|[[:space:];&|])gh[[:space:]]+auth[[:space:]]+token([[:space:]]|$)'; then
+  block "gh auth token non autorisé."
 fi
 if echo "$COMMAND" | grep -qE '(^|[[:space:];&|])gh[[:space:]]+api([[:space:]]|$)'; then
   block "gh api non autorisé."
