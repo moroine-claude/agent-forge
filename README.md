@@ -207,8 +207,8 @@ The agent works on `agent/<project-name>`, pushes with
 `git push -u origin agent/<project-name>` and opens a PR with
 `gh pr create --base main`, all authenticated as the bot. The `pre-bash.sh`
 hook only allows pushes to `origin agent/*` (no force, no delete) and blocks
-`gh pr merge`, `gh api` and `gh repo`. You review, approve and merge the PR
-as yourself.
+`gh pr merge`, `gh api`, `gh repo`, `gh alias`, `gh extension` and
+`gh auth token`. You review, approve and merge the PR as yourself.
 
 ### Token renewal
 
@@ -217,8 +217,10 @@ web UI (same repo, same permissions), then re-authenticate the affected
 container:
 
 ```bash
-printf '%s' '<new-token>' | lxc exec agent-<project-name> -- su - aiuser -c "gh auth login --hostname github.com --with-token"
+read -r -s TOKEN && printf '%s' "$TOKEN" | lxc exec agent-<project-name> -- su - aiuser -c "gh auth login --hostname github.com --with-token"; unset TOKEN
 ```
+
+(`read -r -s` keeps the token out of your shell history and off the terminal.)
 
 ### Start a Claude Code session
 
