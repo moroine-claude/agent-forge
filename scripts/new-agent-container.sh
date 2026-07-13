@@ -12,15 +12,26 @@ CONTAINER="agent-$PROJECT"
 echo "Creating container $CONTAINER..."
 lxc launch agent-base "$CONTAINER" --profile agent
 
+# Supprime le compte ubuntu laissé par cloud-init qui peut avoir NOPASSWD:ALL sudo
+echo "Removing cloud-init ubuntu backdoor..."
+lxc exec "$CONTAINER" -- deluser --remove-home ubuntu 2>/dev/null || true
+lxc exec "$CONTAINER" -- rm -f /etc/sudoers.d/90-cloud-init-users
+
 echo "Mounting workspace..."
 if [ ! -d "/home/moroine/workspaces/$PROJECT" ]; then
-  mkdir -p /home/moroine/workspaces/$PROJECT
+  sudo mkdir -p /home/moroine/workspaces/$PROJECT
   sudo chown 1001001:1001001 /home/moroine/workspaces/$PROJECT
-  chmod 750 /home/moroine/workspaces/$PROJECT
+  sudo chmod 750 /home/moroine/workspaces/$PROJECT
 fi
 lxc config device add "$CONTAINER" workspace disk \
   source=/home/moroine/workspaces/$PROJECT \
   path=/workspace
+
+echo "Copying Claude credentials..."
+lxc exec "$CONTAINER" -- mkdir -p /home/aiuser/.claude
+lxc file push /home/moroine/.claude/.credentials.json \
+  "$CONTAINER"/home/aiuser/.claude/.credentials.json \
+  --uid 1001 --gid 1001 --mode 600
 
 echo "Copying GitHub SSH keys..."
 lxc file push /home/moroine/.ssh/github_agents "$CONTAINER"/home/aiuser/.ssh/id_ed25519 --uid 1001 --gid 1001 --mode 600
@@ -42,21 +53,38 @@ git config --global user.signingkey /home/aiuser/.ssh/id_ed25519_signing
 git config --global commit.gpgsign true
 "
 
+echo "Updating Claude Code to latest..."
+lxc exec "$CONTAINER" -- npm install -g @anthropic-ai/claude-code@latest
+
+echo "Installing Claude plugins..."
+lxc exec "$CONTAINER" -- su - aiuser -c "claude plugin install superpowers@claude-plugins-official"
+
 echo "Installing Claude security hooks..."
-lxc exec "$CONTAINER" -- su - aiuser -c "mkdir -p /home/aiuser/.claude/hooks"
+lxc exec "$CONTAINER" -- mkdir -p /home/aiuser/.claude/hooks
+# Hooks possédés par root (uid 0) : aiuser peut les lire/exécuter mais pas les écraser
 lxc file push /home/moroine/agent-forge/.claude/hooks/pre-bash.sh \
   "$CONTAINER"/home/aiuser/.claude/hooks/pre-bash.sh \
-  --uid 1001 --gid 1001 --mode 755
+  --uid 0 --gid 0 --mode 755
 lxc file push /home/moroine/agent-forge/config/claude-container-settings.json \
   "$CONTAINER"/home/aiuser/.claude/settings.json \
-  --uid 1001 --gid 1001 --mode 644
+  --uid 0 --gid 0 --mode 644
 
 echo "Detecting repo from Deploy Key..."
 REPO=$(lxc exec "$CONTAINER" -- su - aiuser -c "ssh -T git@github.com 2>&1" | grep -oP "Hi \K[^!]+")
+if [ -z "$REPO" ]; then
+  echo "ERROR: Could not detect GitHub repo from deploy key. Check that the key is added to the repo." >&2
+  lxc delete "$CONTAINER" --force
+  exit 1
+fi
 echo "Repo: $REPO"
 
 echo "Cloning and creating branch..."
-lxc exec "$CONTAINER" -- su - aiuser -c "git clone git@github.com:$REPO.git /workspace && cd /workspace && git checkout -b agent/$PROJECT"
+if lxc exec "$CONTAINER" -- su - aiuser -c "[ -d /workspace/.git ]"; then
+  echo "Workspace already cloned, reusing existing repo..."
+  lxc exec "$CONTAINER" -- su - aiuser -c "cd /workspace && git checkout agent/$PROJECT 2>/dev/null || git checkout -b agent/$PROJECT"
+else
+  lxc exec "$CONTAINER" -- su - aiuser -c "git clone git@github.com:$REPO.git /workspace && cd /workspace && git checkout -b agent/$PROJECT"
+fi
 
 echo "Container $CONTAINER ready."
 lxc list "$CONTAINER"

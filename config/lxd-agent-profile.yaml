@@ -4,6 +4,24 @@ config:
   environment.HOME: /home/aiuser
   limits.cpu: "2"
   limits.memory: 4GB
+  # Isolation : container non privilégié, pas de containers imbriqués
+  security.privileged: "false"
+  security.nesting: "false"
+  # Active la liste de blocage seccomp de LXD pour les syscalls dangereux
+  # (mount, pivot_root, clone CLONE_NEWUSER, keyctl abuse, etc.)
+  security.syscalls.deny_default: "true"
+  # Supprime les capabilities Linux non nécessaires à un agent de développement.
+  # Conservées : CHOWN, DAC_OVERRIDE, SETUID, SETGID, FOWNER, FSETID, NET_BIND_SERVICE
+  # (nécessaires pour init, gestion de fichiers, bind de ports)
+  raw.lxc: |
+    lxc.cap.drop = sys_module sys_rawio sys_boot sys_admin sys_ptrace sys_pacct
+    lxc.cap.drop = net_raw net_admin net_broadcast
+    lxc.cap.drop = mac_override mac_admin
+    lxc.cap.drop = bpf perfmon
+    lxc.cap.drop = audit_control audit_read
+    lxc.cap.drop = wake_alarm block_suspend
+    lxc.cap.drop = linux_immutable lease ipc_lock ipc_owner
+    lxc.cap.drop = syslog
 devices:
   eth0:
     name: eth0
@@ -14,7 +32,4 @@ devices:
     pool: default
     size: 20GB
     type: disk
-used_by:
-- /1.0/instances/test-agent
-- /1.0/instances/agent-test-project
 project: default
