@@ -68,7 +68,7 @@ if [ ! -f "/home/moroine/.claude/.credentials.json" ]; then
   echo "Error: /home/moroine/.claude/.credentials.json not found. Run 'claude auth login' on the host first."
   exit 1
 fi
-lxc exec "$CONTAINER" -- mkdir -p /home/aiuser/.claude
+lxc exec "$CONTAINER" -- su - aiuser -c "mkdir -p /home/aiuser/.claude"
 lxc file push /home/moroine/.claude/.credentials.json "$CONTAINER"/home/aiuser/.claude/.credentials.json --uid 1001 --gid 1001 --mode 600
 
 echo "Pre-accepting Claude Code onboarding..."
