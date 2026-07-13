@@ -223,8 +223,10 @@ git config --global commit.gpgsign true
 
 This will:
 - Create an LXD container from `agent-base`
-- Mount `/workspace` with correct permissions
+- Mount `/workspace` with correct permissions (no `sudo` required — LXD idmap shifting handles the UID mapping, scoped to that one mount)
 - Copy the signing key and configure git (signed commits)
+- Reuse your Claude Code credentials from the host (`~/.claude/.credentials.json`), so the container starts already authenticated — no Remote Control pairing needed
+- Pre-accept onboarding and install the `superpowers` plugin, so the first `claude` launch skips the setup questions
 - Prompt for the bot's fine-grained PAT (see setup §6) and authenticate `gh` inside the container — the token is never written to host disk
 - Clone `https://github.com/<owner/repo>.git` and create branch `agent/<project-name>`
 
@@ -255,7 +257,7 @@ read -r -s TOKEN && printf '%s' "$TOKEN" | lxc exec agent-<project-name> -- su -
 ./scripts/start-agent.sh <project-name>
 ```
 
-This starts Claude with Remote Control enabled, named after the project. A session URL and QR code are displayed at startup.
+This starts Claude in `auto` permission mode with Remote Control enabled, named after the project — autonomous by default, but the auto-mode classifier pauses for confirmation on sensitive actions (credential handling, irreversible deletion, pushes to protected branches, etc.). A session URL and QR code are displayed at startup.
 
 ### Remote access
 
@@ -266,7 +268,7 @@ Once the session is running, connect from any device:
 
 The session stays accessible as long as the container is running and the `claude` process is alive in tmux. If the Remote Control connection times out (network outage >10 min), re-run `start-agent.sh` to start a fresh session — or type `/remote-control` inside an existing session to re-enable it.
 
-**Requirements**: the host must be authenticated with a claude.ai account (`claude auth login`). API key auth does not support Remote Control.
+**Requirements**: the host must be authenticated with a claude.ai account (`claude auth login`). API key auth does not support Remote Control. New containers reuse this credential automatically at creation time (see Usage above); if you re-authenticate on the host afterward, existing containers keep their own copy until recreated.
 
 ### tmux cheatsheet
 
