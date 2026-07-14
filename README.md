@@ -251,7 +251,7 @@ web UI (same repo, same permissions), then re-authenticate the affected
 container:
 
 ```bash
-read -r -s TOKEN && printf '%s' "$TOKEN" | lxc exec agent-<project-name> -- su - aiuser -c "gh auth login --hostname github.com --with-token"; unset TOKEN
+read -r -s TOKEN && printf '%s' "$TOKEN" | lxc exec agent-<owner>-<repo> -- su - aiuser -c "gh auth login --hostname github.com --with-token"; unset TOKEN
 ```
 
 (`read -r -s` keeps the token out of your shell history and off the terminal.)
@@ -260,7 +260,7 @@ read -r -s TOKEN && printf '%s' "$TOKEN" | lxc exec agent-<project-name> -- su -
 
 Once the session is running, connect from any device:
 
-- **Browser**: open the session URL printed at startup, or go to [claude.ai/code](https://claude.ai/code) and find the session by project name
+- **Browser**: open the session URL printed at startup, or go to [claude.ai/code](https://claude.ai/code) and find the session by repo name
 - **Mobile app**: tap **Code** in the Claude app navigation
 
 The session stays accessible as long as the container is running and the `claude` process is alive in tmux. If the Remote Control connection times out (network outage >10 min), re-run `forge start <owner/repo>` to start a fresh session — or type `/remote-control` inside an existing session to re-enable it.

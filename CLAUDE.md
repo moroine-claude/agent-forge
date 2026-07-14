@@ -36,7 +36,7 @@ Tu travailles sur `agent-forge`, un repo d'infrastructure pour déployer des age
 - Toute nouvelle règle UFW doit être justifiée en commentaire
 
 ## Ce que tu peux faire
-- Modifier les scripts `new-agent-container.sh` et `start-agent.sh`
+- Modifier `scripts/forge` et `scripts/lib/forge-*.sh`
 - Mettre à jour le template `CLAUDE.md`
 - Mettre à jour `README.md`
 - Mettre à jour les config files
