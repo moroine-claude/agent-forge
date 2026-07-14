@@ -10,12 +10,22 @@ config:
   # Active la liste de blocage seccomp de LXD pour les syscalls dangereux
   # (mount, pivot_root, clone CLONE_NEWUSER, keyctl abuse, etc.)
   security.syscalls.deny_default: "true"
+  # Mappe moroine (UID/GID 1000 hôte) → aiuser (UID/GID 1001 container).
+  # Les fichiers du workspace restent possédés par moroine sur l'hôte et
+  # apparaissent comme aiuser dans le container. Pas besoin de shift ou de chown.
+  raw.idmap: |
+    uid 1000 1001
+    gid 1000 1001
   # Supprime les capabilities Linux non nécessaires à un agent de développement.
-  # Conservées : CHOWN, DAC_OVERRIDE, SETUID, SETGID, FOWNER, FSETID, NET_BIND_SERVICE
-  # (nécessaires pour init, gestion de fichiers, bind de ports)
+  # Conservées : CHOWN, DAC_OVERRIDE, SETUID, SETGID, FOWNER, FSETID, NET_BIND_SERVICE,
+  #              NET_ADMIN (systemd-resolved stub 127.0.0.53),
+  #              NET_RAW (systemd-networkd DHCP client et LLDP utilisent AF_PACKET)
+  # NET_RAW dans un container non privilégié = raw sockets scopés au network namespace du
+  # container uniquement. Le container ne voit que son propre trafic. Les règles UFW hôte
+  # empêchent déjà tout pivot vers le LAN.
   raw.lxc: |
-    lxc.cap.drop = sys_module sys_rawio sys_boot sys_admin sys_ptrace sys_pacct
-    lxc.cap.drop = net_raw net_admin net_broadcast
+    lxc.cap.drop = sys_module sys_rawio sys_boot sys_ptrace sys_pacct
+    lxc.cap.drop = net_broadcast
     lxc.cap.drop = mac_override mac_admin
     lxc.cap.drop = bpf perfmon
     lxc.cap.drop = audit_control audit_read

@@ -59,13 +59,12 @@ _forge_provision_container() {
   echo "Mounting workspace..."
   local workspace_dir="/home/moroine/workspaces/$container"
   mkdir -p "$workspace_dir"
-  chmod 750 "$workspace_dir"
-  # shift=true : idmap shifting LXD — le dossier reste possédé par l'utilisateur
-  # hôte courant, pas besoin de chown vers l'UID mappé du container.
+  # raw.idmap dans le profil mappe moroine (1000) → aiuser (1001) et gère aussi root :
+  # les fichiers créés par root (UID 0 container) sont stockés UID 1000000 sur l'hôte,
+  # re-mappés vers UID 0 à la lecture. Pas besoin d'idmap shifting sur ce device.
   lxc config device add "$container" workspace disk \
     source="$workspace_dir" \
-    path=/workspace \
-    shift=true
+    path=/workspace
 
   echo "Copying signing key..."
   lxc file push /home/moroine/.ssh/github_agents_signing "$container"/home/aiuser/.ssh/id_ed25519_signing --uid 1001 --gid 1001 --mode 600
