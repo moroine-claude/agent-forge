@@ -7,6 +7,7 @@ set -e
 FORGE_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/lib" && pwd)"
 source "$FORGE_LIB_DIR/forge-common.sh"
 source "$FORGE_LIB_DIR/forge-start.sh"
+source "$FORGE_LIB_DIR/forge-stop.sh"
 
 usage() {
   cat <<'EOF'
@@ -14,6 +15,7 @@ Usage: forge <command> [args]
 
 Commands:
   start <owner/repo> [task-name]   Provision (if needed) and start/attach a session
+  stop <owner/repo>                Stop a container (workspace/auth/tmux state persists)
 EOF
 }
 
@@ -21,6 +23,10 @@ case "${1:-}" in
   start)
     shift
     cmd_forge_start "$@"
+    ;;
+  stop)
+    shift
+    cmd_forge_stop "$@"
     ;;
   ""|-h|--help)
     usage
