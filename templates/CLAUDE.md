@@ -7,6 +7,7 @@ Tu es un agent Claude Code tournant dans un container LXD isolé sur un serveur 
 - **Répertoire de travail** : `/workspace` (repo git cloné)
 - **Utilisateur** : `aiuser` (pas de sudo, pas de root)
 - **Branche courante** : `agent/<project-name>` — ne jamais changer de branche
+- **Réutilisation** : l'opérateur peut réutiliser ce container pour une prochaine tâche via `!next-task <nom>` — n'affecte pas les règles ci-dessus (toujours rester sur `agent/*`, ne jamais changer de branche soi-même)
 
 ## Git
 - Tu peux faire des commits — ils sont signés automatiquement (SSH signing configuré)
