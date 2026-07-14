@@ -10,6 +10,7 @@ cmd_forge_start() {
     return 1
   fi
   validate_owner_repo "$owner_repo" || return 1
+  validate_task_name "$task_name" || return 1
 
   local container
   container=$(sanitize_container_name "$owner_repo")

@@ -20,6 +20,17 @@ validate_owner_repo() {
   fi
 }
 
+# Validates a task-name argument: it's interpolated into a git checkout -b
+# string run inside the container via su -c, so must be restricted to
+# characters with no shell-metacharacter risk.
+validate_task_name() {
+  local task_name="$1"
+  if ! echo "$task_name" | grep -qE '^[A-Za-z0-9._-]+$'; then
+    echo "Error: task-name must only contain [A-Za-z0-9._-], got: $task_name" >&2
+    return 1
+  fi
+}
+
 # Lists all agent-* container names, one per line.
 list_forge_containers() {
   lxc list -f json | jq -r '.[] | select(.name | startswith("agent-")) | .name'
