@@ -22,7 +22,7 @@ cmd_forge_delete() {
 }
 
 _forge_check_wip_before_delete() {
-  local container="$1" dirty unpushed branch
+  local container="$1" dirty branch unpushed
 
   dirty=$(lxc exec "$container" -- su - aiuser -c "cd /workspace && git status --porcelain")
   if [ -n "$dirty" ]; then
@@ -33,7 +33,18 @@ _forge_check_wip_before_delete() {
   fi
 
   branch=$(lxc exec "$container" -- su - aiuser -c "cd /workspace && git rev-parse --abbrev-ref HEAD")
-  unpushed=$(lxc exec "$container" -- su - aiuser -c "cd /workspace && git log --oneline origin/$branch..$branch" 2>/dev/null || true)
+  if [[ ! "$branch" =~ ^agent/[A-Za-z0-9._-]+$ ]]; then
+    echo "Error: unexpected branch name '$branch' in $container; refusing to proceed." >&2
+    return 1
+  fi
+
+  if ! lxc exec "$container" -- su - aiuser -c "cd /workspace && git rev-parse --verify origin/$branch" > /dev/null 2>&1; then
+    echo "Error: $container's branch $branch has no origin/$branch — it has never been pushed." >&2
+    echo "Push it, or pass --force." >&2
+    return 1
+  fi
+
+  unpushed=$(lxc exec "$container" -- su - aiuser -c "cd /workspace && git log --oneline origin/$branch..$branch")
   if [ -n "$unpushed" ]; then
     echo "Error: $container has unpushed commits on $branch:" >&2
     echo "$unpushed" >&2
