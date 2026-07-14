@@ -11,6 +11,7 @@ source "$FORGE_LIB_DIR/forge-stop.sh"
 source "$FORGE_LIB_DIR/forge-delete.sh"
 source "$FORGE_LIB_DIR/forge-list.sh"
 source "$FORGE_LIB_DIR/forge-image.sh"
+source "$FORGE_LIB_DIR/forge-completion.sh"
 
 usage() {
   cat <<'EOF'
@@ -22,6 +23,7 @@ Commands:
   delete <owner/repo> [--force]    Delete a container (blocked on dirty/unpushed WIP unless --force)
   list                              Show all containers: repo, mode, state, session
   image build|update                Rebuild the agent-base image (only affects new containers)
+  completion bash                   Print a bash completion function (eval it in ~/.bashrc)
 EOF
 }
 
@@ -44,6 +46,13 @@ case "${1:-}" in
   image)
     shift
     cmd_forge_image "$@"
+    ;;
+  completion)
+    shift
+    case "${1:-}" in
+      bash) cmd_forge_completion_bash ;;
+      *) echo "Usage: forge completion bash" >&2; exit 1 ;;
+    esac
     ;;
   ""|-h|--help)
     usage
