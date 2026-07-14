@@ -131,6 +131,33 @@ fi
 
 unset -f lxc
 
+# --- regression: a same-named container with no user.forge.repo metadata
+# (legacy pre-cutover container, or one left behind by a failed provisioning
+# run) must block reuse instead of being silently treated as safe ---
+lxc() {
+  case "$*" in
+    "info agent-legacy-container")
+      return 0
+      ;;
+    "config get agent-legacy-container user.forge.repo")
+      echo ""
+      ;;
+    *)
+      echo "unexpected lxc call: $*" >&2
+      return 1
+      ;;
+  esac
+}
+
+if check_container_name_collision 'agent-legacy-container' 'moroine/agent-forge' 2>/dev/null; then
+  FAIL=$((FAIL + 1))
+  echo "FAIL: check_container_name_collision should refuse a container with no forge metadata"
+else
+  PASS=$((PASS + 1))
+fi
+
+unset -f lxc
+
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

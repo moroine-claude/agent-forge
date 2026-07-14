@@ -14,6 +14,10 @@ if [ -z "$1" ]; then
 fi
 
 SHORT_NAME="$1"
+if [[ ! "$SHORT_NAME" =~ ^[A-Za-z0-9._-]+$ ]]; then
+  echo "Error: short-name must only contain [A-Za-z0-9._-], got: $SHORT_NAME"
+  exit 1
+fi
 cd /workspace
 
 DIRTY=$(git status --porcelain)
@@ -25,6 +29,12 @@ if [ -n "$DIRTY" ]; then
 fi
 
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+if [[ ! "$CURRENT_BRANCH" =~ ^agent/ ]]; then
+  echo "Error: current branch is $CURRENT_BRANCH, not an agent/* branch."
+  echo "next-task is meant to be run from inside a forge-provisioned container."
+  exit 1
+fi
 
 if ! git rev-parse --verify "origin/$CURRENT_BRANCH" > /dev/null 2>&1; then
   echo "Error: branch $CURRENT_BRANCH has no origin/$CURRENT_BRANCH — it has never been pushed."

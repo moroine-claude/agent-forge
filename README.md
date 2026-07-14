@@ -298,9 +298,15 @@ recreating affected containers.
 
 ### Bash completion
 
+Completion is registered for the bare command name `forge`, not a path — if
+you invoke the CLI as `./scripts/forge` (this README's convention),
+tab-completion won't trigger unless `forge` also resolves on your `PATH`.
+Add an alias alongside the `eval` line so both work the same way:
+
 ```bash
-eval "$(./scripts/forge completion bash)"
+alias forge=/home/moroine/agent-forge/scripts/forge
+eval "$(forge completion bash)"
 ```
 
-Add that line to `~/.bashrc` to get `<owner/repo>` tab-completion on `forge
-start`/`stop`/`delete`, sourced dynamically from `forge list`.
+Add those two lines to `~/.bashrc` to get `<owner/repo>` tab-completion on
+`forge start`/`stop`/`delete`, sourced dynamically from `forge list`.

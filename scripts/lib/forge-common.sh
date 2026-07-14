@@ -63,14 +63,21 @@ container_for_repo() {
 }
 
 # Fails loudly if a container already exists under the derived name but for
-# a *different* repo (naming collision), instead of silently reusing it.
+# a *different* repo (naming collision), or with no forge metadata at all
+# (a legacy pre-cutover container, or one left behind by a provisioning run
+# that failed before user.forge.repo was recorded) — instead of silently
+# reusing it either way.
 check_container_name_collision() {
   local container="$1" owner_repo="$2" existing existing_lc owner_repo_lc
   if lxc info "$container" > /dev/null 2>&1; then
     existing=$(forge_container_repo "$container")
+    if [ -z "$existing" ]; then
+      echo "Error: container $container already exists but has no user.forge.repo metadata (a legacy or partially-provisioned container). Refusing to reuse it — delete it first, or set the metadata manually: lxc config set $container user.forge.repo $owner_repo" >&2
+      return 1
+    fi
     existing_lc=$(echo "$existing" | tr '[:upper:]' '[:lower:]')
     owner_repo_lc=$(echo "$owner_repo" | tr '[:upper:]' '[:lower:]')
-    if [ -n "$existing" ] && [ "$existing_lc" != "$owner_repo_lc" ]; then
+    if [ "$existing_lc" != "$owner_repo_lc" ]; then
       echo "Error: container $container already exists for a different repo ($existing), refusing to reuse it for $owner_repo." >&2
       return 1
     fi
