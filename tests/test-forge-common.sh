@@ -63,6 +63,45 @@ assert_contains 'container_for_repo'
 assert_contains 'check_container_name_collision'
 assert_contains 'require_container_for_repo'
 
+# --- case-insensitive repo matching (regression: same repo, different case
+# must not be treated as a naming collision or as "not found") ---
+# lxc isn't installed here, so mock just enough surface to exercise the real
+# functions instead of grepping for the fix.
+_MOCK_CONTAINERS='[{"name":"agent-moroine-agent-forge"}]'
+lxc() {
+  case "$*" in
+    "list -f json")
+      echo "$_MOCK_CONTAINERS"
+      ;;
+    "config get agent-moroine-agent-forge user.forge.repo")
+      echo "moroine/agent-forge"
+      ;;
+    "info agent-moroine-agent-forge")
+      return 0
+      ;;
+    *)
+      echo "unexpected lxc call: $*" >&2
+      return 1
+      ;;
+  esac
+}
+
+if container_for_repo 'Moroine/Agent-Forge' > /dev/null 2>&1; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo "FAIL: container_for_repo should match case-insensitively"
+fi
+
+if check_container_name_collision 'agent-moroine-agent-forge' 'Moroine/Agent-Forge' 2>/dev/null; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo "FAIL: check_container_name_collision should not flag same repo, different case, as a collision"
+fi
+
+unset -f lxc
+
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

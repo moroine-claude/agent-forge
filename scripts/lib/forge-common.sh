@@ -38,10 +38,12 @@ forge_container_mode() {
 # Echoes the container name already provisioned for a given owner/repo;
 # empty output and non-zero exit if none exists yet.
 container_for_repo() {
-  local owner_repo="$1" name existing
+  local owner_repo="$1" name existing owner_repo_lc existing_lc
+  owner_repo_lc=$(echo "$owner_repo" | tr '[:upper:]' '[:lower:]')
   for name in $(list_forge_containers); do
     existing=$(forge_container_repo "$name")
-    if [ "$existing" = "$owner_repo" ]; then
+    existing_lc=$(echo "$existing" | tr '[:upper:]' '[:lower:]')
+    if [ "$existing_lc" = "$owner_repo_lc" ]; then
       echo "$name"
       return 0
     fi
@@ -52,10 +54,12 @@ container_for_repo() {
 # Fails loudly if a container already exists under the derived name but for
 # a *different* repo (naming collision), instead of silently reusing it.
 check_container_name_collision() {
-  local container="$1" owner_repo="$2" existing
+  local container="$1" owner_repo="$2" existing existing_lc owner_repo_lc
   if lxc info "$container" > /dev/null 2>&1; then
     existing=$(forge_container_repo "$container")
-    if [ -n "$existing" ] && [ "$existing" != "$owner_repo" ]; then
+    existing_lc=$(echo "$existing" | tr '[:upper:]' '[:lower:]')
+    owner_repo_lc=$(echo "$owner_repo" | tr '[:upper:]' '[:lower:]')
+    if [ -n "$existing" ] && [ "$existing_lc" != "$owner_repo_lc" ]; then
       echo "Error: container $container already exists for a different repo ($existing), refusing to reuse it for $owner_repo." >&2
       return 1
     fi
