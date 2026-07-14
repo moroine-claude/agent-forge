@@ -101,9 +101,18 @@ expect_allow 'git status'
 expect_allow 'git commit -m "feat: x"'
 expect_allow 'ls -la /workspace'
 
+# --- git merge : seule forme autorisée = "git merge [--no-edit] origin/main" ---
+expect_allow 'git merge origin/main'
+expect_allow 'git merge --no-edit origin/main'
+expect_block 'git merge main'
+expect_block 'git merge feature-x'
+expect_block 'git merge origin/agent-forge'
+expect_block 'git merge -X theirs origin/main'
+expect_block 'git merge origin/main && git push origin main'
+expect_block 'git merge origin/main; git checkout main'
+
 # --- régression : blocages existants toujours actifs ---
 expect_block 'git checkout main'
-expect_block 'git merge feature-x'
 expect_block 'git rebase main'
 expect_block 'sudo apt install foo'
 expect_block 'rm -rf /workspace'

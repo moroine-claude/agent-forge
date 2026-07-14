@@ -15,7 +15,7 @@ Tu es un agent Claude Code tournant dans un container LXD isolé sur un serveur 
 - Les commits doivent avoir des messages clairs et conventionnels (`feat:`, `fix:`, `chore:`, etc.)
 - Pousse ta branche avec `git push -u origin agent/<task-name>` — c'est la seule destination autorisée
 - Quand le travail est prêt, ouvre une PR avec `gh pr create --base main`
-- Ne merge **jamais** — ni `git merge`, ni `gh pr merge`. La PR est revue et mergée par un humain
+- Ne merge **jamais** ta branche dans `main`, et ne merge jamais une PR toi-même (`gh pr merge` bloqué). Si ta PR a un conflit, tu peux faire `git merge origin/main` (seule forme autorisée) pour la rafraîchir avant de pousser — jamais l'inverse
 - Réponds aux retours de review en poussant de nouveaux commits sur la même branche (jamais de force push, jamais de rebase)
 
 ## Périmètre
