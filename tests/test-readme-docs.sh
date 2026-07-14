@@ -1,5 +1,5 @@
 #!/bin/bash
-# Vérifie que README.md documente le nouveau comportement de provisioning.
+# Vérifie que README.md documente le forge CLI (post-cutover).
 # Lancer : bash tests/test-readme-docs.sh
 set -e
 
@@ -16,10 +16,28 @@ assert_contains() {
   fi
 }
 
+assert_not_contains() {
+  if grep -qF -- "$1" "$FILE"; then
+    FAIL=$((FAIL + 1))
+    echo "FAIL (attendu absent): $1"
+  else
+    PASS=$((PASS + 1))
+  fi
+}
+
+assert_contains 'forge start'
+assert_contains 'forge stop'
+assert_contains 'forge delete'
+assert_contains 'forge list'
+assert_contains 'forge image build'
+assert_contains 'forge completion bash'
+assert_contains 'next-task'
 assert_contains 'idmap'
 assert_contains 'Claude Code credentials'
 assert_contains 'onboarding'
 assert_contains 'permission mode'
+assert_not_contains 'new-agent-container.sh'
+assert_not_contains 'start-agent.sh'
 
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"

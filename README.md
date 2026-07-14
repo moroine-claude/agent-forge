@@ -107,25 +107,18 @@ newgrp lxd
 Build the base image:
 
 ```bash
-lxc launch ubuntu:24.04 agent-base-setup
-
-lxc exec agent-base-setup -- apt update
-lxc exec agent-base-setup -- apt install -y git tmux curl wget unzip zip python3 python3-pip
-lxc exec agent-base-setup -- bash -c "curl -fsSL https://deb.nodesource.com/setup_lts.x | bash -"
-lxc exec agent-base-setup -- apt install -y nodejs
-lxc exec agent-base-setup -- npm install -g pnpm
-lxc exec agent-base-setup -- npm install -g @anthropic-ai/claude-code
-lxc exec agent-base-setup -- bash -c 'mkdir -p -m 755 /etc/apt/keyrings && wget -qO /etc/apt/keyrings/githubcli-archive-keyring.gpg https://cli.github.com/packages/githubcli-archive-keyring.gpg && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg'
-lxc exec agent-base-setup -- bash -c 'echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list'
-lxc exec agent-base-setup -- bash -c 'apt update && apt install -y gh'
-lxc exec agent-base-setup -- bash -c "wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/chrome.deb && apt install -y --fix-missing /tmp/chrome.deb"
-lxc exec agent-base-setup -- useradd -m -s /bin/bash aiuser
-lxc exec agent-base-setup -- bash -c "mkdir -p /workspace /home/aiuser/.ssh /home/aiuser/.claude && chown aiuser:aiuser /workspace /home/aiuser/.ssh /home/aiuser/.claude && chmod 750 /workspace && chmod 700 /home/aiuser/.ssh"
-
-lxc stop agent-base-setup
-lxc publish agent-base-setup --alias agent-base
-lxc delete agent-base-setup
+./scripts/forge image build
 ```
+
+(Aliased as `forge image update` — same command, use whichever name you find
+more intuitive for a rebuild.) This scripts the same steps every time:
+launches a scratch `agent-base-setup` container, installs Node LTS, `pnpm`,
+Claude Code, `gh`, Chrome, and the `next-task` helper, creates `aiuser`, sets
+up `/workspace`/`.ssh`/`.claude` ownership, then publishes the `agent-base`
+alias and cleans up the scratch container. Only affects containers created
+*after* the rebuild — already-running containers keep their existing image
+until you delete and `forge start` them again. Safely re-runnable: a leftover
+`agent-base-setup` from a previous failed build is deleted first.
 
 > **Note:** if you built `agent-base` before `gh` was part of the build, rebuild it — autonomous containers need the GitHub CLI.
 
@@ -215,20 +208,32 @@ git config --global commit.gpgsign true
 
 ## Usage
 
-### Create a new agent container
+### Start a container (creates it on first use)
 
 ```bash
-./scripts/new-agent-container.sh <project-name> <owner/repo>
+./scripts/forge start <owner/repo> [task-name]
 ```
 
-This will:
-- Create an LXD container from `agent-base`
-- Mount `/workspace` with correct permissions (no `sudo` required — LXD idmap shifting handles the UID mapping, scoped to that one mount)
-- Copy the signing key and configure git (signed commits)
-- Reuse your Claude Code credentials from the host (`~/.claude/.credentials.json`), so the container starts already authenticated — no Remote Control pairing needed
-- Pre-accept onboarding and install the `superpowers` plugin, so the first `claude` launch skips the setup questions
-- Prompt for the bot's fine-grained PAT (see setup §6) and authenticate `gh` inside the container — the token is never written to host disk
-- Clone `https://github.com/<owner/repo>.git` and create branch `agent/<project-name>`
+Container identity is derived from `owner/repo` — no project name to choose
+or remember. If no container exists yet for that repo, `forge start`
+provisions one first:
+- Creates an LXD container from `agent-base`
+- Mounts `/workspace` with correct permissions (no `sudo` required — LXD idmap shifting handles the UID mapping, scoped to that one mount)
+- Copies the signing key and configures git (signed commits)
+- Reuses your Claude Code credentials from the host (`~/.claude/.credentials.json`), so the container starts already authenticated — no Remote Control pairing needed
+- Pre-accepts onboarding and installs the `superpowers` plugin, so the first `claude` launch skips the setup questions
+- Prompts for the bot's fine-grained PAT (see setup §6) and authenticates `gh` inside the container — the token is never written to host disk
+- Clones `https://github.com/<owner/repo>.git` and creates branch `agent/<task-name>` (`task-name` defaults to `main`, i.e. `agent/main`, if omitted)
+- Records `owner/repo` and mode on the container itself (LXD config keys) — there's no separate registry file; `forge list` and future `forge start` calls discover containers this way
+
+Either way (freshly provisioned or already existing), `forge start` then
+starts the container if it's stopped and attaches a `claude` session in
+`auto` permission mode inside tmux — autonomous by default, but the
+auto-mode classifier pauses for confirmation on sensitive actions (credential
+handling, irreversible deletion, pushes to protected branches, etc.). A
+session URL and QR code are displayed at startup. Running it again on a
+repo that already has a container just starts/attaches — no re-provisioning,
+no re-pasting the PAT.
 
 ### Autonomous PR flow
 
@@ -251,14 +256,6 @@ read -r -s TOKEN && printf '%s' "$TOKEN" | lxc exec agent-<project-name> -- su -
 
 (`read -r -s` keeps the token out of your shell history and off the terminal.)
 
-### Start a Claude Code session
-
-```bash
-./scripts/start-agent.sh <project-name>
-```
-
-This starts Claude in `auto` permission mode with Remote Control enabled, named after the project — autonomous by default, but the auto-mode classifier pauses for confirmation on sensitive actions (credential handling, irreversible deletion, pushes to protected branches, etc.). A session URL and QR code are displayed at startup.
-
 ### Remote access
 
 Once the session is running, connect from any device:
@@ -266,21 +263,44 @@ Once the session is running, connect from any device:
 - **Browser**: open the session URL printed at startup, or go to [claude.ai/code](https://claude.ai/code) and find the session by project name
 - **Mobile app**: tap **Code** in the Claude app navigation
 
-The session stays accessible as long as the container is running and the `claude` process is alive in tmux. If the Remote Control connection times out (network outage >10 min), re-run `start-agent.sh` to start a fresh session — or type `/remote-control` inside an existing session to re-enable it.
+The session stays accessible as long as the container is running and the `claude` process is alive in tmux. If the Remote Control connection times out (network outage >10 min), re-run `forge start <owner/repo>` to start a fresh session — or type `/remote-control` inside an existing session to re-enable it.
 
-**Requirements**: the host must be authenticated with a claude.ai account (`claude auth login`). API key auth does not support Remote Control. New containers reuse this credential automatically at creation time (see Usage above); if you re-authenticate on the host afterward, existing containers keep their own copy until recreated.
+**Requirements**: the host must be authenticated with a claude.ai account (`claude auth login`). API key auth does not support Remote Control. New containers reuse this credential automatically at provisioning time (see "Start a container" above); if you re-authenticate on the host afterward, existing containers keep their own copy until recreated.
 
 ### tmux cheatsheet
 
 | Action | Command |
 |--------|---------|
 | Detach | `Ctrl+b d` |
-| Reattach | `./scripts/start-agent.sh <project-name>` |
-| List sessions | `lxc exec agent-<project> -- su - aiuser -c "tmux ls"` |
-| Kill session | `lxc exec agent-<project> -- su - aiuser -c "tmux kill-session -t claude"` |
+| Reattach | `./scripts/forge start <owner/repo>` |
+| List sessions | `./scripts/forge list` |
+| Kill session | `lxc exec agent-<owner>-<repo> -- su - aiuser -c "tmux kill-session -t claude"` |
 
-### Delete a container
+### Stop / list / delete containers
 
 ```bash
-lxc delete agent-<project-name> --force
+./scripts/forge stop <owner/repo>              # stops the container; workspace/auth/tmux state persists
+./scripts/forge list                           # repo, mode, LXD state, and session-alive status for every container
+./scripts/forge delete <owner/repo> [--force]  # refuses on dirty/unpushed WIP unless --force
 ```
+
+### Reusing a container for a new task
+
+Once a task is done, committed, and pushed, reuse the same container instead
+of recreating it: inside the live session, run `!next-task <short-name>`
+(the `!` prefix runs it as a plain shell command, not an agent action). It
+refuses if `/workspace` has uncommitted or unpushed changes; otherwise it
+fetches `origin`, checks out a fresh `agent/<short-name>` branch from
+`origin/main`, and prints the new branch name so you can tell the agent to
+start fresh. `next-task` is baked into the `agent-base` image (see `forge
+image build` above) — changes to it require an image rebuild plus
+recreating affected containers.
+
+### Bash completion
+
+```bash
+eval "$(./scripts/forge completion bash)"
+```
+
+Add that line to `~/.bashrc` to get `<owner/repo>` tab-completion on `forge
+start`/`stop`/`delete`, sourced dynamically from `forge list`.
