@@ -46,14 +46,12 @@ lxc exec "$CONTAINER" -- rm -f /etc/sudoers.d/90-cloud-init-users
 
 echo "Mounting workspace..."
 mkdir -p "/home/moroine/workspaces/$PROJECT"
-chmod 750 "/home/moroine/workspaces/$PROJECT"
-# shift=true : idmap shifting LXD — le dossier reste possédé par l'utilisateur
-# hôte courant, pas besoin de chown vers l'UID mappé du container.
-# Scopé à ce seul point de montage, n'ouvre aucun accès host plus large.
+# raw.idmap dans le profil mappe moroine (1000) → aiuser (1001) et gère aussi root :
+# les fichiers créés par root (UID 0 container) sont stockés UID 1000000 sur l'hôte,
+# re-mappés vers UID 0 à la lecture. Pas besoin de shift=true.
 lxc config device add "$CONTAINER" workspace disk \
   source="/home/moroine/workspaces/$PROJECT" \
-  path=/workspace \
-  shift=true
+  path=/workspace
 
 echo "Copying signing key..."
 lxc file push /home/moroine/.ssh/github_agents_signing "$CONTAINER"/home/aiuser/.ssh/id_ed25519_signing --uid 1001 --gid 1001 --mode 600
