@@ -24,6 +24,7 @@ bash -n "$SCRIPT"
 
 assert_contains "$SCRIPT" 'git status --porcelain'
 assert_contains "$SCRIPT" 'git log --oneline'
+assert_contains "$SCRIPT" 'git rev-parse --verify "origin/$CURRENT_BRANCH"'
 assert_contains "$SCRIPT" 'git fetch origin'
 assert_contains "$SCRIPT" 'git checkout -b "agent/$SHORT_NAME" origin/main'
 

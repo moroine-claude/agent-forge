@@ -25,7 +25,14 @@ if [ -n "$DIRTY" ]; then
 fi
 
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-UNPUSHED=$(git log --oneline "origin/$CURRENT_BRANCH..$CURRENT_BRANCH" 2>/dev/null || true)
+
+if ! git rev-parse --verify "origin/$CURRENT_BRANCH" > /dev/null 2>&1; then
+  echo "Error: branch $CURRENT_BRANCH has no origin/$CURRENT_BRANCH — it has never been pushed."
+  echo "Push it first, or the commits on it will be left behind."
+  exit 1
+fi
+
+UNPUSHED=$(git log --oneline "origin/$CURRENT_BRANCH..$CURRENT_BRANCH")
 if [ -n "$UNPUSHED" ]; then
   echo "Error: branch $CURRENT_BRANCH has unpushed commits:"
   echo "$UNPUSHED"
