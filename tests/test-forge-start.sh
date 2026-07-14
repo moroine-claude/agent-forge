@@ -72,6 +72,7 @@ assert_contains "$LIB" 'agent/$task_name'
 assert_contains "$LIB" 'already exists; task-name'
 assert_contains "$LIB" '--permission-mode auto'
 assert_contains "$LIB" 'tmux new-session'
+assert_line_before "$LIB" 'validate_task_name "$task_name"' 'lxc exec "$container" -- su - aiuser -c "git clone'
 
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"
