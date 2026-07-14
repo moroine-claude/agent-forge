@@ -1,0 +1,33 @@
+#!/bin/bash
+set -e
+
+# forge — single entry point for agent-forge container lifecycle.
+# Subcommands live in scripts/lib/forge-*.sh, sourced below.
+
+FORGE_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/lib" && pwd)"
+source "$FORGE_LIB_DIR/forge-common.sh"
+source "$FORGE_LIB_DIR/forge-start.sh"
+
+usage() {
+  cat <<'EOF'
+Usage: forge <command> [args]
+
+Commands:
+  start <owner/repo> [task-name]   Provision (if needed) and start/attach a session
+EOF
+}
+
+case "${1:-}" in
+  start)
+    shift
+    cmd_forge_start "$@"
+    ;;
+  ""|-h|--help)
+    usage
+    ;;
+  *)
+    echo "Error: unknown command '$1'" >&2
+    usage >&2
+    exit 1
+    ;;
+esac
