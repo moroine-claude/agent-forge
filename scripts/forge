@@ -9,6 +9,7 @@ source "$FORGE_LIB_DIR/forge-common.sh"
 source "$FORGE_LIB_DIR/forge-start.sh"
 source "$FORGE_LIB_DIR/forge-stop.sh"
 source "$FORGE_LIB_DIR/forge-delete.sh"
+source "$FORGE_LIB_DIR/forge-list.sh"
 
 usage() {
   cat <<'EOF'
@@ -18,6 +19,7 @@ Commands:
   start <owner/repo> [task-name]   Provision (if needed) and start/attach a session
   stop <owner/repo>                Stop a container (workspace/auth/tmux state persists)
   delete <owner/repo> [--force]    Delete a container (blocked on dirty/unpushed WIP unless --force)
+  list                              Show all containers: repo, mode, state, session
 EOF
 }
 
@@ -33,6 +35,9 @@ case "${1:-}" in
   delete)
     shift
     cmd_forge_delete "$@"
+    ;;
+  list)
+    cmd_forge_list "$@"
     ;;
   ""|-h|--help)
     usage
