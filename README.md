@@ -237,8 +237,8 @@ no re-pasting the PAT.
 
 ### Autonomous PR flow
 
-The agent works on `agent/<project-name>`, pushes with
-`git push -u origin agent/<project-name>` and opens a PR with
+The agent works on `agent/<task-name>`, pushes with
+`git push -u origin agent/<task-name>` and opens a PR with
 `gh pr create --base main`, all authenticated as the bot. The `pre-bash.sh`
 hook only allows pushes to `origin agent/*` (no force, no delete) and blocks
 `gh pr merge`, `gh api`, `gh repo`, `gh alias`, `gh extension` and
