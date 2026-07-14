@@ -8,6 +8,7 @@ FORGE_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/lib" && pwd)"
 source "$FORGE_LIB_DIR/forge-common.sh"
 source "$FORGE_LIB_DIR/forge-start.sh"
 source "$FORGE_LIB_DIR/forge-stop.sh"
+source "$FORGE_LIB_DIR/forge-delete.sh"
 
 usage() {
   cat <<'EOF'
@@ -16,6 +17,7 @@ Usage: forge <command> [args]
 Commands:
   start <owner/repo> [task-name]   Provision (if needed) and start/attach a session
   stop <owner/repo>                Stop a container (workspace/auth/tmux state persists)
+  delete <owner/repo> [--force]    Delete a container (blocked on dirty/unpushed WIP unless --force)
 EOF
 }
 
@@ -27,6 +29,10 @@ case "${1:-}" in
   stop)
     shift
     cmd_forge_stop "$@"
+    ;;
+  delete)
+    shift
+    cmd_forge_delete "$@"
     ;;
   ""|-h|--help)
     usage
