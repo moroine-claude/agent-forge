@@ -158,6 +158,41 @@ fi
 
 unset -f lxc
 
+# --- regression (moved from test-forge-delete.sh after forge_check_wip was
+# centralized here): a malicious branch name must not be interpolated into
+# a further lxc exec call, and must block forge_check_wip rather than being
+# silently treated as safe ---
+lxc() {
+  case "$*" in
+    "exec evil-container -- su - aiuser -c cd /workspace && git status --porcelain")
+      echo ""
+      ;;
+    "exec evil-container -- su - aiuser -c cd /workspace && git rev-parse --abbrev-ref HEAD")
+      echo 'x$(touch /tmp/PWNED_test)y'
+      ;;
+    *)
+      echo "unexpected lxc call: $*" >&2
+      return 1
+      ;;
+  esac
+}
+
+rm -f /tmp/PWNED_test
+if forge_check_wip evil-container 2>/dev/null; then
+  FAIL=$((FAIL + 1))
+  echo "FAIL: malicious branch name should have been rejected"
+else
+  PASS=$((PASS + 1))
+fi
+if [ -f /tmp/PWNED_test ]; then
+  FAIL=$((FAIL + 1))
+  echo "FAIL: injected command actually executed (/tmp/PWNED_test was created)"
+else
+  PASS=$((PASS + 1))
+fi
+rm -f /tmp/PWNED_test
+unset -f lxc
+
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

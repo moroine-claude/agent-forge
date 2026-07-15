@@ -67,7 +67,7 @@ assert_contains "$LIB" 'gh auth login'
 # --- new in this task: metadata + reuse + task-name default ---
 assert_contains "$LIB" 'lxc config set "$container" user.forge.repo'
 assert_contains "$LIB" 'lxc config set "$container" user.forge.mode "autonomous"'
-assert_contains "$LIB" 'task_name="${2:-main}"'
+assert_contains "$LIB" 'task_name="${2:-init}"'
 assert_contains "$LIB" 'validate_task_name "$task_name"'
 assert_contains "$LIB" 'agent/$task_name'
 assert_contains "$LIB" 'already exists; task-name'
