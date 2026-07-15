@@ -144,8 +144,10 @@ ssh-keygen -t ed25519 -C "agents-server-signing@github" -f ~/.ssh/github_agents_
 On the GitHub bot account, add `github_agents_signing.pub` as a **Signing Key** under Settings → SSH and GPG keys. Agent commits then show as **Verified**.
 
 > The old read-only deploy key (`~/.ssh/github_agents`) is no longer used by
-> autonomous containers — they authenticate with a PAT over HTTPS. It will
-> return in supervised mode as the fetch-only credential; keep it if present.
+> either mode — autonomous containers authenticate with a PAT over HTTPS,
+> and supervised containers get no credential at all (the host clones over
+> SSH using your own forwarded agent instead; see §7 and "Supervised mode"
+> below). It can be removed if you don't need it for anything else.
 
 #### Fine-grained PAT (one per target repo)
 
@@ -217,13 +219,15 @@ git config --global commit.gpgsign true
 Container identity is derived from `owner/repo` — no project name to choose
 or remember. If no container exists yet for that repo, `forge start`
 provisions one first:
+- Prompts for the container's mode: **autonomous** (bot pushes and opens PRs itself) or **supervised** (no GitHub credential ever touches the container — see "Supervised mode" below)
 - Creates an LXD container from `agent-base`
 - Mounts `/workspace` with correct permissions (no `sudo` required — LXD idmap shifting handles the UID mapping, scoped to that one mount)
 - Copies the signing key and configures git (signed commits)
 - Reuses your Claude Code credentials from the host (`~/.claude/.credentials.json`), so the container starts already authenticated — no Remote Control pairing needed
 - Pre-accepts onboarding and installs the `superpowers` plugin, so the first `claude` launch skips the setup questions
-- Prompts for the bot's fine-grained PAT (see setup §6) and authenticates `gh` inside the container — the token is never written to host disk
-- Clones `https://github.com/<owner/repo>.git` and creates branch `agent/<task-name>` (`task-name` defaults to `init`, i.e. `agent/init`, if omitted)
+- **Autonomous:** prompts for the bot's fine-grained PAT (see setup §6), authenticates `gh` inside the container — the token is never written to host disk — and clones `https://github.com/<owner/repo>.git` inside the container
+- **Supervised:** no token prompt; clones `git@github.com:<owner/repo>.git` on the host over SSH, using your own forwarded agent (§7) — the container never receives any GitHub credential
+- Creates branch `agent/<task-name>` (`task-name` defaults to `init`, i.e. `agent/init`, if omitted)
 - Records `owner/repo` and mode on the container itself (LXD config keys) — there's no separate registry file; `forge list` and future `forge start` calls discover containers this way
 
 Either way (freshly provisioned or already existing), `forge start` then
@@ -243,6 +247,35 @@ The agent works on `agent/<task-name>`, pushes with
 hook only allows pushes to `origin agent/*` (no force, no delete) and blocks
 `gh pr merge`, `gh api`, `gh repo`, `gh alias`, `gh extension` and
 `gh auth token`. You review, approve and merge the PR as yourself.
+
+### Supervised mode
+
+For repos where no standing GitHub credential should ever exist inside a
+container. The container gets no PAT and no `gh auth` — `pre-bash.sh`
+blocks every `git push` and every `gh` subcommand unconditionally, and
+`templates/CLAUDE.md` tells the agent to commit locally (signed) and stop
+when the task is done, never attempting to publish.
+
+Retrieving and publishing the work is a manual, laptop-side flow — every
+line the agent wrote gets reviewed before it's re-authored as your own:
+
+```bash
+git remote add <container> ssh://moroine@<host>:2222/home/moroine/workspaces/<container>
+git fetch <container> agent/<task-name>:agent/<task-name>
+git log -p main..agent/<task-name>          # review before doing anything else
+git checkout agent/<task-name>
+git rebase --reset-author main
+git push origin agent/<task-name>            # your identity, YubiKey-signed
+```
+
+`forge start`'s supervised path prints the exact `git remote add` command
+(container name filled in) at the end of provisioning.
+
+Reusing a supervised container for a new task (`!next-task <short-name>`)
+skips the unpushed-commits check (there's no "pushed" concept without a
+credential) and skips `git fetch origin` (no credential to fetch with) — if
+you want an up-to-date `main` first, fetch it yourself from a host shell in
+the workspace directory before running `next-task`.
 
 ### Token renewal
 
