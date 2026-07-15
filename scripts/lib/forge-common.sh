@@ -84,10 +84,15 @@ check_container_name_collision() {
   fi
 }
 
-# WIP pre-flight: checks dirty tree, branch name, and unpushed commits.
-# Container must be running. Used by both stop and delete.
+# WIP pre-flight: checks dirty tree, and (autonomous mode only) branch name
+# and unpushed commits. Container must be running. Used by both stop and
+# delete. Supervised containers never have anything to "push" — no
+# credential exists inside them — so only the dirty-tree check applies
+# there; commits ahead of main are expected steady state, not something to
+# block on (the workspace directory is host-mounted and survives
+# lxc delete regardless of this check).
 forge_check_wip() {
-  local container="$1" dirty branch unpushed
+  local container="$1" dirty branch unpushed mode
 
   dirty=$(lxc exec "$container" -- su - aiuser -c "cd /workspace && git status --porcelain")
   if [ -n "$dirty" ]; then
@@ -95,6 +100,11 @@ forge_check_wip() {
     echo "$dirty" >&2
     echo "Commit/discard them, or pass --force." >&2
     return 1
+  fi
+
+  mode=$(forge_container_mode "$container")
+  if [ "$mode" = "supervised" ]; then
+    return 0
   fi
 
   branch=$(lxc exec "$container" -- su - aiuser -c "cd /workspace && git rev-parse --abbrev-ref HEAD")
