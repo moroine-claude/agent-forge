@@ -84,6 +84,44 @@ check_container_name_collision() {
   fi
 }
 
+# WIP pre-flight: checks dirty tree, branch name, and unpushed commits.
+# Container must be running. Used by both stop and delete.
+forge_check_wip() {
+  local container="$1" dirty branch unpushed
+
+  dirty=$(lxc exec "$container" -- su - aiuser -c "cd /workspace && git status --porcelain")
+  if [ -n "$dirty" ]; then
+    echo "Error: $container has uncommitted changes in /workspace:" >&2
+    echo "$dirty" >&2
+    echo "Commit/discard them, or pass --force." >&2
+    return 1
+  fi
+
+  branch=$(lxc exec "$container" -- su - aiuser -c "cd /workspace && git rev-parse --abbrev-ref HEAD")
+  if [[ ! "$branch" =~ ^agent/[A-Za-z0-9._-]+$ ]]; then
+    echo "Error: unexpected branch name '$branch' in $container; refusing to proceed." >&2
+    return 1
+  fi
+
+  local ahead_of_main
+  ahead_of_main=$(lxc exec "$container" -- su - aiuser -c "cd /workspace && git log --oneline origin/main..$branch")
+  if [ -n "$ahead_of_main" ]; then
+    if ! lxc exec "$container" -- su - aiuser -c "cd /workspace && git rev-parse --verify origin/$branch" > /dev/null 2>&1; then
+      echo "Error: $container's branch $branch has no origin/$branch — it has never been pushed." >&2
+      echo "Push it, or pass --force." >&2
+      return 1
+    fi
+
+    unpushed=$(lxc exec "$container" -- su - aiuser -c "cd /workspace && git log --oneline origin/$branch..$branch")
+    if [ -n "$unpushed" ]; then
+      echo "Error: $container has unpushed commits on $branch:" >&2
+      echo "$unpushed" >&2
+      echo "Push them, or pass --force." >&2
+      return 1
+    fi
+  fi
+}
+
 # Errors out (stderr) if no container exists yet for the given repo.
 require_container_for_repo() {
   local owner_repo="$1" container

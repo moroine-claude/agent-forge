@@ -3,7 +3,7 @@
 # a Claude Code session inside it. See design spec §2.
 
 cmd_forge_start() {
-  local owner_repo="$1" task_name="${2:-main}"
+  local owner_repo="$1" task_name="${2:-init}"
 
   if [ -z "$owner_repo" ]; then
     echo "Usage: forge start <owner/repo> [task-name]" >&2
@@ -90,6 +90,11 @@ _forge_provision_container() {
 
   echo "Installing Claude plugins..."
   lxc exec "$container" -- su - aiuser -c "claude plugin marketplace add anthropics/claude-plugins-official && claude plugin install superpowers@claude-plugins-official"
+
+  echo "Installing Claude global instructions..."
+  lxc file push /home/moroine/agent-forge/templates/CLAUDE.md \
+    "$container"/home/aiuser/CLAUDE.md \
+    --uid 1001 --gid 1001 --mode 644
 
   echo "Installing Claude security hooks..."
   lxc exec "$container" -- mkdir -p /home/aiuser/.claude/hooks

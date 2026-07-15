@@ -45,6 +45,7 @@ _forge_image_build() {
     --uid 1001 --gid 1001 --mode 755
 
   lxc stop "$setup"
+  lxc image delete agent-base 2>/dev/null || true
   lxc publish "$setup" --alias agent-base
   lxc delete "$setup"
 

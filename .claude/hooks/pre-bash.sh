@@ -15,7 +15,7 @@ printf '%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$COMMAND" >> "$AUDIT_LOG" 2>
 
 block() {
   printf '%s\tBLOCKED\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$COMMAND" >> "$AUDIT_LOG" 2>/dev/null
-  echo "BLOCKED: $1"
+  echo "BLOCKED: $1" >&2
   exit 2
 }
 

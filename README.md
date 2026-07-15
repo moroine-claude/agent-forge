@@ -223,7 +223,7 @@ provisions one first:
 - Reuses your Claude Code credentials from the host (`~/.claude/.credentials.json`), so the container starts already authenticated — no Remote Control pairing needed
 - Pre-accepts onboarding and installs the `superpowers` plugin, so the first `claude` launch skips the setup questions
 - Prompts for the bot's fine-grained PAT (see setup §6) and authenticates `gh` inside the container — the token is never written to host disk
-- Clones `https://github.com/<owner/repo>.git` and creates branch `agent/<task-name>` (`task-name` defaults to `main`, i.e. `agent/main`, if omitted)
+- Clones `https://github.com/<owner/repo>.git` and creates branch `agent/<task-name>` (`task-name` defaults to `init`, i.e. `agent/init`, if omitted)
 - Records `owner/repo` and mode on the container itself (LXD config keys) — there's no separate registry file; `forge list` and future `forge start` calls discover containers this way
 
 Either way (freshly provisioned or already existing), `forge start` then
@@ -279,9 +279,9 @@ The session stays accessible as long as the container is running and the `claude
 ### Stop / list / delete containers
 
 ```bash
-./scripts/forge stop <owner/repo>              # stops the container; workspace/auth/tmux state persists
+./scripts/forge stop <owner/repo> [--force]    # refuses on dirty/unpushed WIP unless --force; workspace/auth/tmux state persists
 ./scripts/forge list                           # repo, mode, LXD state, and session-alive status for every container
-./scripts/forge delete <owner/repo> [--force]  # refuses on dirty/unpushed WIP unless --force
+./scripts/forge delete <owner/repo> [--force]  # refuses on dirty/unpushed WIP unless --force (skipped if already stopped)
 ```
 
 ### Reusing a container for a new task
@@ -289,10 +289,11 @@ The session stays accessible as long as the container is running and the `claude
 Once a task is done, committed, and pushed, reuse the same container instead
 of recreating it: inside the live session, run `!next-task <short-name>`
 (the `!` prefix runs it as a plain shell command, not an agent action). It
-refuses if `/workspace` has uncommitted or unpushed changes; otherwise it
-fetches `origin`, checks out a fresh `agent/<short-name>` branch from
-`origin/main`, and prints the new branch name so you can tell the agent to
-start fresh. `next-task` is baked into the `agent-base` image (see `forge
+refuses if `/workspace` has uncommitted changes or commits not yet pushed to
+`origin` (unless the current branch has no commits ahead of `origin/main` —
+e.g. a fresh container that has done no work yet); otherwise it fetches
+`origin`, checks out a fresh `agent/<short-name>` branch from `origin/main`,
+and prints the new branch name so you can tell the agent to start fresh. `next-task` is baked into the `agent-base` image (see `forge
 image build` above) — changes to it require an image rebuild plus
 recreating affected containers.
 
