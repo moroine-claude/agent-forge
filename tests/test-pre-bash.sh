@@ -37,6 +37,37 @@ expect_block() {
   fi
 }
 
+MODE_FILE=$(mktemp)
+trap 'rm -f "$MODE_FILE"' EXIT
+
+run_hook_as() {
+  local mode="$1" cmd="$2"
+  printf '%s' "$mode" > "$MODE_FILE"
+  FORGE_MODE_FILE="$MODE_FILE" run_hook "$cmd"
+}
+
+expect_allow_as() {
+  local mode="$1" cmd="$2" rc=0
+  run_hook_as "$mode" "$cmd" || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo "FAIL (attendu ALLOW mode=$mode, rc=$rc): $cmd"
+  fi
+}
+
+expect_block_as() {
+  local mode="$1" cmd="$2" rc=0
+  run_hook_as "$mode" "$cmd" || rc=$?
+  if [ "$rc" -eq 2 ]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo "FAIL (attendu BLOCK mode=$mode, rc=$rc): $cmd"
+  fi
+}
+
 # --- git push : seule forme autorisée = git push [-u] origin agent/* ---
 expect_allow 'git push origin agent/test-project'
 expect_allow 'git push -u origin agent/test-project'
@@ -116,6 +147,36 @@ expect_block 'git checkout main'
 expect_block 'git rebase main'
 expect_block 'sudo apt install foo'
 expect_block 'rm -rf /workspace'
+
+# --- supervised mode: no credential exists, so every push and every gh
+# subcommand is blocked, including forms autonomous mode explicitly allows ---
+expect_block_as supervised 'git push origin agent/test-project'
+expect_block_as supervised 'git push -u origin agent/test-project'
+expect_block_as supervised 'git push origin main'
+expect_block_as supervised 'gh pr create --base main --title "x" --body "y"'
+expect_block_as supervised 'gh pr view 42'
+expect_block_as supervised 'gh auth status'
+
+# --- autonomous mode, explicit: unchanged from the default behavior above ---
+expect_allow_as autonomous 'git push origin agent/test-project'
+expect_block_as autonomous 'git push origin main'
+expect_allow_as autonomous 'gh pr create --base main --title "x" --body "y"'
+expect_block_as autonomous 'gh pr merge 42'
+
+# --- ordinary commands stay allowed in supervised mode too ---
+expect_allow_as supervised 'git status'
+expect_allow_as supervised 'git commit -m "feat: x"'
+
+# --- missing marker file defaults to autonomous (existing containers,
+# provisioned before this feature, keep working unmodified) ---
+rc=0
+FORGE_MODE_FILE="$MODE_FILE.does-not-exist" run_hook 'git push origin agent/test-project' || rc=$?
+if [ "$rc" -eq 0 ]; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo "FAIL (attendu ALLOW, missing marker file should default to autonomous, rc=$rc)"
+fi
 
 echo ""
 echo "PASS: $PASS  FAIL: $FAIL"

@@ -19,6 +19,13 @@ block() {
   exit 2
 }
 
+# Mode du container : "autonomous" (défaut) ou "supervised". Le fichier
+# marqueur est écrit une fois par forge start ; FORGE_MODE_FILE est
+# overridable pour les tests (le hook tourne en dur sur le chemin container
+# en usage réel).
+FORGE_MODE_FILE="${FORGE_MODE_FILE:-/home/aiuser/.claude/forge-mode}"
+FORGE_MODE=$(cat "$FORGE_MODE_FILE" 2>/dev/null || echo autonomous)
+
 # Politique git push : default-deny.
 # Seule forme autorisée : git push [-u] origin agent/<branche>
 # (éventuellement comme segment d'une chaîne && ou ;).
@@ -30,6 +37,12 @@ block() {
 # (variables, scripts intermédiaires, appels API via curl) et ne prétend pas le faire.
 GIT_PUSH_RE='git[[:space:]]+(-[^[:space:]]+([[:space:]]+[^-][^[:space:]]*)?[[:space:]]+)*push([[:space:];&|]|$)'
 if echo "$COMMAND" | grep -qE "$GIT_PUSH_RE"; then
+  # Container supervisé : aucune credential GitHub n'existe jamais ici, donc
+  # aucun push n'a de cible légitime. Bloqué sans exception, avant même les
+  # politiques par forme ci-dessous (qui ne s'appliquent qu'en autonomous).
+  if [ "$FORGE_MODE" = "supervised" ]; then
+    block "git push non autorisé : container supervisé, aucune credential GitHub n'existe."
+  fi
   # Force push interdit (préserve l'historique de la branche agent)
   if echo "$COMMAND" | grep -qE 'git[[:space:]]+push[^;&|]*[[:space:]](-[A-Za-z]*f[A-Za-z]*|--force(-with-lease)?(=[^[:space:]]+)?)([[:space:]]|$)'; then
     block "git push --force non autorisé."
@@ -53,9 +66,16 @@ if echo "$COMMAND" | grep -qE "$GIT_PUSH_RE"; then
   done <<< "$(printf '%s\n' "$COMMAND" | tr ';&|' '\n\n\n')"
 fi
 
-# gh : l'agent crée et met à jour des PRs, ne merge jamais, ne parle jamais
-# à l'API brute, ne touche ni aux repos, ni aux alias, ni aux extensions,
-# et ne lit jamais le token.
+# gh : en mode supervised, aucune credential n'existe, donc aucune
+# sous-commande gh n'a d'usage légitime — bloqué sans exception, avant les
+# règles par sous-commande ci-dessous (qui ne s'appliquent qu'en autonomous).
+if [ "$FORGE_MODE" = "supervised" ] && echo "$COMMAND" | grep -qE '(^|[[:space:];&|])gh([[:space:]]|$)'; then
+  block "gh non autorisé : container supervisé, gh n'est jamais authentifié."
+fi
+
+# gh (mode autonomous) : l'agent crée et met à jour des PRs, ne merge jamais,
+# ne parle jamais à l'API brute, ne touche ni aux repos, ni aux alias, ni aux
+# extensions, et ne lit jamais le token.
 if echo "$COMMAND" | grep -qE '(^|[[:space:];&|])gh[[:space:]]+pr[[:space:]]+(-[^[:space:]]+([[:space:]]+[^-][^[:space:]]*)?[[:space:]]+)*merge([[:space:];&|]|$)'; then
   block "gh pr merge non autorisé. La PR est revue et mergée par un humain."
 fi
