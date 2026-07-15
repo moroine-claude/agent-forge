@@ -15,13 +15,17 @@ container. That's the right trade-off for most repos, but wrong for
 sensitive ones: it means a write-scoped credential exists inside the
 container for the container's lifetime.
 
-Supervised mode is the alternative for those repos: **the container never
-holds any GitHub credential, read or write.** The agent commits locally
-(signed as the bot, for provenance during the session), but has no way to
-push or open a PR — there is nothing to authenticate with. Getting that work
-published is entirely a human-run flow, outside the container, ending with
-the user's own identity and YubiKey signature in the repo's history — the
-bot never appears in these repos' commit log.
+Supervised mode is the alternative for those repos, and the goal is stricter
+than hiding the bot cosmetically: **the bot is denied any access to these
+repos at all, full stop.** The container never holds any GitHub credential,
+read or write, so there is nothing for a leaked or misused credential to do.
+The agent commits locally (signed as the bot, for provenance during the
+session), but has no way to push or open a PR — there is nothing to
+authenticate with. Publishing is entirely a human-run flow, outside the
+container: every line the agent wrote is reviewed and re-authored by the
+user before it ever reaches GitHub, landing under the user's own identity
+and YubiKey signature. The bot never appearing in these repos' commit log is
+a consequence of that review step, not the goal itself.
 
 The `forge` CLI (sub-project 3) already stores `user.forge.mode` per
 container and only ever sets it to `"autonomous"` today; this design is what
@@ -38,7 +42,7 @@ fills in `"supervised"` as a real second value.
 | `templates/CLAUDE.md` | Single file, unchanged mechanism (still one static template pushed at provisioning). Its Git section now branches on the same `forge-mode` marker: if `autonomous`, push and open a PR as today; if `supervised`, commit locally only (signed), never attempt to push or open a PR, and when the task is done say so clearly and stop — a human retrieves the branch from outside the container. Rejected alternative: two separate template files — duplicates the Contexte/Environnement/Périmètre sections and risks drift; reusing the marker file that already has to exist for the hook is free. |
 | `next-task` (`config/next-task.sh`) | Also reads `/home/aiuser/.claude/forge-mode`. Autonomous: unchanged (dirty-tree check, unpushed-vs-`origin/<branch>` gate, `git fetch origin`, `checkout -b agent/<short-name> origin/main`). Supervised: dirty-tree check only (the unpushed gate assumes a credential that doesn't exist and would permanently block reuse); **skips** `git fetch origin` entirely (would fail with no credential); checks out the new branch from whatever `origin/main` is already cached locally, and prints a note telling the operator to `git fetch origin` from a **host** shell in the workspace directory first if they want an up-to-date `main` (the workspace dir is the same files the container sees, so that fetch is immediately visible). |
 | `forge_check_wip` (`forge stop`/`forge delete`) | Becomes mode-aware the same way: supervised containers only fail the dirty-tree check. "Ahead of main with no `origin/<branch>`" is expected steady state in supervised mode, not a block — the workspace directory is host-mounted and survives `lxc delete` regardless, which is the existing rationale for why this check exists at all (surfacing forgotten WIP, not preventing data loss). |
-| Retrieval to laptop | Manual, documented flow, no new tooling: from the laptop, `git remote add <name> ssh://moroine@<host>:2222/home/moroine/workspaces/<container>`, then `git fetch <name> agent/<task>:agent/<task>`. From there it's a normal local branch — rebase `--reset-author` onto the laptop's own up-to-date `main`, YubiKey-signs, push to GitHub under the user's identity. `forge start`'s supervised path prints this exact `git remote add` command (with the real container name filled in) at the end of provisioning, so the operator never has to reconstruct the path by hand. Explicitly rejected: a `forge publish` helper that automates rebase/sign/push from the host — this always happens on the laptop, not the host, per the operator's own working style; nothing on the host side needs to run it. |
+| Retrieval to laptop | Manual, documented flow, no new tooling: from the laptop, `git remote add <name> ssh://moroine@<host>:2222/home/moroine/workspaces/<container>`, then `git fetch <name> agent/<task>:agent/<task>`. From there it's a normal local branch — the user reviews every commit (`git diff`/`git log -p` against `main`) before doing anything else, since this is the only review gate this content will ever get. Only after that review does the user rebase `--reset-author` onto the laptop's own up-to-date `main` and YubiKey-sign, re-authoring the reviewed content as their own before pushing to GitHub. `forge start`'s supervised path prints the exact `git remote add` command (with the real container name filled in) at the end of provisioning, so the operator never has to reconstruct the path by hand. Explicitly rejected: a `forge publish` helper that automates rebase/sign/push from the host — automating past the review step would defeat the point of supervised mode, and this always happens on the laptop, not the host, per the operator's own working style. |
 | `forge list` | No change needed — it already reads and displays `user.forge.mode` generically; supervised containers just show a real value instead of the field never being set to anything but `autonomous`. |
 
 ## What stays identical to autonomous mode
