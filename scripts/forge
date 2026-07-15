@@ -1,0 +1,65 @@
+#!/bin/bash
+set -e
+
+# forge — single entry point for agent-forge container lifecycle.
+# Subcommands live in scripts/lib/forge-*.sh, sourced below.
+
+FORGE_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/lib" && pwd)"
+source "$FORGE_LIB_DIR/forge-common.sh"
+source "$FORGE_LIB_DIR/forge-start.sh"
+source "$FORGE_LIB_DIR/forge-stop.sh"
+source "$FORGE_LIB_DIR/forge-delete.sh"
+source "$FORGE_LIB_DIR/forge-list.sh"
+source "$FORGE_LIB_DIR/forge-image.sh"
+source "$FORGE_LIB_DIR/forge-completion.sh"
+
+usage() {
+  cat <<'EOF'
+Usage: forge <command> [args]
+
+Commands:
+  start <owner/repo> [task-name]   Provision (if needed) and start/attach a session
+  stop <owner/repo> [--force]      Stop a container (blocked on dirty/unpushed WIP unless --force)
+  delete <owner/repo> [--force]    Delete a container (blocked on dirty/unpushed WIP unless --force)
+  list                              Show all containers: repo, mode, state, session
+  image build|update                Rebuild the agent-base image (only affects new containers)
+  completion bash                   Print a bash completion function (eval it in ~/.bashrc)
+EOF
+}
+
+case "${1:-}" in
+  start)
+    shift
+    cmd_forge_start "$@"
+    ;;
+  stop)
+    shift
+    cmd_forge_stop "$@"
+    ;;
+  delete)
+    shift
+    cmd_forge_delete "$@"
+    ;;
+  list)
+    cmd_forge_list "$@"
+    ;;
+  image)
+    shift
+    cmd_forge_image "$@"
+    ;;
+  completion)
+    shift
+    case "${1:-}" in
+      bash) cmd_forge_completion_bash ;;
+      *) echo "Usage: forge completion bash" >&2; exit 1 ;;
+    esac
+    ;;
+  ""|-h|--help)
+    usage
+    ;;
+  *)
+    echo "Error: unknown command '$1'" >&2
+    usage >&2
+    exit 1
+    ;;
+esac

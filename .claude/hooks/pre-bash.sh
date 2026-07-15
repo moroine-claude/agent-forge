@@ -15,7 +15,7 @@ printf '%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$COMMAND" >> "$AUDIT_LOG" 2>
 
 block() {
   printf '%s\tBLOCKED\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$COMMAND" >> "$AUDIT_LOG" 2>/dev/null
-  echo "BLOCKED: $1"
+  echo "BLOCKED: $1" >&2
   exit 2
 }
 
@@ -80,9 +80,21 @@ if echo "$COMMAND" | grep -qE 'git[[:space:]]+(checkout|switch)[[:space:]]+(main
   block "Passage sur main/master non autorisé. Rester sur la branche agent/*."
 fi
 
-# Bloquer git merge
+# Politique git merge : default-deny, sauf "git merge origin/main" (avec ou
+# sans --no-edit), qui sert uniquement à rafraîchir une branche agent/* avec
+# les derniers changements de main avant de pousser. Jamais l'inverse
+# (merger une branche/PR vers main — ça reste "Ouvrir une PR à la place"),
+# jamais une autre branche/commit arbitraire. Même découpage par segment que
+# la politique git push, pour qu'un merge interdit ne se cache pas derrière
+# un merge autorisé dans une commande chaînée.
 if echo "$COMMAND" | grep -qE 'git[[:space:]]+merge([[:space:]]|$)'; then
-  block "git merge non autorisé. Ouvrir une PR à la place."
+  while IFS= read -r SEGMENT; do
+    if printf '%s\n' "$SEGMENT" | grep -qE 'git[[:space:]]+merge([[:space:]]|$)'; then
+      if ! printf '%s\n' "$SEGMENT" | grep -qE '^[[:space:]]*git[[:space:]]+merge([[:space:]]+--no-edit)?[[:space:]]+origin/main[[:space:]]*$'; then
+        block "git merge autorisé uniquement sous la forme 'git merge origin/main' (rafraîchir depuis main, jamais l'inverse)."
+      fi
+    fi
+  done <<< "$(printf '%s\n' "$COMMAND" | tr ';&|' '\n\n\n')"
 fi
 
 # Bloquer git rebase

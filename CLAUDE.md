@@ -21,7 +21,10 @@ Tu travailles sur `agent-forge`, un repo d'infrastructure pour déployer des age
 - Branche de travail : `agent/agent-forge`
 - Commits signés automatiquement
 - Messages conventionnels : `feat:`, `fix:`, `chore:`, `docs:`
-- Ne jamais push, ne jamais toucher à `main`
+- Ne jamais toucher à `main` directement : jamais de `git checkout main`, jamais de push vers `main`, jamais de merger une PR toi-même
+- La seule forme de `git merge` autorisée est `git merge origin/main` (ou `--no-edit`), pour rafraîchir ta branche `agent/*` avec les derniers changements de `main` avant de pousser — jamais l'inverse (merger ta branche vers `main`), jamais une autre branche/commit. C'est ce que `pre-bash.sh` autorise explicitement (tout le reste de `git merge` reste bloqué).
+- En mode autonome (permission-mode `auto` — que ce soit cette session ou un container provisionné par `forge start`) : push autorisé uniquement vers `agent/<branche>` (`git push -u origin agent/<branche>`), puis ouverture d'une PR avec `gh pr create --base main`. Jamais de merge automatique de la PR — elle est revue et mergée par un humain. C'est le même flux que le "Autonomous PR flow" documenté dans `README.md`.
+- En dehors du mode autonome (session interactive), demander confirmation avant tout push, même vers `agent/<branche>`
 
 ### Scripts
 - Bash strict mode : `set -e` obligatoire
@@ -36,7 +39,7 @@ Tu travailles sur `agent-forge`, un repo d'infrastructure pour déployer des age
 - Toute nouvelle règle UFW doit être justifiée en commentaire
 
 ## Ce que tu peux faire
-- Modifier les scripts `new-agent-container.sh` et `start-agent.sh`
+- Modifier `scripts/forge` et `scripts/lib/forge-*.sh`
 - Mettre à jour le template `CLAUDE.md`
 - Mettre à jour `README.md`
 - Mettre à jour les config files
@@ -44,5 +47,5 @@ Tu travailles sur `agent-forge`, un repo d'infrastructure pour déployer des age
 ## Ce que tu ne dois pas faire
 - Modifier les clés SSH ou credentials
 - Changer l'architecture de sécurité sans validation explicite
-- Push sur `main`
+- Push sur `main`, ou merger une PR toi-même (même en mode autonome)
 - Exécuter des commandes sur le système hôte en dehors de `/workspace`
