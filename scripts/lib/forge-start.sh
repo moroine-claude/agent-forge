@@ -103,7 +103,7 @@ _forge_provision_container() {
 
   echo "Installing Claude global instructions..."
   lxc file push /home/moroine/agent-forge/templates/CLAUDE.md \
-    "$container"/home/aiuser/CLAUDE.md \
+    "$container"/home/aiuser/.claude/CLAUDE.md \
     --uid 1001 --gid 1001 --mode 644
 
   echo "Installing Claude security hooks..."
