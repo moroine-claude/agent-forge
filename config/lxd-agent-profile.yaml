@@ -2,8 +2,8 @@ name: agent
 description: Agent profile
 config:
   environment.HOME: /home/aiuser
-  limits.cpu: "2"
-  limits.memory: 4GB
+  limits.cpu: "8"
+  limits.memory: 12GB
   # Isolation : container non privilégié, pas de containers imbriqués
   security.privileged: "false"
   security.nesting: "false"
