@@ -49,6 +49,14 @@ assert_line_before "$SCRIPT" '[[ ! "$CURRENT_BRANCH" =~ ^agent/ ]]' 'git checkou
 
 assert_contains "$TEMPLATE" 'next-task'
 
+# --- supervised mode: skip the fetch and the unpushed-commits gate ---
+assert_contains "$SCRIPT" 'FORGE_MODE_FILE="${FORGE_MODE_FILE:-/home/aiuser/.claude/forge-mode}"'
+assert_contains "$SCRIPT" 'FORGE_MODE=$(cat "$FORGE_MODE_FILE" 2>/dev/null || echo autonomous)'
+assert_contains "$SCRIPT" 'if [ "$FORGE_MODE" = "supervised" ]; then'
+assert_contains "$SCRIPT" 'skipping unpushed check and git fetch'
+assert_line_before "$SCRIPT" 'if [ "$FORGE_MODE" = "supervised" ]; then' 'git checkout -b "agent/$SHORT_NAME" origin/main'
+assert_line_before "$SCRIPT" 'git fetch origin' 'git checkout -b "agent/$SHORT_NAME" origin/main'
+
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

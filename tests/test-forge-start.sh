@@ -66,14 +66,27 @@ assert_contains "$LIB" 'gh auth login'
 
 # --- new in this task: metadata + reuse + task-name default ---
 assert_contains "$LIB" 'lxc config set "$container" user.forge.repo'
-assert_contains "$LIB" 'lxc config set "$container" user.forge.mode "autonomous"'
-assert_contains "$LIB" 'task_name="${2:-main}"'
+assert_contains "$LIB" 'lxc config set "$container" user.forge.mode "$mode"'
+assert_contains "$LIB" 'task_name="${2:-init}"'
 assert_contains "$LIB" 'validate_task_name "$task_name"'
 assert_contains "$LIB" 'agent/$task_name'
 assert_contains "$LIB" 'already exists; task-name'
 assert_contains "$LIB" '--permission-mode auto'
 assert_contains "$LIB" 'tmux new-session'
 assert_line_before "$LIB" 'validate_task_name "$task_name"' 'lxc exec "$container" -- su - aiuser -c "git clone'
+
+# --- new in this task: mode prompt, supervised host-side clone, mode
+# marker file, retrieval reminder ---
+assert_contains "$LIB" 'Mode for this container?'
+assert_contains "$LIB" 'read -r -p "Choice [a/s]: " MODE_CHOICE'
+assert_contains "$LIB" 's|S) mode="supervised" ;;'
+assert_contains "$LIB" 'echo '"'"'$mode'"'"' > /home/aiuser/.claude/forge-mode'
+assert_contains "$LIB" 'git clone "git@github.com:$owner_repo.git" "$workspace_dir"'
+assert_contains "$LIB" 'git checkout -b "agent/$task_name"'
+assert_contains "$LIB" 'git remote add $container ssh://moroine@'
+assert_line_before "$LIB" 'Mode for this container?' 'lxc launch agent-base'
+assert_line_before "$LIB" "echo '\$mode' > /home/aiuser/.claude/forge-mode" 'git clone "git@github.com:$owner_repo.git"'
+assert_line_before "$LIB" 'git clone "git@github.com:$owner_repo.git" "$workspace_dir"' 'lxc config set "$container" user.forge.repo'
 
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"

@@ -158,6 +158,124 @@ fi
 
 unset -f lxc
 
+# --- regression (moved from test-forge-delete.sh after forge_check_wip was
+# centralized here): a malicious branch name must not be interpolated into
+# a further lxc exec call, and must block forge_check_wip rather than being
+# silently treated as safe ---
+lxc() {
+  case "$*" in
+    "exec evil-container -- su - aiuser -c cd /workspace && git status --porcelain")
+      echo ""
+      ;;
+    "config get evil-container user.forge.mode")
+      echo ""
+      ;;
+    "exec evil-container -- su - aiuser -c cd /workspace && git rev-parse --abbrev-ref HEAD")
+      echo 'x$(touch /tmp/PWNED_test)y'
+      ;;
+    *)
+      echo "unexpected lxc call: $*" >&2
+      return 1
+      ;;
+  esac
+}
+
+rm -f /tmp/PWNED_test
+if forge_check_wip evil-container 2>/dev/null; then
+  FAIL=$((FAIL + 1))
+  echo "FAIL: malicious branch name should have been rejected"
+else
+  PASS=$((PASS + 1))
+fi
+if [ -f /tmp/PWNED_test ]; then
+  FAIL=$((FAIL + 1))
+  echo "FAIL: injected command actually executed (/tmp/PWNED_test was created)"
+else
+  PASS=$((PASS + 1))
+fi
+rm -f /tmp/PWNED_test
+unset -f lxc
+
+# --- forge_check_wip: supervised mode only checks the dirty tree; being
+# ahead of main with no origin/<branch> is expected steady state there,
+# not something to block on (there is no credential to have pushed with) ---
+lxc() {
+  case "$*" in
+    "config get sup-dirty user.forge.mode")
+      echo "supervised"
+      ;;
+    "exec sup-dirty -- su - aiuser -c cd /workspace && git status --porcelain")
+      echo "M some-file.txt"
+      ;;
+    *)
+      echo "unexpected lxc call: $*" >&2
+      return 1
+      ;;
+  esac
+}
+if forge_check_wip sup-dirty 2>/dev/null; then
+  FAIL=$((FAIL + 1))
+  echo "FAIL: supervised container with a dirty tree should still be blocked"
+else
+  PASS=$((PASS + 1))
+fi
+unset -f lxc
+
+lxc() {
+  case "$*" in
+    "config get sup-clean-ahead user.forge.mode")
+      echo "supervised"
+      ;;
+    "exec sup-clean-ahead -- su - aiuser -c cd /workspace && git status --porcelain")
+      echo ""
+      ;;
+    *)
+      echo "unexpected lxc call: $*" >&2
+      return 1
+      ;;
+  esac
+}
+if forge_check_wip sup-clean-ahead 2>/dev/null; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo "FAIL: supervised container with a clean tree should never be blocked, even ahead of main"
+fi
+unset -f lxc
+
+# --- autonomous mode (mode unset, same as today): unchanged behavior —
+# a clean but never-pushed branch that's ahead of main still blocks ---
+lxc() {
+  case "$*" in
+    "config get auto-ahead-unpushed user.forge.mode")
+      echo ""
+      ;;
+    "exec auto-ahead-unpushed -- su - aiuser -c cd /workspace && git status --porcelain")
+      echo ""
+      ;;
+    "exec auto-ahead-unpushed -- su - aiuser -c cd /workspace && git rev-parse --abbrev-ref HEAD")
+      echo "agent/foo"
+      ;;
+    "exec auto-ahead-unpushed -- su - aiuser -c cd /workspace && git log --oneline origin/main..agent/foo")
+      echo "abc1234 feat: x"
+      ;;
+    "exec auto-ahead-unpushed -- su - aiuser -c cd /workspace && git rev-parse --verify origin/agent/foo")
+      return 1
+      ;;
+    *)
+      echo "unexpected lxc call: $*" >&2
+      return 1
+      ;;
+  esac
+}
+if forge_check_wip auto-ahead-unpushed 2>/dev/null; then
+  FAIL=$((FAIL + 1))
+  echo "FAIL: autonomous container with a never-pushed branch ahead of main should still be blocked"
+else
+  PASS=$((PASS + 1))
+fi
+unset -f lxc
+
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

@@ -39,6 +39,10 @@ assert_contains 'onboarding'
 assert_contains 'permission mode'
 assert_not_contains 'new-agent-container.sh'
 assert_not_contains 'start-agent.sh'
+assert_contains 'Supervised mode'
+assert_contains 'git remote add'
+assert_contains 'rebase --reset-author'
+assert_not_contains 'fetch-only credential'
 
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"

@@ -48,6 +48,16 @@ _forge_provision_container() {
     return 1
   fi
 
+  echo "Mode for this container?"
+  echo "  [a] autonomous — bot pushes commits and opens PRs itself"
+  echo "  [s] supervised — no credential; you retrieve and publish the work yourself"
+  read -r -p "Choice [a/s]: " MODE_CHOICE
+  local mode
+  case "$MODE_CHOICE" in
+    s|S) mode="supervised" ;;
+    *) mode="autonomous" ;;
+  esac
+
   echo "Creating container $container..."
   lxc launch agent-base "$container" --profile agent
 
@@ -93,7 +103,7 @@ _forge_provision_container() {
 
   echo "Installing Claude global instructions..."
   lxc file push /home/moroine/agent-forge/templates/CLAUDE.md \
-    "$container"/home/aiuser/CLAUDE.md \
+    "$container"/home/aiuser/.claude/CLAUDE.md \
     --uid 1001 --gid 1001 --mode 644
 
   echo "Installing Claude security hooks..."
@@ -105,34 +115,49 @@ _forge_provision_container() {
     "$container"/home/aiuser/.claude/settings.json \
     --uid 0 --gid 0 --mode 644
 
-  echo ""
-  echo "=============================================================="
-  echo "  GitHub token required (BOT account, fine-grained PAT)"
-  echo "  Scoped to: $owner_repo only"
-  echo "  Permissions: Contents RW, Pull requests RW, Metadata R"
-  echo "  The token is piped into the container and never written"
-  echo "  to host disk."
-  echo "=============================================================="
-  read -r -s -p "Paste the token (input hidden): " GH_TOKEN
-  echo ""
-  if [ -z "$GH_TOKEN" ]; then
-    echo "Error: empty token." >&2
-    return 1
+  echo "Recording forge mode marker..."
+  lxc exec "$container" -- su - aiuser -c "echo '$mode' > /home/aiuser/.claude/forge-mode"
+
+  if [ "$mode" = "supervised" ]; then
+    echo "Cloning $owner_repo on the host and creating branch agent/$task_name..."
+    git clone "git@github.com:$owner_repo.git" "$workspace_dir"
+    (cd "$workspace_dir" && git checkout -b "agent/$task_name")
+  else
+    echo ""
+    echo "=============================================================="
+    echo "  GitHub token required (BOT account, fine-grained PAT)"
+    echo "  Scoped to: $owner_repo only"
+    echo "  Permissions: Contents RW, Pull requests RW, Metadata R"
+    echo "  The token is piped into the container and never written"
+    echo "  to host disk."
+    echo "=============================================================="
+    read -r -s -p "Paste the token (input hidden): " GH_TOKEN
+    echo ""
+    if [ -z "$GH_TOKEN" ]; then
+      echo "Error: empty token." >&2
+      return 1
+    fi
+
+    echo "Authenticating gh inside the container..."
+    printf '%s' "$GH_TOKEN" | lxc exec "$container" -- su - aiuser -c "gh auth login --hostname github.com --with-token"
+    unset GH_TOKEN
+    # Fail fast if the token is invalid (set -e aborts on non-zero)
+    lxc exec "$container" -- su - aiuser -c "gh auth status --hostname github.com"
+    lxc exec "$container" -- su - aiuser -c "gh auth setup-git"
+
+    echo "Cloning $owner_repo and creating branch agent/$task_name..."
+    lxc exec "$container" -- su - aiuser -c "git clone https://github.com/$owner_repo.git /workspace && cd /workspace && git checkout -b agent/$task_name"
   fi
-
-  echo "Authenticating gh inside the container..."
-  printf '%s' "$GH_TOKEN" | lxc exec "$container" -- su - aiuser -c "gh auth login --hostname github.com --with-token"
-  unset GH_TOKEN
-  # Fail fast if the token is invalid (set -e aborts on non-zero)
-  lxc exec "$container" -- su - aiuser -c "gh auth status --hostname github.com"
-  lxc exec "$container" -- su - aiuser -c "gh auth setup-git"
-
-  echo "Cloning $owner_repo and creating branch agent/$task_name..."
-  lxc exec "$container" -- su - aiuser -c "git clone https://github.com/$owner_repo.git /workspace && cd /workspace && git checkout -b agent/$task_name"
 
   echo "Recording forge metadata..."
   lxc config set "$container" user.forge.repo "$owner_repo"
-  lxc config set "$container" user.forge.mode "autonomous"
+  lxc config set "$container" user.forge.mode "$mode"
+
+  if [ "$mode" = "supervised" ]; then
+    echo ""
+    echo "Retrieve this container's work from your laptop with:"
+    echo "  git remote add $container ssh://moroine@<host>:2222$workspace_dir"
+  fi
 
   echo "Container $container provisioned."
 }

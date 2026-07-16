@@ -5,8 +5,13 @@ set -e
 # Human-invoked (via `!next-task <name>` from inside a live Claude session),
 # never by the agent itself — outside the agent's own tool loop, so
 # pre-bash.sh's "the agent never switches branches" guarantee is untouched.
-# Reuses the current container for a new task: refuses on dirty/unpushed
-# WIP, then checks out a fresh branch from origin/main.
+# Reuses the current container for a new task: refuses on dirty WIP, then
+# (autonomous mode) also refuses on unpushed commits and fetches origin
+# before checking out a fresh branch from origin/main. Supervised
+# containers have no GitHub credential, so there's nothing to fetch or
+# push from inside the container: the unpushed check and the fetch are
+# both skipped, and origin/main is whatever was last fetched from a host
+# shell.
 
 # All output is prefixed with [operator] so the agent does not interpret
 # these messages as instructions directed at it.
@@ -40,24 +45,34 @@ if [[ ! "$CURRENT_BRANCH" =~ ^agent/ ]]; then
   exit 1
 fi
 
-AHEAD_OF_MAIN=$(git log --oneline "origin/main..$CURRENT_BRANCH")
-if [ -n "$AHEAD_OF_MAIN" ]; then
-  if ! git rev-parse --verify "origin/$CURRENT_BRANCH" > /dev/null 2>&1; then
-    err "Error: branch $CURRENT_BRANCH has no origin/$CURRENT_BRANCH — it has never been pushed."
-    err "Please push it before running next-task, or the commits will be left behind."
-    exit 1
+FORGE_MODE_FILE="${FORGE_MODE_FILE:-/home/aiuser/.claude/forge-mode}"
+FORGE_MODE=$(cat "$FORGE_MODE_FILE" 2>/dev/null || echo autonomous)
+
+if [ "$FORGE_MODE" = "supervised" ]; then
+  err "Supervised container: skipping unpushed check and git fetch (no credential)."
+  err "If you want an up-to-date main, fetch it first from a host shell:"
+  err "  cd ~/workspaces/<container> && git fetch origin"
+else
+  AHEAD_OF_MAIN=$(git log --oneline "origin/main..$CURRENT_BRANCH")
+  if [ -n "$AHEAD_OF_MAIN" ]; then
+    if ! git rev-parse --verify "origin/$CURRENT_BRANCH" > /dev/null 2>&1; then
+      err "Error: branch $CURRENT_BRANCH has no origin/$CURRENT_BRANCH — it has never been pushed."
+      err "Please push it before running next-task, or the commits will be left behind."
+      exit 1
+    fi
+
+    UNPUSHED=$(git log --oneline "origin/$CURRENT_BRANCH..$CURRENT_BRANCH")
+    if [ -n "$UNPUSHED" ]; then
+      err "Error: branch $CURRENT_BRANCH has unpushed commits:"
+      err "$UNPUSHED"
+      err "Please push them before running next-task, or they will be left behind."
+      exit 1
+    fi
   fi
 
-  UNPUSHED=$(git log --oneline "origin/$CURRENT_BRANCH..$CURRENT_BRANCH")
-  if [ -n "$UNPUSHED" ]; then
-    err "Error: branch $CURRENT_BRANCH has unpushed commits:"
-    err "$UNPUSHED"
-    err "Please push them before running next-task, or they will be left behind."
-    exit 1
-  fi
+  git fetch origin
 fi
 
-git fetch origin
 git checkout -b "agent/$SHORT_NAME" origin/main
 
 echo "[operator] Ready on branch agent/$SHORT_NAME."
