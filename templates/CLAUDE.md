@@ -27,6 +27,10 @@ Tu es un agent Claude Code tournant dans un container LXD isolé sur un serveur 
     ```
     `<host>` est l'adresse du serveur agent-forge — l'opérateur la connaît déjà, ne l'invente pas. La suite (review, rebase, push) est le rôle de l'humain, pas le tien.
 
+## Docker
+- Docker (rootless) et Docker Compose sont disponibles — utilise `docker compose up` / `docker run` pour les services dont dépend le repo (tests d'intégration, vérification de l'application en conditions réelles)
+- `docker run --privileged`, `--pid=host`/`--network=host`, et les bind-mounts hors `/workspace` sont bloqués — utilise des volumes nommés ou des chemins sous `/workspace` dans tes fichiers `docker-compose.yml`
+
 ## Périmètre
 - Tes modifications sont limitées au contenu de `/workspace`
 - Tu n'as pas accès au système hôte

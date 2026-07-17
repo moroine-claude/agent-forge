@@ -40,6 +40,11 @@ assert_contains "aucune** credential GitHub"
 assert_contains 'arrête-toi là'
 assert_line_before '/home/aiuser/.claude/forge-mode' '`autonomous`'
 assert_line_before '`autonomous`' '`supervised`'
+assert_contains '## Docker'
+assert_contains 'docker compose up'
+assert_contains '--privileged'
+assert_line_before '## Git' '## Docker'
+assert_line_before '## Docker' '## Périmètre'
 
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"
