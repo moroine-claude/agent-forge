@@ -192,6 +192,8 @@ expect_block 'docker run --pid host ubuntu'
 expect_block 'docker run --network=host ubuntu'
 expect_block 'docker run --net=host ubuntu'
 expect_allow 'docker run --network=mybridge ubuntu'
+expect_allow 'git commit -m "docs: mention --network=host in README"'
+expect_allow 'docker run --network=hostnet-custom ubuntu'
 
 expect_block 'docker run -v /etc:/etc ubuntu'
 expect_block 'docker run -v /home/aiuser:/data ubuntu'
@@ -200,6 +202,8 @@ expect_block 'docker run --mount type=bind,source=/etc,target=/etc ubuntu'
 expect_allow 'docker run -v /workspace/data:/data mongo'
 expect_allow 'docker run -v mongodata:/data/db mongo'
 expect_allow 'docker run --mount type=bind,source=/workspace/data,target=/data mongo'
+expect_allow 'docker run -v /workspace/project/etc:/data ubuntu'
+expect_block 'docker run --mount type=bind,source=/,target=/host ubuntu'
 
 # Ces blocages s'appliquent identiquement dans les deux modes (aucune credential en jeu)
 expect_block_as supervised 'docker run --privileged ubuntu'

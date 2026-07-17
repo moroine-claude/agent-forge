@@ -156,14 +156,14 @@ if echo "$COMMAND" | grep -qE '(^|[[:space:];&|])docker[[:space:]].*--privileged
   block "docker run --privileged non autorisé."
 fi
 
-if echo "$COMMAND" | grep -qE '(--pid|--network|--net)(=|[[:space:]]+)host'; then
+if echo "$COMMAND" | grep -qE '(^|[[:space:];&|])docker[[:space:]].*(--pid|--network|--net)(=|[[:space:]]+)host([[:space:]]|$)'; then
   block "docker --pid=host / --network=host non autorisé."
 fi
 
 # Bind-mounts hors /workspace : /etc, /home (clé de signature, credentials
 # Claude), /root, /var, /usr, /boot, /proc, /sys, ou la racine entière.
-if echo "$COMMAND" | grep -qE '(-v|--volume|--mount)[[:space:]=]+[^[:space:]]*:?/(etc|home|root|var|usr|boot|proc|sys)([:/[:space:]]|$)' \
-   || echo "$COMMAND" | grep -qE '(-v|--volume)[[:space:]=]+/:[^[:space:]]*'; then
+if echo "$COMMAND" | grep -qE '(-v|--volume|--mount)[[:space:]=]+[^/[:space:]]*:?/(etc|home|root|var|usr|boot|proc|sys)([:/,[:space:]]|$)' \
+   || echo "$COMMAND" | grep -qE '(-v|--volume|--mount)[[:space:]=]+[^/[:space:]]*:?/([:/,[:space:]]|$)'; then
   block "Bind-mount Docker hors /workspace non autorisé."
 fi
 
