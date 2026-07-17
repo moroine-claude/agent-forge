@@ -178,6 +178,34 @@ else
   echo "FAIL (attendu ALLOW, missing marker file should default to autonomous, rc=$rc)"
 fi
 
+# --- docker : défense en profondeur en plus du confinement par namespaces
+# (nesting non-privilégié — voir docs/superpowers/specs/2026-07-17-agent-docker-support-design.md) ---
+expect_block 'docker run --privileged ubuntu'
+expect_block 'docker run -it --privileged debian bash'
+expect_block 'docker run --privileged ubuntu && echo done'
+expect_allow 'docker run ubuntu'
+expect_allow 'docker ps -a'
+expect_allow 'docker compose up -d'
+
+expect_block 'docker run --pid=host ubuntu'
+expect_block 'docker run --pid host ubuntu'
+expect_block 'docker run --network=host ubuntu'
+expect_block 'docker run --net=host ubuntu'
+expect_allow 'docker run --network=mybridge ubuntu'
+
+expect_block 'docker run -v /etc:/etc ubuntu'
+expect_block 'docker run -v /home/aiuser:/data ubuntu'
+expect_block 'docker run -v /:/host ubuntu'
+expect_block 'docker run --mount type=bind,source=/etc,target=/etc ubuntu'
+expect_allow 'docker run -v /workspace/data:/data mongo'
+expect_allow 'docker run -v mongodata:/data/db mongo'
+expect_allow 'docker run --mount type=bind,source=/workspace/data,target=/data mongo'
+
+# Ces blocages s'appliquent identiquement dans les deux modes (aucune credential en jeu)
+expect_block_as supervised 'docker run --privileged ubuntu'
+expect_block_as autonomous 'docker run --privileged ubuntu'
+expect_allow_as supervised 'docker compose up -d'
+
 echo ""
 echo "PASS: $PASS  FAIL: $FAIL"
 [ "$FAIL" -eq 0 ]
