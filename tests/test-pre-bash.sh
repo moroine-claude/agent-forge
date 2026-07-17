@@ -205,6 +205,12 @@ expect_allow 'docker run --mount type=bind,source=/workspace/data,target=/data m
 expect_allow 'docker run -v /workspace/project/etc:/data ubuntu'
 expect_block 'docker run --mount type=bind,source=/,target=/host ubuntu'
 
+# Non-docker -v/--volume usage must not be false-blocked by the bind-mount guardrail
+expect_allow 'cp -v /etc/hosts /workspace/hosts.bak'
+expect_allow 'grep -v /etc/passwd'
+expect_allow 'rsync -v /var/log/app.log /workspace/'
+expect_allow 'mv -v /home/aiuser/file /workspace/'
+
 # Ces blocages s'appliquent identiquement dans les deux modes (aucune credential en jeu)
 expect_block_as supervised 'docker run --privileged ubuntu'
 expect_block_as autonomous 'docker run --privileged ubuntu'

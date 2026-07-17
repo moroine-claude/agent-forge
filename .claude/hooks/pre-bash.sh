@@ -162,8 +162,8 @@ fi
 
 # Bind-mounts hors /workspace : /etc, /home (clé de signature, credentials
 # Claude), /root, /var, /usr, /boot, /proc, /sys, ou la racine entière.
-if echo "$COMMAND" | grep -qE '(-v|--volume|--mount)[[:space:]=]+[^/[:space:]]*:?/(etc|home|root|var|usr|boot|proc|sys)([:/,[:space:]]|$)' \
-   || echo "$COMMAND" | grep -qE '(-v|--volume|--mount)[[:space:]=]+[^/[:space:]]*:?/([:/,[:space:]]|$)'; then
+if echo "$COMMAND" | grep -qE '(^|[[:space:];&|])docker[[:space:]].*(-v|--volume|--mount)[[:space:]=]+[^/[:space:]]*:?/(etc|home|root|var|usr|boot|proc|sys)([:/,[:space:]]|$)' \
+   || echo "$COMMAND" | grep -qE '(^|[[:space:];&|])docker[[:space:]].*(-v|--volume|--mount)[[:space:]=]+[^/[:space:]]*:?/([:/,[:space:]]|$)'; then
   block "Bind-mount Docker hors /workspace non autorisé."
 fi
 
