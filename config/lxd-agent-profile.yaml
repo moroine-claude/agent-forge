@@ -4,9 +4,12 @@ config:
   environment.HOME: /home/aiuser
   limits.cpu: "8"
   limits.memory: 12GB
-  # Isolation : container non privilégié, pas de containers imbriqués
+  # Isolation : container non privilégié. Nesting activé pour Docker rootless
+  # (voir docs/superpowers/specs/2026-07-17-agent-docker-support-design.md) —
+  # security.privileged reste "false", donc root dans un conteneur Docker
+  # imbriqué reste un UID namespacé sans pouvoir sur l'hôte.
   security.privileged: "false"
-  security.nesting: "false"
+  security.nesting: "true"
   # Active la liste de blocage seccomp de LXD pour les syscalls dangereux
   # (mount, pivot_root, clone CLONE_NEWUSER, keyctl abuse, etc.)
   security.syscalls.deny_default: "true"
@@ -40,6 +43,6 @@ devices:
   root:
     path: /
     pool: default
-    size: 20GB
+    size: 100GB
     type: disk
 project: default
