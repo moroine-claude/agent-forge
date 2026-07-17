@@ -43,6 +43,16 @@ assert_contains "$LIB" 'agent-base-setup'
 assert_contains "$LIB" 'next-task.sh'
 assert_contains "$LIB" 'lxc publish'
 assert_line_before "$LIB" 'Removing leftover' 'lxc launch ubuntu:24.04'
+assert_contains "$LIB" 'docker-ce-rootless-extras'
+assert_contains "$LIB" 'docker-compose-plugin'
+assert_contains "$LIB" 'add-subuids'
+assert_contains "$LIB" 'add-subgids'
+assert_contains "$LIB" 'enable-linger aiuser'
+assert_contains "$LIB" 'dockerd-rootless-setuptool.sh install'
+assert_contains "$LIB" 'systemctl --user enable docker'
+assert_contains "$LIB" 'DOCKER_HOST=unix:///run/user/1001/docker.sock'
+assert_line_before "$LIB" 'useradd -m -s /bin/bash aiuser' 'add-subuids'
+assert_line_before "$LIB" 'add-subuids' 'dockerd-rootless-setuptool.sh install'
 
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"

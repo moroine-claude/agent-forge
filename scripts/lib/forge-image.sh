@@ -36,8 +36,20 @@ _forge_image_build() {
   lxc exec "$setup" -- bash -c 'echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list'
   lxc exec "$setup" -- bash -c 'apt update && apt install -y gh'
   lxc exec "$setup" -- bash -c "wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/chrome.deb && apt install -y --fix-missing /tmp/chrome.deb"
+  echo "Installing Docker (rootless)..."
+  lxc exec "$setup" -- apt install -y uidmap dbus-user-session
+  lxc exec "$setup" -- bash -c 'mkdir -p -m 755 /etc/apt/keyrings && curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc && chmod a+r /etc/apt/keyrings/docker.asc'
+  lxc exec "$setup" -- bash -c 'echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable" > /etc/apt/sources.list.d/docker.list'
+  lxc exec "$setup" -- bash -c 'apt update && apt install -y docker-ce-cli docker-ce-rootless-extras docker-compose-plugin'
   lxc exec "$setup" -- useradd -m -s /bin/bash aiuser
   lxc exec "$setup" -- bash -c "mkdir -p /workspace /home/aiuser/.ssh /home/aiuser/.claude /home/aiuser/.local/bin && chown aiuser:aiuser /workspace /home/aiuser/.ssh /home/aiuser/.claude /home/aiuser/.local/bin && chmod 750 /workspace && chmod 700 /home/aiuser/.ssh"
+  echo "Configuring rootless Docker for aiuser..."
+  lxc exec "$setup" -- usermod --add-subuids 200000-265535 --add-subgids 200000-265535 aiuser
+  lxc exec "$setup" -- loginctl enable-linger aiuser
+  lxc exec "$setup" -- su - aiuser -c "dockerd-rootless-setuptool.sh install --skip-iptables"
+  lxc exec "$setup" -- su - aiuser -c "systemctl --user enable docker"
+  lxc exec "$setup" -- su - aiuser -c "echo 'export DOCKER_HOST=unix:///run/user/1001/docker.sock' >> /home/aiuser/.bashrc"
+  lxc exec "$setup" -- su - aiuser -c "echo 'export PATH=/usr/bin:\$PATH' >> /home/aiuser/.bashrc"
 
   echo "Installing next-task..."
   lxc file push /home/moroine/agent-forge/config/next-task.sh \
