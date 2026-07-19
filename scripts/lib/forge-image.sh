@@ -44,7 +44,14 @@ _forge_image_build() {
   lxc exec "$setup" -- useradd -m -s /bin/bash aiuser
   lxc exec "$setup" -- bash -c "mkdir -p /workspace /home/aiuser/.ssh /home/aiuser/.claude /home/aiuser/.local/bin && chown aiuser:aiuser /workspace /home/aiuser/.ssh /home/aiuser/.claude /home/aiuser/.local/bin && chmod 750 /workspace && chmod 700 /home/aiuser/.ssh"
   echo "Configuring rootless Docker for aiuser..."
-  lxc exec "$setup" -- usermod --add-subuids 200000-265535 --add-subgids 200000-265535 aiuser
+  # useradd -m auto-assigns a subuid/subgid range on Ubuntu 24.04 (via
+  # shadow-utils, tied to the user's own UID) ; on remplace cette entrée par
+  # une plage connue plutôt que d'en ADDitionner une seconde, sinon les deux
+  # plages se chevauchent et newuidmap rejette l'écriture dans uid_map
+  # (EINVAL) au moment du setup rootless ci-dessous.
+  lxc exec "$setup" -- bash -c "sed -i '/^aiuser:/d' /etc/subuid /etc/subgid"
+  lxc exec "$setup" -- bash -c "echo 'aiuser:200000:65536' >> /etc/subuid"
+  lxc exec "$setup" -- bash -c "echo 'aiuser:200000:65536' >> /etc/subgid"
   lxc exec "$setup" -- loginctl enable-linger aiuser
   lxc exec "$setup" -- su - aiuser -c "dockerd-rootless-setuptool.sh install --skip-iptables"
   lxc exec "$setup" -- su - aiuser -c "systemctl --user enable docker"
