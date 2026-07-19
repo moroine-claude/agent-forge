@@ -56,6 +56,7 @@ assert_line_before "$LIB" 'Removing leftover' 'lxc launch ubuntu:24.04'
 assert_contains "$LIB" 'lxc launch ubuntu:24.04 "$setup" --profile agent'
 assert_contains "$LIB" 'docker-ce-rootless-extras'
 assert_contains "$LIB" 'docker-compose-plugin'
+assert_contains "$LIB" 'chown -R aiuser:aiuser /home/aiuser'
 assert_contains "$LIB" "sed -i '/^aiuser:/d' /etc/subuid /etc/subgid"
 assert_contains "$LIB" "echo 'aiuser:200000:65536' >> /etc/subuid"
 assert_contains "$LIB" "echo 'aiuser:200000:65536' >> /etc/subgid"

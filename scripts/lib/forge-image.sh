@@ -47,6 +47,13 @@ _forge_image_build() {
   lxc exec "$setup" -- bash -c 'echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable" > /etc/apt/sources.list.d/docker.list'
   lxc exec "$setup" -- bash -c 'apt update && apt install -y docker-ce-cli docker-ce-rootless-extras docker-compose-plugin'
   lxc exec "$setup" -- useradd -m -s /bin/bash aiuser
+  # useradd -m ne corrige ni l'ownership ni le contenu (skel) d'un
+  # /home/aiuser préexistant — seulement d'un répertoire qu'il vient de
+  # créer. On force donc l'ownership explicitement plutôt que de compter
+  # sur cet effet de bord, sinon $HOME reste root: et
+  # dockerd-rootless-setuptool.sh échoue plus loin avec "HOME needs to be
+  # writable" (confirmé en conditions réelles).
+  lxc exec "$setup" -- chown -R aiuser:aiuser /home/aiuser
   lxc exec "$setup" -- bash -c "mkdir -p /workspace /home/aiuser/.ssh /home/aiuser/.claude /home/aiuser/.local/bin && chown aiuser:aiuser /workspace /home/aiuser/.ssh /home/aiuser/.claude /home/aiuser/.local/bin && chmod 750 /workspace && chmod 700 /home/aiuser/.ssh"
   echo "Configuring rootless Docker for aiuser..."
   # useradd -m auto-assigns a subuid/subgid range on Ubuntu 24.04 (via
