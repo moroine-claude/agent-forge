@@ -24,7 +24,12 @@ _forge_image_build() {
   fi
 
   echo "Launching scratch container $setup..."
-  lxc launch ubuntu:24.04 "$setup"
+  # Profil "agent" (pas le défaut) : il faut security.nesting pour que
+  # dockerd-rootless-setuptool.sh puisse réellement démarrer le daemon
+  # pendant le build, pas seulement installer les fichiers/units — sans
+  # nesting, le démarrage du service échoue ("control process exited with
+  # error code", confirmé en conditions réelles).
+  lxc launch ubuntu:24.04 "$setup" --profile agent
 
   lxc exec "$setup" -- apt update
   lxc exec "$setup" -- apt install -y git tmux curl wget unzip zip python3 python3-pip

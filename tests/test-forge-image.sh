@@ -53,6 +53,7 @@ assert_contains "$LIB" 'agent-base-setup'
 assert_contains "$LIB" 'next-task.sh'
 assert_contains "$LIB" 'lxc publish'
 assert_line_before "$LIB" 'Removing leftover' 'lxc launch ubuntu:24.04'
+assert_contains "$LIB" 'lxc launch ubuntu:24.04 "$setup" --profile agent'
 assert_contains "$LIB" 'docker-ce-rootless-extras'
 assert_contains "$LIB" 'docker-compose-plugin'
 assert_contains "$LIB" "sed -i '/^aiuser:/d' /etc/subuid /etc/subgid"
