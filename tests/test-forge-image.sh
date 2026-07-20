@@ -59,6 +59,7 @@ assert_contains "$LIB" 'systemctl disable --now docker.service docker.socket con
 assert_contains "$LIB" 'systemctl mask docker.service containerd.service'
 assert_line_before "$LIB" 'apt install -y docker-ce docker-ce-cli' 'systemctl disable --now docker.service docker.socket containerd.service'
 assert_contains "$LIB" 'chown -R aiuser:aiuser /home/aiuser'
+assert_line_before "$LIB" 'mkdir -p /workspace /home/aiuser/.ssh' 'chown -R aiuser:aiuser /home/aiuser'
 assert_contains "$LIB" "sed -i '/^aiuser:/d' /etc/subuid /etc/subgid"
 assert_contains "$LIB" "echo 'aiuser:200000:65536' >> /etc/subuid"
 assert_contains "$LIB" "echo 'aiuser:200000:65536' >> /etc/subgid"

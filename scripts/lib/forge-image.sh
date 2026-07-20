@@ -59,14 +59,21 @@ _forge_image_build() {
   lxc exec "$setup" -- systemctl disable --now docker.service docker.socket containerd.service
   lxc exec "$setup" -- systemctl mask docker.service containerd.service
   lxc exec "$setup" -- useradd -m -s /bin/bash aiuser
+  lxc exec "$setup" -- bash -c "mkdir -p /workspace /home/aiuser/.ssh /home/aiuser/.claude /home/aiuser/.local/bin && chown aiuser:aiuser /workspace /home/aiuser/.ssh /home/aiuser/.claude /home/aiuser/.local/bin && chmod 750 /workspace && chmod 700 /home/aiuser/.ssh"
   # useradd -m ne corrige ni l'ownership ni le contenu (skel) d'un
   # /home/aiuser préexistant — seulement d'un répertoire qu'il vient de
-  # créer. On force donc l'ownership explicitement plutôt que de compter
-  # sur cet effet de bord, sinon $HOME reste root: et
-  # dockerd-rootless-setuptool.sh échoue plus loin avec "HOME needs to be
-  # writable" (confirmé en conditions réelles).
+  # créer (confirmé en conditions réelles : $HOME=/home/aiuser force par
+  # environment.HOME du profil sur TOUS les lxc exec, y compris les étapes
+  # apt/npm en root avant useradd, donc /home/aiuser existe presque
+  # toujours déjà, root:root, avant même useradd). Le chown -R final,
+  # après la création de .ssh/.claude/.local/bin ci-dessus, corrige tout
+  # l'arbre en une seule passe — y compris /home/aiuser/.local lui-même,
+  # créé root:root en effet de bord du mkdir -p précédent (qui ne chown
+  # que .local/bin, pas son parent .local). Sans ce chown final sur tout
+  # l'arbre, dockerd échoue plus loin avec "mkdir
+  # /home/aiuser/.local/share: permission denied" (confirmé en conditions
+  # réelles).
   lxc exec "$setup" -- chown -R aiuser:aiuser /home/aiuser
-  lxc exec "$setup" -- bash -c "mkdir -p /workspace /home/aiuser/.ssh /home/aiuser/.claude /home/aiuser/.local/bin && chown aiuser:aiuser /workspace /home/aiuser/.ssh /home/aiuser/.claude /home/aiuser/.local/bin && chmod 750 /workspace && chmod 700 /home/aiuser/.ssh"
   echo "Configuring rootless Docker for aiuser..."
   # useradd -m auto-assigns a subuid/subgid range on Ubuntu 24.04 (via
   # shadow-utils, tied to the user's own UID) ; on remplace cette entrée par
