@@ -45,7 +45,19 @@ _forge_image_build() {
   lxc exec "$setup" -- apt install -y uidmap dbus-user-session
   lxc exec "$setup" -- bash -c 'mkdir -p -m 755 /etc/apt/keyrings && curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc && chmod a+r /etc/apt/keyrings/docker.asc'
   lxc exec "$setup" -- bash -c 'echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable" > /etc/apt/sources.list.d/docker.list'
-  lxc exec "$setup" -- bash -c 'apt update && apt install -y docker-ce-cli docker-ce-rootless-extras docker-compose-plugin'
+  # docker-ce-rootless-extras ne fournit que les scripts wrapper
+  # (dockerd-rootless.sh, dockerd-rootless-setuptool.sh) — pas le binaire
+  # dockerd/containerd lui-même, qui vit uniquement dans docker-ce/
+  # containerd.io. Sans eux, dockerd-rootless.sh échoue à "exec dockerd"
+  # avec "not found" (confirmé en conditions réelles). On les installe donc
+  # aussi, puis on désactive ET masque immédiatement leurs units rootful —
+  # dockerd/containerd tournant en root ne doit jamais être actif, seul le
+  # binaire nous intéresse. L'auto-start du postinst apt est sans
+  # conséquence : ce conteneur scratch est jeté après publication de
+  # l'image, seul l'état filesystem (post-stop) est capturé.
+  lxc exec "$setup" -- bash -c 'apt update && apt install -y docker-ce docker-ce-cli containerd.io docker-ce-rootless-extras docker-compose-plugin'
+  lxc exec "$setup" -- systemctl disable --now docker.service docker.socket containerd.service
+  lxc exec "$setup" -- systemctl mask docker.service containerd.service
   lxc exec "$setup" -- useradd -m -s /bin/bash aiuser
   # useradd -m ne corrige ni l'ownership ni le contenu (skel) d'un
   # /home/aiuser préexistant — seulement d'un répertoire qu'il vient de
