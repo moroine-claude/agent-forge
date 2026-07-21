@@ -18,6 +18,16 @@ assert_contains() {
   fi
 }
 
+assert_not_contains() {
+  local file="$1" pattern="$2"
+  if grep -qF -- "$pattern" "$file"; then
+    FAIL=$((FAIL + 1))
+    echo "FAIL (attendu absent de $file): $pattern"
+  else
+    PASS=$((PASS + 1))
+  fi
+}
+
 assert_line_before() {
   local file="$1" p1="$2" p2="$3" l1 l2
   l1=$(grep -nF -- "$p1" "$file" | head -1 | cut -d: -f1)
@@ -43,6 +53,24 @@ assert_contains "$LIB" 'agent-base-setup'
 assert_contains "$LIB" 'next-task.sh'
 assert_contains "$LIB" 'lxc publish'
 assert_line_before "$LIB" 'Removing leftover' 'lxc launch ubuntu:24.04'
+assert_contains "$LIB" 'lxc launch ubuntu:24.04 "$setup" --profile agent'
+assert_contains "$LIB" 'docker-ce docker-ce-cli containerd.io docker-ce-rootless-extras docker-compose-plugin'
+assert_contains "$LIB" 'systemctl disable --now docker.service docker.socket containerd.service'
+assert_contains "$LIB" 'systemctl mask docker.service containerd.service'
+assert_line_before "$LIB" 'apt install -y docker-ce docker-ce-cli' 'systemctl disable --now docker.service docker.socket containerd.service'
+assert_contains "$LIB" 'chown -R aiuser:aiuser /home/aiuser'
+assert_line_before "$LIB" 'mkdir -p /workspace /home/aiuser/.ssh' 'chown -R aiuser:aiuser /home/aiuser'
+assert_contains "$LIB" "sed -i '/^aiuser:/d' /etc/subuid /etc/subgid"
+assert_contains "$LIB" "echo 'aiuser:200000:65536' >> /etc/subuid"
+assert_contains "$LIB" "echo 'aiuser:200000:65536' >> /etc/subgid"
+assert_not_contains "$LIB" 'add-subuids'
+assert_not_contains "$LIB" 'add-subgids'
+assert_contains "$LIB" 'enable-linger aiuser'
+assert_contains "$LIB" 'dockerd-rootless-setuptool.sh install'
+assert_contains "$LIB" 'systemctl --user enable docker'
+assert_contains "$LIB" 'DOCKER_HOST=unix:///run/user/1001/docker.sock'
+assert_line_before "$LIB" 'useradd -m -s /bin/bash aiuser' "sed -i '/^aiuser:/d' /etc/subuid /etc/subgid"
+assert_line_before "$LIB" "echo 'aiuser:200000:65536' >> /etc/subuid" 'dockerd-rootless-setuptool.sh install'
 
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"

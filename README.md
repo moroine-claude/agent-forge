@@ -113,7 +113,8 @@ Build the base image:
 (Aliased as `forge image update` — same command, use whichever name you find
 more intuitive for a rebuild.) This scripts the same steps every time:
 launches a scratch `agent-base-setup` container, installs Node LTS, `pnpm`,
-Claude Code, `gh`, Chrome, and the `next-task` helper, creates `aiuser`, sets
+Claude Code, `gh`, Chrome, Docker (rootless) and Compose, and the
+`next-task` helper, creates `aiuser`, sets
 up `/workspace`/`.ssh`/`.claude` ownership, then publishes the `agent-base`
 alias and cleans up the scratch container. Only affects containers created
 *after* the rebuild — already-running containers keep their existing image
@@ -130,6 +131,11 @@ lxc profile edit agent
 ```
 
 Paste the content of `config/lxd-agent-profile.yaml`.
+
+This enables `security.nesting` (needed for rootless Docker inside each
+container — see "Docker/Compose access" below) on top of an otherwise
+unprivileged container, and sizes the root disk at 100GB to leave room for
+Docker images/volumes.
 
 ### 6. GitHub bot account: signing key, PAT, branch protection
 
@@ -276,6 +282,21 @@ skips the unpushed-commits check (there's no "pushed" concept without a
 credential) and skips `git fetch origin` (no credential to fetch with) — if
 you want an up-to-date `main` first, fetch it yourself from a host shell in
 the workspace directory before running `next-task`.
+
+### Docker/Compose access
+
+Every agent container gets rootless Docker and Compose by default (baked
+into `agent-base`, no opt-in) — for repos that need a backing service
+(MongoDB, Postgres, Redis, ...) for tests or for running the app itself.
+The daemon runs entirely as `aiuser` (no root, no `docker` group, no
+privileged daemon): a worst-case container escape lands the agent back at
+its own existing `aiuser` privilege level, nothing new. `pre-bash.sh` blocks
+`--privileged`, `--pid=host`/`--network=host`, and bind-mounts outside
+`/workspace` as defense-in-depth on top of that containment — everything
+else (`docker run`, `docker compose up`, named volumes, workspace-relative
+bind mounts) works normally. See
+`docs/superpowers/specs/2026-07-17-agent-docker-support-design.md` for the
+full design rationale.
 
 ### Token renewal
 

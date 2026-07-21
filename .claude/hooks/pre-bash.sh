@@ -146,4 +146,25 @@ if echo "$COMMAND" | grep -qE '(curl|wget).*(-d[[:space:]]|--data|--upload-file|
   fi
 fi
 
+# Docker : défense en profondeur en plus du confinement par namespaces
+# (nesting non-privilégié — security.privileged reste "false", voir
+# docs/superpowers/specs/2026-07-17-agent-docker-support-design.md). Ces
+# règles ne sont pas la frontière réelle, qui vient du namespacing ; elles
+# évitent juste que le conteneur Docker imbriqué brouille la frontière avec
+# le conteneur agent lui-même.
+if echo "$COMMAND" | grep -qE '(^|[[:space:];&|])docker[[:space:]].*--privileged([[:space:]]|=|$)'; then
+  block "docker run --privileged non autorisé."
+fi
+
+if echo "$COMMAND" | grep -qE '(^|[[:space:];&|])docker[[:space:]].*(--pid|--network|--net)(=|[[:space:]]+)host([[:space:]]|$)'; then
+  block "docker --pid=host / --network=host non autorisé."
+fi
+
+# Bind-mounts hors /workspace : /etc, /home (clé de signature, credentials
+# Claude), /root, /var, /usr, /boot, /proc, /sys, ou la racine entière.
+if echo "$COMMAND" | grep -qE '(^|[[:space:];&|])docker[[:space:]].*(-v|--volume|--mount)[[:space:]=]+[^/[:space:]]*:?/(etc|home|root|var|usr|boot|proc|sys)([:/,[:space:]]|$)' \
+   || echo "$COMMAND" | grep -qE '(^|[[:space:];&|])docker[[:space:]].*(-v|--volume|--mount)[[:space:]=]+[^/[:space:]]*:?/([:/,[:space:]]|$)'; then
+  block "Bind-mount Docker hors /workspace non autorisé."
+fi
+
 exit 0
