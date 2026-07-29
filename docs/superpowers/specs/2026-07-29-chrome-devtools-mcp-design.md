@@ -44,7 +44,7 @@ lire les logs console et les requêtes réseau, cliquer/saisir du texte.
 
 ```
 forge-image.sh (build)
-  └── pnpm add -g chrome-devtools-mcp@<version épinglée>
+  └── npm install -g chrome-devtools-mcp@<version épinglée>
 
 forge-start.sh (provisioning initial d'un nouveau container uniquement)
   └── lxc file push config/claude-onboarding-state.json → ~/.claude.json
@@ -66,11 +66,12 @@ interaction avec les guardrails de `pre-bash.sh`.
 
 **1. `scripts/lib/forge-image.sh`**
 
-À côté de l'installation de Chrome, ajoute l'installation globale du paquet
-npm, exécutée en tant qu'`aiuser` :
+Installation globale du paquet npm, en root (même convention que
+`@anthropic-ai/claude-code` à la ligne 39 — pas besoin d'`aiuser`, qui
+n'existe d'ailleurs pas encore à ce point du script) :
 
 ```bash
-lxc exec "$setup" -- su - aiuser -c "pnpm add -g chrome-devtools-mcp@<version épinglée>"
+lxc exec "$setup" -- npm install -g chrome-devtools-mcp@<version épinglée>
 ```
 
 Version épinglée explicitement (jamais `@latest`) — même principe que le
