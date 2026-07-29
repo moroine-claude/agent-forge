@@ -151,9 +151,23 @@ Docker/Compose.
 
 ## Testing
 
-Pas de tests automatisés unitaires — c'est de la config d'infra, cohérent
-avec le reste du repo (`forge-image.sh`/`forge-start.sh` n'ont pas de suite de
-tests). Vérification en usage réel :
+Le repo a une suite de tests structurels par fichier (`tests/test-*.sh` —
+assertions `grep`/JSON sur le contenu des scripts et configs, pas de
+container LXD réel), à étendre pour chacun des fichiers touchés :
+
+- `tests/test-forge-image.sh` : assertion que la ligne
+  `npm install -g chrome-devtools-mcp` est présente dans
+  `scripts/lib/forge-image.sh`, après l'installation de Chrome.
+- `tests/test-claude-onboarding-state.sh` : assertion JSON que
+  `mcpServers.chrome-devtools.command` vaut `chrome-devtools-mcp` dans
+  `config/claude-onboarding-state.json`.
+- `tests/test-readme-docs.sh` : assertion que `README.md` mentionne
+  `chrome-devtools-mcp`.
+- `tests/test-claude-template.sh` : assertion que `templates/CLAUDE.md`
+  mentionne le MCP Chrome DevTools.
+
+Au-delà de ces tests structurels, une vérification en usage réel (pas
+automatisée, comme le reste du cycle de vie des containers) :
 
 1. `./scripts/forge image build` — l'install `npm install -g chrome-devtools-mcp`
    réussit sans erreur.
