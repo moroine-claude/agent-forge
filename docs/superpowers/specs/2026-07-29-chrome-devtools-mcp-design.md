@@ -46,7 +46,7 @@ lire les logs console et les requêtes réseau, cliquer/saisir du texte.
 forge-image.sh (build)
   └── pnpm add -g chrome-devtools-mcp@<version épinglée>
 
-forge-start.sh (provisioning, à chaque container)
+forge-start.sh (provisioning initial d'un nouveau container uniquement)
   └── lxc file push config/claude-onboarding-state.json → ~/.claude.json
         (ajout d'une clé "mcpServers" globale, comme le reste du fichier)
 
@@ -80,9 +80,10 @@ registre npm au moment de l'implémentation.
 
 **2. `config/claude-onboarding-state.json`**
 
-Poussé vers `~/.claude.json` à chaque `forge start`/`next-task` — donc
-appliqué à tout container, existant ou nouveau, sans attendre un rebuild
-d'image. Ajoute une clé `mcpServers` à la racine :
+Poussé vers `~/.claude.json` une seule fois, à la création initiale d'un
+container (`_forge_provision_container` dans `forge-start.sh:96`) — jamais
+re-poussé sur un container déjà provisionné, ni par un `forge start`
+ultérieur ni par `next-task`. Ajoute une clé `mcpServers` à la racine :
 
 ```json
 "mcpServers": {
@@ -108,9 +109,9 @@ exécutable existant, profil isolé) est ce qui compte dans ce document.
 La ligne qui liste ce que `forge image build` installe gagne
 `chrome-devtools-mcp`. Une courte section "Vérification visuelle" documente
 que l'outil est disponible pour tous les agents sans configuration par repo,
-et rappelle la distinction entre le binaire (rafraîchi seulement au rebuild
-d'image) et la déclaration MCP dans `.claude.json` (rafraîchie à chaque
-`forge start`/`next-task`).
+et précise que les deux moitiés (binaire dans l'image, déclaration MCP dans
+`.claude.json`) n'atteignent que les *nouveaux* containers — voir "Risques"
+pour l'ordre de déploiement à respecter.
 
 **4. `templates/CLAUDE.md`**
 
@@ -134,13 +135,18 @@ Docker/Compose.
 - **Dérive de version** : version npm épinglée explicitement, comme décrit
   plus haut.
 - **Containers déjà existants** : ce changement n'affecte que les *nouveaux*
-  containers, ou ceux recréés après rebuild d'image — un container déjà
-  provisionné ne récupère le nouveau binaire `chrome-devtools-mcp` qu'après
-  `forge delete` + `forge start` sur une image reconstruite. La partie
-  `~/.claude.json` (`mcpServers`), elle, est reposée à chaque `forge
-  start`/`next-task`, donc rafraîchie plus vite que le binaire — à documenter
-  clairement pour éviter la confusion ("j'ai la nouvelle config MCP mais pas
-  le binaire correspondant").
+  containers. Aucune des deux moitiés n'atteint un container déjà provisionné
+  — ni le binaire (baked dans l'image au moment de `forge image build`), ni
+  la déclaration `mcpServers` (poussée vers `~/.claude.json` une seule fois,
+  à la création initiale du container, jamais re-poussée ensuite). Un
+  container existant ne récupère les deux qu'en le supprimant et en le
+  recréant (`forge delete` puis `forge start`) après un rebuild d'image.
+- **Ordre de déploiement** : `forge image build` (qui installe le binaire)
+  doit être exécuté avant de créer un nouveau container qui référence
+  `chrome-devtools` dans `mcpServers` — sinon le serveur MCP pointe vers un
+  binaire absent et échoue silencieusement au démarrage de la session. Les
+  deux changements (image + `claude-onboarding-state.json`) doivent donc être
+  déployés ensemble, dans cet ordre.
 
 ## Testing
 
