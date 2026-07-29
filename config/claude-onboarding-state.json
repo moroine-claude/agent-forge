@@ -5,5 +5,16 @@
       "hasTrustDialogAccepted": true,
       "hasCompletedProjectOnboarding": true
     }
+  },
+  "mcpServers": {
+    "chrome-devtools": {
+      "command": "chrome-devtools-mcp",
+      "args": [
+        "--headless",
+        "--executablePath=/usr/bin/google-chrome-stable",
+        "--isolated",
+        "--no-usage-statistics"
+      ]
+    }
   }
 }
