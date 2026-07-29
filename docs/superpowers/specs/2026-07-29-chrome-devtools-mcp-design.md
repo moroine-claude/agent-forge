@@ -155,7 +155,7 @@ Pas de tests automatisés unitaires — c'est de la config d'infra, cohérent
 avec le reste du repo (`forge-image.sh`/`forge-start.sh` n'ont pas de suite de
 tests). Vérification en usage réel :
 
-1. `./scripts/forge image build` — l'install `pnpm add -g chrome-devtools-mcp`
+1. `./scripts/forge image build` — l'install `npm install -g chrome-devtools-mcp`
    réussit sans erreur.
 2. Provisionner un container jetable, lancer `claude`, vérifier que
    `chrome-devtools` apparaît comme serveur MCP connecté (pas d'erreur de
