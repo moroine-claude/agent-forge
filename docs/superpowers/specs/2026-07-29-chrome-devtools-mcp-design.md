@@ -91,15 +91,22 @@ ultérieur ni par `next-task`. Ajoute une clé `mcpServers` à la racine :
   "chrome-devtools": {
     "command": "chrome-devtools-mcp",
     "args": [
-      "--headless=true",
+      "--headless",
       "--executablePath=/usr/bin/google-chrome-stable",
-      "--isolated=true"
+      "--isolated",
+      "--no-usage-statistics"
     ]
   }
 }
 ```
 
-`--isolated=true` donne un profil Chrome temporaire par lancement, pour éviter
+(Flags confirmés via `npx chrome-devtools-mcp@1.6.0 --help` au moment de
+l'implémentation — `--headless`/`--isolated` sont des booléens simples, pas
+`=true`. `--no-usage-statistics` désactive l'envoi de statistiques d'usage à
+Google, activé par défaut par ce serveur — cohérent avec le reste du projet,
+qui borne chaque credential et chemin réseau étroitement.)
+
+`--isolated` donne un profil Chrome temporaire par lancement, pour éviter
 les conflits de verrou de profil. Les noms de flags exacts (et l'ajout
 éventuel de `--no-sandbox`, voir "Risques") sont vérifiés contre la doc CLI de
 `chrome-devtools-mcp` au moment de l'implémentation — le principe (headless,
