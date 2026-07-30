@@ -58,9 +58,9 @@ assert_contains "$LIB" 'docker-ce docker-ce-cli containerd.io docker-ce-rootless
 assert_contains "$LIB" 'systemctl disable --now docker.service docker.socket containerd.service'
 assert_contains "$LIB" 'systemctl mask docker.service containerd.service'
 assert_line_before "$LIB" 'apt install -y docker-ce docker-ce-cli' 'systemctl disable --now docker.service docker.socket containerd.service'
-assert_contains "$LIB" 'npm install -g chrome-devtools-mcp@1.6.0'
-assert_line_before "$LIB" 'google-chrome-stable_current_amd64.deb' 'npm install -g chrome-devtools-mcp@1.6.0'
-assert_line_before "$LIB" 'npm install -g chrome-devtools-mcp@1.6.0' 'Installing Docker (rootless)'
+assert_contains "$LIB" 'npm install -g chrome-devtools-mcp@latest'
+assert_line_before "$LIB" 'google-chrome-stable_current_amd64.deb' 'npm install -g chrome-devtools-mcp@latest'
+assert_line_before "$LIB" 'npm install -g chrome-devtools-mcp@latest' 'Installing Docker (rootless)'
 assert_contains "$LIB" 'chown -R aiuser:aiuser /home/aiuser'
 assert_line_before "$LIB" 'mkdir -p /workspace /home/aiuser/.ssh' 'chown -R aiuser:aiuser /home/aiuser'
 assert_contains "$LIB" "sed -i '/^aiuser:/d' /etc/subuid /etc/subgid"
