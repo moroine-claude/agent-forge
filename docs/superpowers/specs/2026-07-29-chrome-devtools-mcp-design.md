@@ -44,7 +44,7 @@ lire les logs console et les requêtes réseau, cliquer/saisir du texte.
 
 ```
 forge-image.sh (build)
-  └── npm install -g chrome-devtools-mcp@<version épinglée>
+  └── npm install -g chrome-devtools-mcp@latest
 
 forge-start.sh (provisioning initial d'un nouveau container uniquement)
   └── lxc file push config/claude-onboarding-state.json → ~/.claude.json
@@ -71,13 +71,15 @@ Installation globale du paquet npm, en root (même convention que
 n'existe d'ailleurs pas encore à ce point du script) :
 
 ```bash
-lxc exec "$setup" -- npm install -g chrome-devtools-mcp@<version épinglée>
+lxc exec "$setup" -- npm install -g chrome-devtools-mcp@latest
 ```
 
-Version épinglée explicitement (jamais `@latest`) — même principe que le
-reste de l'image : reproductible, pas de dérive silencieuse entre deux
-`forge image build`. La version exacte à épingler est vérifiée sur le
-registre npm au moment de l'implémentation.
+Non épinglé, comme tout le reste de l'image (`pnpm`, `@anthropic-ai/claude-code`,
+`gh`, Chrome, Docker/Compose ne le sont pas non plus — `claude-code` est même
+réinstallé explicitement en `@latest` à chaque `forge start`,
+`forge-start.sh:99`). Épingler une version exacte bloquerait les correctifs
+de sécurité de `chrome-devtools-mcp` à chaque rebuild d'image, ce qui pèse
+plus lourd ici que le risque de dérive de comportement entre deux builds.
 
 **2. `config/claude-onboarding-state.json`**
 
@@ -140,8 +142,13 @@ Docker/Compose.
 - **Dépendances système manquantes** : le `.deb` Chrome installe déjà ses
   dépendances via `--fix-missing` (ligne existante de `forge-image.sh`) — pas
   de changement attendu, confirmé par le smoke test.
-- **Dérive de version** : version npm épinglée explicitement, comme décrit
-  plus haut.
+- **Dérive de version** : non épinglé (voir Architecture) — un `forge image
+  build` peut donc installer une version plus récente de
+  `chrome-devtools-mcp` avec un changement de comportement (flags CLI,
+  etc.) non testé par ce design. Risque accepté : c'est le même compromis
+  que pour `@anthropic-ai/claude-code` et tous les autres paquets de
+  l'image, et les correctifs de sécurité automatiques pèsent plus lourd
+  qu'une reproductibilité stricte pour cet outil.
 - **Containers déjà existants** : ce changement n'affecte que les *nouveaux*
   containers. Aucune des deux moitiés n'atteint un container déjà provisionné
   — ni le binaire (baked dans l'image au moment de `forge image build`), ni
