@@ -342,6 +342,19 @@ assert_contains 'FORGE_REPO_DIR'
 assert_contains 'user.forge.image_commit'
 assert_contains 'get-property agent-base user.forge.commit'
 
+# --- next-task is retired: no shipped script should reference it ---
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+if grep -rInF -- 'next-task' "$ROOT_DIR/scripts" "$ROOT_DIR/config" 2>/dev/null; then
+  FAIL=$((FAIL + 1)); echo "FAIL: next-task still referenced under scripts/ or config/"
+else
+  PASS=$((PASS + 1))
+fi
+if [ -e "$ROOT_DIR/config/next-task.sh" ]; then
+  FAIL=$((FAIL + 1)); echo "FAIL: config/next-task.sh still exists"
+else
+  PASS=$((PASS + 1))
+fi
+
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]
