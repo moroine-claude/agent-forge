@@ -67,10 +67,10 @@ assert_contains "$LIB" 'gh auth login'
 # --- new in this task: metadata + reuse + task-name default ---
 assert_contains "$LIB" 'lxc config set "$container" user.forge.repo'
 assert_contains "$LIB" 'lxc config set "$container" user.forge.mode "$mode"'
-# task_name="${2:-init}" default moved to Task 5 (task-name becomes required)
 assert_contains "$LIB" 'validate_task_name "$task_name"'
-# agent/$task_name literal moved with the checkout lines to Task 5 (worktree creation)
-assert_contains "$LIB" 'already exists; task-name'
+# The old "container already exists -> warn, ignore task-name" branch is
+# retired in Task 5: an existing container now just skips provisioning and
+# proceeds to _forge_add_worktree (see the 'already exists' guard below).
 assert_contains "$LIB" '--permission-mode auto'
 assert_contains "$LIB" 'tmux new-session'
 
@@ -92,6 +92,24 @@ assert_contains "$LIB" '.trees/'
 assert_contains "$LIB" 'info/exclude'
 assert_contains "$LIB" 'lxc config set "$container" user.forge.image_commit'
 assert_not_contains "$LIB" 'git checkout -b "agent/$task_name"'
+
+# --- new in this task: task-name required (no init default) ---
+assert_contains "$LIB" 'Usage: forge start <owner/repo> <task>'
+assert_not_contains "$LIB" 'task_name="${2:-init}"'
+
+# --- worktree add inside the container, from origin/main, on agent/<task> ---
+assert_contains "$LIB" 'git -C /workspace worktree add'
+assert_contains "$LIB" '-b agent/$task_name origin/main'
+assert_contains "$LIB" 'already exists'          # duplicate-worktree guard message
+
+# --- fetch + ff main (autonomous), skipped for supervised ---
+assert_contains "$LIB" 'git -C /workspace fetch origin'
+assert_contains "$LIB" 'merge --ff-only origin/main'
+
+# --- per-task attach: session named after the task, cd into the worktree ---
+assert_contains "$LIB" 'tmux new-session -A -s'
+assert_contains "$LIB" 'cd /workspace/.trees/'
+assert_contains "$LIB" '--remote-control ${container}-${task_name}'
 
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"
