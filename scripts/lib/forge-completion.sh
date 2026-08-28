@@ -9,14 +9,14 @@ _forge_completions() {
   prev="${COMP_WORDS[COMP_CWORD-1]}"
 
   if [ "$COMP_CWORD" -eq 1 ]; then
-    COMPREPLY=($(compgen -W "start stop delete list image completion" -- "$cur"))
+    COMPREPLY=($(compgen -W "start stop delete list image completion resume finish" -- "$cur"))
     return
   fi
 
   case "$prev" in
-    start|stop|delete)
+    start|stop|delete|resume|finish)
       local repos
-      repos=$(forge list 2>/dev/null | tail -n +2 | awk '{print $2}' | grep -v '^-$')
+      repos=$(forge list 2>/dev/null | awk '/^agent-/{print $2}' | grep -v '^-$')
       COMPREPLY=($(compgen -W "$repos" -- "$cur"))
       ;;
     image)

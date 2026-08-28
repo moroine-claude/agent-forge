@@ -29,6 +29,10 @@ assert_contains "$FORGE" 'cmd_forge_completion_bash'
 assert_contains "$LIB" 'complete -F _forge_completions forge'
 assert_contains "$LIB" 'forge list'
 
+assert_contains "$LIB" 'start stop delete list image completion resume finish'
+assert_contains "$LIB" 'start|stop|delete|resume|finish)'
+assert_contains "$LIB" "awk '/^agent-/{print \$2}'"
+
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]
