@@ -164,13 +164,16 @@ unset -f lxc
 # silently treated as safe ---
 lxc() {
   case "$*" in
-    "exec evil-container -- su - aiuser -c cd /workspace && git status --porcelain")
+    "exec evil-container -- su - aiuser -c cd /workspace && git worktree list --porcelain")
+      printf 'worktree /workspace\n\nworktree /workspace/.trees/evil\n'
+      ;;
+    "exec evil-container -- su - aiuser -c cd /workspace/.trees/evil && git status --porcelain")
       echo ""
       ;;
     "config get evil-container user.forge.mode")
       echo ""
       ;;
-    "exec evil-container -- su - aiuser -c cd /workspace && git rev-parse --abbrev-ref HEAD")
+    "exec evil-container -- su - aiuser -c cd /workspace/.trees/evil && git rev-parse --abbrev-ref HEAD")
       echo 'x$(touch /tmp/PWNED_test)y'
       ;;
     *)
@@ -204,7 +207,10 @@ lxc() {
     "config get sup-dirty user.forge.mode")
       echo "supervised"
       ;;
-    "exec sup-dirty -- su - aiuser -c cd /workspace && git status --porcelain")
+    "exec sup-dirty -- su - aiuser -c cd /workspace && git worktree list --porcelain")
+      printf 'worktree /workspace\n\nworktree /workspace/.trees/feat-a\n'
+      ;;
+    "exec sup-dirty -- su - aiuser -c cd /workspace/.trees/feat-a && git status --porcelain")
       echo "M some-file.txt"
       ;;
     *)
@@ -226,7 +232,10 @@ lxc() {
     "config get sup-clean-ahead user.forge.mode")
       echo "supervised"
       ;;
-    "exec sup-clean-ahead -- su - aiuser -c cd /workspace && git status --porcelain")
+    "exec sup-clean-ahead -- su - aiuser -c cd /workspace && git worktree list --porcelain")
+      printf 'worktree /workspace\n\nworktree /workspace/.trees/feat-a\n'
+      ;;
+    "exec sup-clean-ahead -- su - aiuser -c cd /workspace/.trees/feat-a && git status --porcelain")
       echo ""
       ;;
     *)
@@ -250,16 +259,19 @@ lxc() {
     "config get auto-ahead-unpushed user.forge.mode")
       echo ""
       ;;
-    "exec auto-ahead-unpushed -- su - aiuser -c cd /workspace && git status --porcelain")
+    "exec auto-ahead-unpushed -- su - aiuser -c cd /workspace && git worktree list --porcelain")
+      printf 'worktree /workspace\n\nworktree /workspace/.trees/foo\n'
+      ;;
+    "exec auto-ahead-unpushed -- su - aiuser -c cd /workspace/.trees/foo && git status --porcelain")
       echo ""
       ;;
-    "exec auto-ahead-unpushed -- su - aiuser -c cd /workspace && git rev-parse --abbrev-ref HEAD")
+    "exec auto-ahead-unpushed -- su - aiuser -c cd /workspace/.trees/foo && git rev-parse --abbrev-ref HEAD")
       echo "agent/foo"
       ;;
-    "exec auto-ahead-unpushed -- su - aiuser -c cd /workspace && git log --oneline origin/main..agent/foo")
+    "exec auto-ahead-unpushed -- su - aiuser -c cd /workspace/.trees/foo && git log --oneline origin/main..agent/foo")
       echo "abc1234 feat: x"
       ;;
-    "exec auto-ahead-unpushed -- su - aiuser -c cd /workspace && git rev-parse --verify origin/agent/foo")
+    "exec auto-ahead-unpushed -- su - aiuser -c cd /workspace/.trees/foo && git rev-parse --verify origin/agent/foo")
       return 1
       ;;
     *)
@@ -273,6 +285,45 @@ if forge_check_wip auto-ahead-unpushed 2>/dev/null; then
   echo "FAIL: autonomous container with a never-pushed branch ahead of main should still be blocked"
 else
   PASS=$((PASS + 1))
+fi
+unset -f lxc
+
+# --- forge_check_wip iterates all worktrees; a dirty one blocks ---
+lxc() {
+  case "$*" in
+    "config get multi user.forge.mode") echo "" ;;
+    "exec multi -- su - aiuser -c cd /workspace && git worktree list --porcelain")
+      printf 'worktree /workspace\n\nworktree /workspace/.trees/feat-a\n\nworktree /workspace/.trees/feat-b\n' ;;
+    "exec multi -- su - aiuser -c cd /workspace/.trees/feat-a && git status --porcelain") echo "" ;;
+    "exec multi -- su - aiuser -c cd /workspace/.trees/feat-a && git rev-parse --abbrev-ref HEAD") echo "agent/feat-a" ;;
+    "exec multi -- su - aiuser -c cd /workspace/.trees/feat-a && git log --oneline origin/main..agent/feat-a") echo "" ;;
+    "exec multi -- su - aiuser -c cd /workspace/.trees/feat-b && git status --porcelain") echo "M dirty.txt" ;;
+    *) echo "unexpected lxc call: $*" >&2; return 1 ;;
+  esac
+}
+if forge_check_wip multi 2>/dev/null; then
+  FAIL=$((FAIL + 1)); echo "FAIL: a dirty second worktree should block forge_check_wip"
+else
+  PASS=$((PASS + 1))
+fi
+unset -f lxc
+
+# --- all worktrees clean & pushed → passes ---
+lxc() {
+  case "$*" in
+    "config get clean user.forge.mode") echo "" ;;
+    "exec clean -- su - aiuser -c cd /workspace && git worktree list --porcelain")
+      printf 'worktree /workspace\n\nworktree /workspace/.trees/feat-a\n' ;;
+    "exec clean -- su - aiuser -c cd /workspace/.trees/feat-a && git status --porcelain") echo "" ;;
+    "exec clean -- su - aiuser -c cd /workspace/.trees/feat-a && git rev-parse --abbrev-ref HEAD") echo "agent/feat-a" ;;
+    "exec clean -- su - aiuser -c cd /workspace/.trees/feat-a && git log --oneline origin/main..agent/feat-a") echo "" ;;
+    *) echo "unexpected lxc call: $*" >&2; return 1 ;;
+  esac
+}
+if forge_check_wip clean 2>/dev/null; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1)); echo "FAIL: all-clean worktrees should pass forge_check_wip"
 fi
 unset -f lxc
 

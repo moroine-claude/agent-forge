@@ -84,19 +84,25 @@ check_container_name_collision() {
   fi
 }
 
-# WIP pre-flight: checks dirty tree, and (autonomous mode only) branch name
-# and unpushed commits. Container must be running. Used by both stop and
-# delete. Supervised containers never have anything to "push" — no
-# credential exists inside them — so only the dirty-tree check applies
-# there; commits ahead of main are expected steady state, not something to
-# block on (the workspace directory is host-mounted and survives
-# lxc delete regardless of this check).
-forge_check_wip() {
-  local container="$1" dirty branch unpushed mode
+# Prints each feature worktree dir for a container (one per line), excluding
+# the main /workspace clone. Container must be running.
+_forge_worktree_dirs() {
+  local container="$1"
+  lxc exec "$container" -- su - aiuser -c "cd /workspace && git worktree list --porcelain" \
+    | awk '/^worktree /{print $2}' \
+    | grep -vx '/workspace' || true
+}
 
-  dirty=$(lxc exec "$container" -- su - aiuser -c "cd /workspace && git status --porcelain")
+# WIP pre-flight for a single worktree dir. Always checks the dirty tree; in
+# autonomous mode also the branch-name safety regex and unpushed commits.
+# Supervised containers have no credential to have pushed with, so only the
+# dirty check applies there.
+_forge_check_one_worktree() {
+  local container="$1" dir="$2" dirty branch mode ahead unpushed
+
+  dirty=$(lxc exec "$container" -- su - aiuser -c "cd $dir && git status --porcelain")
   if [ -n "$dirty" ]; then
-    echo "Error: $container has uncommitted changes in /workspace:" >&2
+    echo "Error: $container has uncommitted changes in $dir:" >&2
     echo "$dirty" >&2
     echo "Commit/discard them, or pass --force." >&2
     return 1
@@ -107,22 +113,20 @@ forge_check_wip() {
     return 0
   fi
 
-  branch=$(lxc exec "$container" -- su - aiuser -c "cd /workspace && git rev-parse --abbrev-ref HEAD")
+  branch=$(lxc exec "$container" -- su - aiuser -c "cd $dir && git rev-parse --abbrev-ref HEAD")
   if [[ ! "$branch" =~ ^agent/[A-Za-z0-9._-]+$ ]]; then
-    echo "Error: unexpected branch name '$branch' in $container; refusing to proceed." >&2
+    echo "Error: unexpected branch name '$branch' in $dir ($container); refusing to proceed." >&2
     return 1
   fi
 
-  local ahead_of_main
-  ahead_of_main=$(lxc exec "$container" -- su - aiuser -c "cd /workspace && git log --oneline origin/main..$branch")
-  if [ -n "$ahead_of_main" ]; then
-    if ! lxc exec "$container" -- su - aiuser -c "cd /workspace && git rev-parse --verify origin/$branch" > /dev/null 2>&1; then
+  ahead=$(lxc exec "$container" -- su - aiuser -c "cd $dir && git log --oneline origin/main..$branch")
+  if [ -n "$ahead" ]; then
+    if ! lxc exec "$container" -- su - aiuser -c "cd $dir && git rev-parse --verify origin/$branch" > /dev/null 2>&1; then
       echo "Error: $container's branch $branch has no origin/$branch — it has never been pushed." >&2
       echo "Push it, or pass --force." >&2
       return 1
     fi
-
-    unpushed=$(lxc exec "$container" -- su - aiuser -c "cd /workspace && git log --oneline origin/$branch..$branch")
+    unpushed=$(lxc exec "$container" -- su - aiuser -c "cd $dir && git log --oneline origin/$branch..$branch")
     if [ -n "$unpushed" ]; then
       echo "Error: $container has unpushed commits on $branch:" >&2
       echo "$unpushed" >&2
@@ -130,6 +134,17 @@ forge_check_wip() {
       return 1
     fi
   fi
+}
+
+# WIP pre-flight across every feature worktree. Container must be running.
+# Used by stop and delete. The main clone (/workspace, on main) is never
+# committed to, so it is not checked — only .trees/* worktrees are.
+forge_check_wip() {
+  local container="$1" dir
+  while IFS= read -r dir; do
+    [ -z "$dir" ] && continue
+    _forge_check_one_worktree "$container" "$dir" || return 1
+  done < <(_forge_worktree_dirs "$container")
 }
 
 # Errors out (stderr) if no container exists yet for the given repo.
