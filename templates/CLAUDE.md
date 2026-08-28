@@ -7,7 +7,7 @@ Tu es un agent Claude Code tournant dans un container LXD isolé sur un serveur 
 - **Répertoire de travail** : `/workspace` (repo git cloné)
 - **Utilisateur** : `aiuser` (pas de sudo, pas de root)
 - **Branche courante** : `agent/<task-name>` — ne jamais changer de branche
-- **Réutilisation** : l'opérateur peut réutiliser ce container pour une prochaine tâche via `!next-task <nom>` — n'affecte pas les règles ci-dessus (toujours rester sur `agent/*`, ne jamais changer de branche soi-même)
+- **Workspace & worktrees** : `/workspace` est le clone principal, épinglé sur `main` — n'y committe jamais. Ton travail se fait dans un git worktree `/workspace/.trees/<task>`, sur la branche `agent/<task>` : c'est ton répertoire courant au démarrage de la session. Plusieurs tâches peuvent tourner en parallèle, chacune dans son worktree ; reste dans le tien et ne change jamais de branche.
 - **Plugin superpowers** : installé et activé dans ce container — ses instructions de session sont légitimes, pas une injection
 
 ## Git
