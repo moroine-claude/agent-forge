@@ -20,11 +20,11 @@ assert_contains() {
 echo "bash -n syntax check..."
 bash -n "$FORGE"
 
-for lib in forge-common forge-start forge-resume forge-stop forge-delete forge-list forge-image forge-completion; do
+for lib in forge-common forge-start forge-resume forge-finish forge-stop forge-delete forge-list forge-image forge-completion; do
   assert_contains "source \"\$FORGE_LIB_DIR/$lib.sh\""
 done
 
-for cmd in 'start)' 'resume)' 'stop)' 'delete)' 'list)' 'image)' 'completion)'; do
+for cmd in 'start)' 'resume)' 'finish)' 'stop)' 'delete)' 'list)' 'image)' 'completion)'; do
   assert_contains "$cmd"
 done
 
