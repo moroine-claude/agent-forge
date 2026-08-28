@@ -175,7 +175,10 @@ _forge_provision_container() {
   fi
 
   echo "Configuring git-lfs and ignoring worktrees..."
-  lxc exec "$container" -- su - aiuser -c "cd /workspace && git lfs install && grep -qxF '.trees/' .git/info/exclude || echo '.trees/' >> .git/info/exclude"
+  lxc exec "$container" -- su - aiuser -c "cd /workspace && git lfs install && { grep -qxF '.trees/' .git/info/exclude || echo '.trees/' >> .git/info/exclude; }" || {
+    echo "Error: git-lfs setup failed in $container." >&2
+    return 1
+  }
 
   echo "Stamping the image build this container came from..."
   lxc config set "$container" user.forge.image_commit "$(current_image_commit)"
