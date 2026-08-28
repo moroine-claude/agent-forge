@@ -119,9 +119,8 @@ _forge_provision_container() {
   lxc exec "$container" -- su - aiuser -c "echo '$mode' > /home/aiuser/.claude/forge-mode"
 
   if [ "$mode" = "supervised" ]; then
-    echo "Cloning $owner_repo on the host and creating branch agent/$task_name..."
+    echo "Cloning $owner_repo on the host (branch main)..."
     git clone "git@github.com:$owner_repo.git" "$workspace_dir"
-    (cd "$workspace_dir" && git checkout -b "agent/$task_name")
   else
     echo ""
     echo "=============================================================="
@@ -145,9 +144,15 @@ _forge_provision_container() {
     lxc exec "$container" -- su - aiuser -c "gh auth status --hostname github.com"
     lxc exec "$container" -- su - aiuser -c "gh auth setup-git"
 
-    echo "Cloning $owner_repo and creating branch agent/$task_name..."
-    lxc exec "$container" -- su - aiuser -c "git clone https://github.com/$owner_repo.git /workspace && cd /workspace && git checkout -b agent/$task_name"
+    echo "Cloning $owner_repo (branch main)..."
+    lxc exec "$container" -- su - aiuser -c "git clone https://github.com/$owner_repo.git /workspace"
   fi
+
+  echo "Configuring git-lfs and ignoring worktrees..."
+  lxc exec "$container" -- su - aiuser -c "cd /workspace && git lfs install && grep -qxF '.trees/' .git/info/exclude || echo '.trees/' >> .git/info/exclude"
+
+  echo "Stamping the image build this container came from..."
+  lxc config set "$container" user.forge.image_commit "$(current_image_commit)"
 
   echo "Recording forge metadata..."
   lxc config set "$container" user.forge.repo "$owner_repo"
