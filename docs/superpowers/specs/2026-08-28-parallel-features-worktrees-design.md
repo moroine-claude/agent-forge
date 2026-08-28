@@ -26,9 +26,10 @@ The current model is **one container per repo, one working tree, one branch**:
 2. Clear verbs: **`start`** = new feature, **`resume`** = reprendre an existing one.
 3. Keep the repo's `main` **fresh automatically**.
 4. Ship **`git-lfs`** in the image.
-5. **Version-stamp** containers and the image so `forge` can flag stale ones,
-   with a *filtered* signal (only warn to rebuild when files that actually feed the
-   artifact changed).
+5. **Version-stamp** the image at build time and each container with the build it
+   was created from, so `forge list` flags **running containers built from an older
+   image than the latest build**. (Deciding *when* to rebuild the image is the
+   operator's call — the tool only surfaces stale running containers.)
 
 ## Non-goals
 
@@ -154,44 +155,46 @@ note — same policy as the retired `next-task`.
   filters are configured globally (all worktrees inherit it via the shared config).
 - `tests/test-forge-image.sh` asserts the package line is present.
 
-### 5. Container / image versioning
+### 5. Container versioning (running container vs. latest build)
 
-Source of truth: the agent-forge checkout on the host, `FORGE_REPO_DIR`
-(default `/home/moroine/agent-forge`, already used by `forge-start.sh` to push
-files). Stamp `git -C "$FORGE_REPO_DIR" rev-parse HEAD` into LXD metadata, mirroring
-the existing `user.forge.repo` / `user.forge.mode` keys.
+The only question `forge` needs to answer: **is this running container built from the
+current `agent-base` image, or an older one?** No comparison against the agent-forge
+HEAD, no per-file filtering — the operator owns the "should I rebuild the image?"
+decision.
 
-**Two stamps, two corrective actions:**
+Each build gets an identity, and each container remembers the build it came from:
 
-| Artifact          | Stamp set at        | Stored on                                   | Fix when stale        |
-|-------------------|---------------------|---------------------------------------------|-----------------------|
-| Image `agent-base`| `forge image build` | image property `user.forge.commit`          | `forge image build`   |
-| Container         | provisioning        | config keys `user.forge.commit` (provision HEAD) + `user.forge.image_commit` (copied from the image property) | recreate (`delete`+`start`) |
+| When                | Action                                                                            |
+|---------------------|-----------------------------------------------------------------------------------|
+| `forge image build` | Stamp the built image with its build commit: image property `user.forge.commit = git -C "$FORGE_REPO_DIR" rev-parse HEAD`. |
+| provisioning        | Copy the *current* `agent-base` image's `user.forge.commit` onto the container as config key `user.forge.image_commit`. |
 
-**Filtered staleness** — store the raw hash for provenance, but only warn
-"rebuild" when a `git -C "$FORGE_REPO_DIR" diff --name-only <stamp>..HEAD -- <paths>`
-touches files that actually feed the artifact:
-
-- `IMAGE_PATHS`  = `scripts/lib/forge-image.sh`
-- `CONFIG_PATHS` = `templates/CLAUDE.md`, `.claude/hooks/pre-bash.sh`,
-  `config/claude-container-settings.json`, `config/claude-onboarding-state.json`,
-  `scripts/lib/forge-start.sh`
-
-`forge list` always prints both hashes and a `⚠` only when the relevant paths
-changed:
+`forge list` then compares each container's `user.forge.image_commit` against the
+**current** `agent-base` image's `user.forge.commit` — a plain equality check:
 
 ```
 agent-owner-repo   autonomous   Running   2 tasks
-  image   @a1b2c3  (HEAD e5f6a7)  ⚠ image behind — forge image build
-  config  @c3d4e5  (HEAD e5f6a7)  ✓ up to date (docs-only changes since)
+  build @a1b2c3   (latest @e5f6a7)   ⚠ older than latest build — recreate to refresh
   tasks:
     feat-a   agent/feat-a   session attached
     feat-b   agent/feat-b   session detached
 ```
 
-Edge cases: a missing stamp (legacy/partially-provisioned container) prints
-`@unknown → consider recreate`; the diff uses the merge-base, so a rewritten
-history still compares sanely.
+- Equal → no flag.
+- Different → `⚠ older than latest build — recreate (delete + start)`.
+
+`FORGE_REPO_DIR` (default `/home/moroine/agent-forge`, already used by
+`forge-start.sh`) is needed only at **build** time, to read the commit to stamp.
+
+Edge cases: a container with no `user.forge.image_commit` (legacy /
+partially-provisioned) prints `@unknown → consider recreate`; if the `agent-base`
+image is absent, `forge list` notes it can't determine the latest build rather than
+flagging every container.
+
+> Alternative considered: stamp the LXD **image fingerprint** instead of a git
+> commit (git-free, changes on every rebuild). Rejected for display readability —
+> a commit hash is meaningful to a human reading `forge list`; the equality check
+> is identical either way.
 
 ### 6. Security
 
@@ -206,13 +209,13 @@ history still compares sanely.
 
 ## Files touched
 
-- `scripts/lib/forge-start.sh` — split provision vs. add-task; worktree add; fetch/ff main; lfs install; version stamps; per-task tmux.
+- `scripts/lib/forge-start.sh` — split provision vs. add-task; worktree add; fetch/ff main; lfs install; stamp `user.forge.image_commit` from the current image; per-task tmux.
 - `scripts/lib/forge-resume.sh` — **new**.
 - `scripts/lib/forge-finish.sh` — **new**.
-- `scripts/lib/forge-common.sh` — `forge_check_wip` iterates all worktrees; worktree/path helpers; `FORGE_REPO_DIR`; version-compare helpers.
-- `scripts/lib/forge-list.sh` — per-task rows + version status.
+- `scripts/lib/forge-common.sh` — `forge_check_wip` iterates all worktrees; worktree/path helpers; `FORGE_REPO_DIR`; helper to read the current image commit and compare it to a container's stamp.
+- `scripts/lib/forge-list.sh` — per-task rows + build-vs-latest flag.
 - `scripts/lib/forge-stop.sh`, `scripts/lib/forge-delete.sh` — WIP across all worktrees.
-- `scripts/lib/forge-image.sh` — install git-lfs; stamp image commit; drop next-task push.
+- `scripts/lib/forge-image.sh` — install git-lfs; stamp image commit (`user.forge.commit`); drop next-task push.
 - `scripts/forge` — wire `resume`/`finish`; usage.
 - `scripts/lib/forge-completion.sh` — complete `resume`/`finish`.
 - `config/next-task.sh` — **deleted**.
@@ -224,11 +227,10 @@ Plain-bash module tests, matching the existing `tests/` style:
 
 - **Delete** `tests/test-next-task.sh`.
 - **New** `tests/test-forge-resume.sh`, `tests/test-forge-finish.sh`.
-- **Extend** `tests/test-forge-common.sh` — worktree path derivation, filtered
-  version-compare (docs-only change = no warn; image-path change = warn),
-  multi-worktree WIP check.
-- **Update** `tests/test-forge-start.sh` (worktree add, fetch/ff, stamps),
-  `tests/test-forge-image.sh` (git-lfs line, image stamp),
+- **Extend** `tests/test-forge-common.sh` — worktree path derivation, build-compare
+  (equal = no flag; different = flag; missing stamp = unknown), multi-worktree WIP check.
+- **Update** `tests/test-forge-start.sh` (worktree add, fetch/ff, `image_commit` stamp),
+  `tests/test-forge-image.sh` (git-lfs line, image `commit` stamp),
   `tests/test-forge-dispatcher.sh` (resume/finish subcommands),
   `tests/test-readme-docs.sh` (no next-task references; new verbs documented).
 
