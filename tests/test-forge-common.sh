@@ -276,6 +276,21 @@ else
 fi
 unset -f lxc
 
+# --- worktree path helpers (pure) ---
+assert_eq "worktree_relpath" "$(worktree_relpath 'feat-a')" ".trees/feat-a"
+assert_eq "worktree_abspath" "$(worktree_abspath 'feat-a')" "/workspace/.trees/feat-a"
+
+# --- build_status (pure comparison) ---
+assert_eq "build up-to-date" "$(build_status abc123 abc123)" "up-to-date"
+assert_eq "build behind" "$(build_status abc123 def456)" "behind"
+assert_eq "build unknown (no container stamp)" "$(build_status '' def456)" "unknown"
+assert_eq "build unknown (no image stamp)" "$(build_status abc123 '')" "unknown"
+
+# --- versioning helpers that call lxc: structural ---
+assert_contains 'FORGE_REPO_DIR'
+assert_contains 'user.forge.image_commit'
+assert_contains 'get-property agent-base user.forge.commit'
+
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

@@ -141,3 +141,38 @@ require_container_for_repo() {
   fi
   echo "$container"
 }
+
+# Path of the agent-forge checkout on the host (used to read the commit an
+# image was built from). Overridable for tests.
+FORGE_REPO_DIR="${FORGE_REPO_DIR:-/home/moroine/agent-forge}"
+
+# Worktree paths for a task. Container-side: the main clone is /workspace and
+# every feature is a worktree under .trees/. worktree_relpath is what we pass
+# to `git -C /workspace worktree add`; worktree_abspath is the cd target for
+# the tmux/claude session.
+worktree_relpath() { echo ".trees/$1"; }
+worktree_abspath() { echo "/workspace/.trees/$1"; }
+
+# Commit the current agent-base image was built from (empty if the image is
+# missing or unstamped).
+current_image_commit() {
+  lxc image get-property agent-base user.forge.commit 2>/dev/null || true
+}
+
+# Commit of the image a container was created from (empty if unset).
+container_image_commit() {
+  lxc config get "$1" user.forge.image_commit 2>/dev/null || true
+}
+
+# Pure comparison of a container's build stamp against the latest image build.
+# Prints: unknown | up-to-date | behind.
+build_status() {
+  local container_commit="$1" latest_commit="$2"
+  if [ -z "$container_commit" ] || [ -z "$latest_commit" ]; then
+    echo "unknown"
+  elif [ "$container_commit" = "$latest_commit" ]; then
+    echo "up-to-date"
+  else
+    echo "behind"
+  fi
+}
