@@ -86,11 +86,19 @@ check_container_name_collision() {
 
 # Prints each feature worktree dir for a container (one per line), excluding
 # the main /workspace clone. Container must be running.
+#
+# Defense in depth: also drops any entry whose basename doesn't match the
+# same charset enforced on branch names ([A-Za-z0-9._-]) before it ever
+# reaches a further `su -c` (see _forge_check_one_worktree / forge-list.sh).
+# A worktree can only be created via `worktree_relpath`/validate_task_name,
+# so this should never trigger in practice — it's a filter, not a hard
+# error, so one hostile entry doesn't abort the rest.
 _forge_worktree_dirs() {
   local container="$1"
   lxc exec "$container" -- su - aiuser -c "cd /workspace && git worktree list --porcelain" \
     | awk '/^worktree /{print $2}' \
-    | grep -vx '/workspace' || true
+    | grep -vx '/workspace' \
+    | awk -F/ '$NF ~ /^[A-Za-z0-9._-]+$/' || true
 }
 
 # WIP pre-flight for a single worktree dir. Always checks the dirty tree; in

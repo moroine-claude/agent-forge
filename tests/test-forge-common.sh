@@ -199,6 +199,56 @@ fi
 rm -f /tmp/PWNED_test
 unset -f lxc
 
+# --- regression: a hostile worktree basename (as could appear in
+# `git worktree list --porcelain` output) must not be interpolated into a
+# further lxc exec call, and must be excluded by _forge_worktree_dirs rather
+# than being silently processed ---
+lxc() {
+  case "$*" in
+    "exec evil-wt-container -- su - aiuser -c cd /workspace && git worktree list --porcelain")
+      printf 'worktree /workspace\n\nworktree /workspace/.trees/x$(touch /tmp/PWNED_wt)y\n\nworktree /workspace/.trees/feat-a\n'
+      ;;
+    "config get evil-wt-container user.forge.mode")
+      echo ""
+      ;;
+    "exec evil-wt-container -- su - aiuser -c cd /workspace/.trees/feat-a && git status --porcelain")
+      echo ""
+      ;;
+    "exec evil-wt-container -- su - aiuser -c cd /workspace/.trees/feat-a && git rev-parse --abbrev-ref HEAD")
+      echo "agent/feat-a"
+      ;;
+    "exec evil-wt-container -- su - aiuser -c cd /workspace/.trees/feat-a && git log --oneline origin/main..agent/feat-a")
+      echo ""
+      ;;
+    *)
+      echo "unexpected lxc call: $*" >&2
+      return 1
+      ;;
+  esac
+}
+
+rm -f /tmp/PWNED_wt
+if _forge_worktree_dirs evil-wt-container | grep -qF 'PWNED'; then
+  FAIL=$((FAIL + 1))
+  echo "FAIL: hostile worktree dir was not excluded from _forge_worktree_dirs"
+else
+  PASS=$((PASS + 1))
+fi
+if forge_check_wip evil-wt-container 2>/dev/null; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo "FAIL: hostile worktree entry should be dropped, leaving the valid worktree to pass forge_check_wip"
+fi
+if [ -f /tmp/PWNED_wt ]; then
+  FAIL=$((FAIL + 1))
+  echo "FAIL: injected command actually executed (/tmp/PWNED_wt was created)"
+else
+  PASS=$((PASS + 1))
+fi
+rm -f /tmp/PWNED_wt
+unset -f lxc
+
 # --- forge_check_wip: supervised mode only checks the dirty tree; being
 # ahead of main with no origin/<branch> is expected steady state there,
 # not something to block on (there is no credential to have pushed with) ---
