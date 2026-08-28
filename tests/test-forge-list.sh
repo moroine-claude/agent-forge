@@ -29,7 +29,18 @@ assert_contains "$FORGE" 'cmd_forge_list "$@"'
 assert_contains "$LIB" 'list_forge_containers'
 assert_contains "$LIB" 'forge_container_repo'
 assert_contains "$LIB" 'forge_container_mode'
-assert_contains "$LIB" 'tmux has-session -t claude'
+
+# header keeps CONTAINER then REPO as the first two columns (completion parses $2)
+assert_contains "$LIB" 'CONTAINER'
+assert_contains "$LIB" 'REPO'
+assert_contains "$LIB" 'BUILD'
+# per-task rows + session probe by task name
+assert_contains "$LIB" '_forge_worktree_dirs'
+assert_contains "$LIB" 'tmux has-session -t'
+# build flag
+assert_contains "$LIB" 'build_status'
+assert_contains "$LIB" 'container_image_commit'
+assert_contains "$LIB" 'current_image_commit'
 
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"
