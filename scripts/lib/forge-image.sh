@@ -1,7 +1,7 @@
 # forge image build (alias: forge image update)
-# Scripts the manual agent-base build sequence from README §5, plus
-# installing next-task. Only affects containers created after the rebuild —
-# already-running containers are not patched in place.
+# Scripts the manual agent-base build sequence from README §5.
+# Only affects containers created after the rebuild — already-running
+# containers are not patched in place.
 
 cmd_forge_image() {
   case "${1:-}" in
@@ -32,7 +32,7 @@ _forge_image_build() {
   lxc launch ubuntu:24.04 "$setup" --profile agent
 
   lxc exec "$setup" -- apt update
-  lxc exec "$setup" -- apt install -y git tmux curl wget unzip zip python3 python3-pip
+  lxc exec "$setup" -- apt install -y git git-lfs tmux curl wget unzip zip python3 python3-pip
   lxc exec "$setup" -- bash -c "curl -fsSL https://deb.nodesource.com/setup_lts.x | bash -"
   lxc exec "$setup" -- apt install -y nodejs
   lxc exec "$setup" -- npm install -g pnpm
@@ -91,15 +91,16 @@ _forge_image_build() {
   lxc exec "$setup" -- su - aiuser -c "echo 'export DOCKER_HOST=unix:///run/user/1001/docker.sock' >> /home/aiuser/.bashrc"
   lxc exec "$setup" -- su - aiuser -c "echo 'export PATH=/usr/bin:\$PATH' >> /home/aiuser/.bashrc"
 
-  echo "Installing next-task..."
-  lxc file push /home/moroine/agent-forge/config/next-task.sh \
-    "$setup"/home/aiuser/.local/bin/next-task \
-    --uid 1001 --gid 1001 --mode 755
-
   lxc stop "$setup"
   lxc image delete agent-base 2>/dev/null || true
   lxc publish "$setup" --alias agent-base
   lxc delete "$setup"
 
-  echo "Image agent-base published."
+  # Stamp the build commit so `forge list` can flag containers running on an
+  # older image than the latest build.
+  local build_commit
+  build_commit=$(git -C "$FORGE_REPO_DIR" rev-parse HEAD)
+  lxc image set-property agent-base user.forge.commit "$build_commit"
+
+  echo "Image agent-base published (build $build_commit)."
 }

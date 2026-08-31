@@ -7,8 +7,10 @@ set -e
 FORGE_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/lib" && pwd)"
 source "$FORGE_LIB_DIR/forge-common.sh"
 source "$FORGE_LIB_DIR/forge-start.sh"
+source "$FORGE_LIB_DIR/forge-resume.sh"
 source "$FORGE_LIB_DIR/forge-stop.sh"
 source "$FORGE_LIB_DIR/forge-delete.sh"
+source "$FORGE_LIB_DIR/forge-finish.sh"
 source "$FORGE_LIB_DIR/forge-list.sh"
 source "$FORGE_LIB_DIR/forge-image.sh"
 source "$FORGE_LIB_DIR/forge-completion.sh"
@@ -19,6 +21,8 @@ Usage: forge <command> [args]
 
 Commands:
   start <owner/repo> [task-name]   Provision (if needed) and start/attach a session
+  resume <owner/repo> <task>       Re-attach an existing task's session
+  finish <owner/repo> <task>       Remove a finished task's worktree
   stop <owner/repo> [--force]      Stop a container (blocked on dirty/unpushed WIP unless --force)
   delete <owner/repo> [--force]    Delete a container (blocked on dirty/unpushed WIP unless --force)
   list                              Show all containers: repo, mode, state, session
@@ -31,6 +35,14 @@ case "${1:-}" in
   start)
     shift
     cmd_forge_start "$@"
+    ;;
+  resume)
+    shift
+    cmd_forge_resume "$@"
+    ;;
+  finish)
+    shift
+    cmd_forge_finish "$@"
     ;;
   stop)
     shift

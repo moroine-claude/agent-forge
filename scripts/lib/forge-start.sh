@@ -1,12 +1,13 @@
-# forge start <owner/repo> [task-name]
-# Provisions a container if none exists yet for the repo, then starts/attaches
-# a Claude Code session inside it. See design spec §2.
+# forge start <owner/repo> <task>
+# Provisions a container if none exists yet for the repo, then adds the
+# task's worktree and attaches its own Claude Code session inside it.
+# See design spec §2.
 
 cmd_forge_start() {
-  local owner_repo="$1" task_name="${2:-init}"
+  local owner_repo="$1" task_name="$2"
 
-  if [ -z "$owner_repo" ]; then
-    echo "Usage: forge start <owner/repo> [task-name]" >&2
+  if [ -z "$owner_repo" ] || [ -z "$task_name" ]; then
+    echo "Usage: forge start <owner/repo> <task>" >&2
     return 1
   fi
   validate_owner_repo "$owner_repo" || return 1
@@ -16,11 +17,7 @@ cmd_forge_start() {
   container=$(sanitize_container_name "$owner_repo")
   check_container_name_collision "$container" "$owner_repo" || return 1
 
-  if lxc info "$container" > /dev/null 2>&1; then
-    if [ -n "${2:-}" ]; then
-      echo "Warning: container $container already exists; task-name '$task_name' ignored." >&2
-    fi
-  else
+  if ! lxc info "$container" > /dev/null 2>&1; then
     _forge_provision_container "$container" "$owner_repo" "$task_name" || return 1
   fi
 
@@ -29,10 +26,39 @@ cmd_forge_start() {
     lxc start "$container"
   fi
 
-  echo "Attaching to $container as aiuser..."
+  _forge_add_worktree "$container" "$task_name" || return 1
+  _forge_attach_task "$container" "$task_name"
+}
+
+# Fetch + fast-forward main (autonomous only), then create the task's worktree.
+# Refuses if the worktree already exists (use `forge resume`).
+_forge_add_worktree() {
+  local container="$1" task_name="$2" mode
+  mode=$(forge_container_mode "$container")
+
+  if lxc exec "$container" -- su - aiuser -c "test -e /workspace/.trees/$task_name"; then
+    echo "Error: worktree .trees/$task_name already exists in $container. Use 'forge resume $(forge_container_repo "$container") $task_name'." >&2
+    return 1
+  fi
+
+  if [ "$mode" = "supervised" ]; then
+    echo "Supervised container: skipping origin fetch (no credential); branching from last-known origin/main." >&2
+  else
+    echo "Refreshing main..."
+    lxc exec "$container" -- su - aiuser -c "git -C /workspace fetch origin && git -C /workspace merge --ff-only origin/main"
+  fi
+
+  echo "Creating worktree .trees/$task_name on agent/$task_name..."
+  lxc exec "$container" -- su - aiuser -c "git -C /workspace worktree add .trees/$task_name -b agent/$task_name origin/main"
+}
+
+# Attach (or create) the task's tmux session, running claude in its worktree.
+_forge_attach_task() {
+  local container="$1" task_name="$2"
+  echo "Attaching to $container session '$task_name' as aiuser..."
   lxc exec "$container" -- su - aiuser -c "
-    cd /workspace
-    tmux new-session -A -s claude 'claude --permission-mode auto --remote-control ${container}'
+    cd /workspace/.trees/$task_name
+    tmux new-session -A -s '$task_name' 'claude --permission-mode auto --remote-control ${container}-${task_name}'
   "
 }
 
@@ -119,9 +145,8 @@ _forge_provision_container() {
   lxc exec "$container" -- su - aiuser -c "echo '$mode' > /home/aiuser/.claude/forge-mode"
 
   if [ "$mode" = "supervised" ]; then
-    echo "Cloning $owner_repo on the host and creating branch agent/$task_name..."
+    echo "Cloning $owner_repo on the host (branch main)..."
     git clone "git@github.com:$owner_repo.git" "$workspace_dir"
-    (cd "$workspace_dir" && git checkout -b "agent/$task_name")
   else
     echo ""
     echo "=============================================================="
@@ -145,9 +170,18 @@ _forge_provision_container() {
     lxc exec "$container" -- su - aiuser -c "gh auth status --hostname github.com"
     lxc exec "$container" -- su - aiuser -c "gh auth setup-git"
 
-    echo "Cloning $owner_repo and creating branch agent/$task_name..."
-    lxc exec "$container" -- su - aiuser -c "git clone https://github.com/$owner_repo.git /workspace && cd /workspace && git checkout -b agent/$task_name"
+    echo "Cloning $owner_repo (branch main)..."
+    lxc exec "$container" -- su - aiuser -c "git clone https://github.com/$owner_repo.git /workspace"
   fi
+
+  echo "Configuring git-lfs and ignoring worktrees..."
+  lxc exec "$container" -- su - aiuser -c "cd /workspace && git lfs install && { grep -qxF '.trees/' .git/info/exclude || echo '.trees/' >> .git/info/exclude; }" || {
+    echo "Error: git-lfs setup failed in $container." >&2
+    return 1
+  }
+
+  echo "Stamping the image build this container came from..."
+  lxc config set "$container" user.forge.image_commit "$(current_image_commit)"
 
   echo "Recording forge metadata..."
   lxc config set "$container" user.forge.repo "$owner_repo"

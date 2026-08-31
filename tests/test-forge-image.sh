@@ -50,7 +50,6 @@ assert_contains "$FORGE" 'cmd_forge_image "$@"'
 
 assert_contains "$LIB" 'build|update'
 assert_contains "$LIB" 'agent-base-setup'
-assert_contains "$LIB" 'next-task.sh'
 assert_contains "$LIB" 'lxc publish'
 assert_line_before "$LIB" 'Removing leftover' 'lxc launch ubuntu:24.04'
 assert_contains "$LIB" 'lxc launch ubuntu:24.04 "$setup" --profile agent'
@@ -74,6 +73,14 @@ assert_contains "$LIB" 'systemctl --user enable docker'
 assert_contains "$LIB" 'DOCKER_HOST=unix:///run/user/1001/docker.sock'
 assert_line_before "$LIB" 'useradd -m -s /bin/bash aiuser' "sed -i '/^aiuser:/d' /etc/subuid /etc/subgid"
 assert_line_before "$LIB" "echo 'aiuser:200000:65536' >> /etc/subuid" 'dockerd-rootless-setuptool.sh install'
+
+# git-lfs ships in the image
+assert_contains "$LIB" 'git-lfs'
+# image is stamped with the build commit
+assert_contains "$LIB" 'lxc image set-property agent-base user.forge.commit'
+assert_contains "$LIB" 'git -C "$FORGE_REPO_DIR" rev-parse HEAD'
+# next-task is gone
+assert_not_contains "$LIB" 'next-task'
 
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"

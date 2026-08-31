@@ -19,6 +19,15 @@ assert_contains() {
   fi
 }
 
+assert_not_contains() {
+  if ! grep -qF -- "$1" "$TEMPLATE"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo "FAIL (attendu absent): $1"
+  fi
+}
+
 assert_line_before() {
   local p1="$1" p2="$2" l1 l2
   l1=$(grep -nF -- "$p1" "$TEMPLATE" | head -1 | cut -d: -f1)
@@ -49,6 +58,9 @@ assert_contains '## Navigateur'
 assert_contains 'chrome-devtools-mcp'
 assert_line_before '## Docker' '## Navigateur'
 assert_line_before '## Navigateur' '## Périmètre'
+assert_not_contains 'next-task'
+assert_contains '.trees/'
+assert_contains 'worktree'
 
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"
