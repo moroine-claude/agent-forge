@@ -16,8 +16,11 @@
 
 FAKE_LXC_BIN=""
 FAKE_LXC_STATE=""
+FAKE_LXC_FORGE=""
 
+# fake_lxc_init [chemin-vers-scripts/forge]
 fake_lxc_init() {
+  FAKE_LXC_FORGE="${1:-}"
   FAKE_LXC_STATE=$(mktemp -d)
   FAKE_LXC_BIN="$FAKE_LXC_STATE/bin"
   mkdir -p "$FAKE_LXC_BIN"
@@ -109,6 +112,21 @@ fake_lxc_image_commit() { printf '%s' "$1" > "$FAKE_LXC_STATE/image_commit"; }
 # Premiere regle qui matche gagne, comme un routeur.
 fake_lxc_exec_rule() {
   printf '%s\t%s\t%s\n' "$1" "$2" "$(printf '%s' "${3:-}" | base64 -w0)" >> "$FAKE_LXC_STATE/exec_rules"
+}
+
+# Execute `scripts/forge` dans un pty, avec le faux lxc sur le PATH. Les
+# commandes interactives refusent de prompter hors TTY, d'ou le detour par
+# script(1) ; l'entree simulee est passee en 1er argument.
+# Renseigne FORGE_TTY_OUT (stdout+stderr, invites comprises) et FORGE_TTY_RC.
+fake_lxc_run_tty() {
+  local input="$1"; shift
+  local out="$FAKE_LXC_STATE/forge_out" rc="$FAKE_LXC_STATE/forge_rc" args
+  args=$(printf '%q ' "$@")
+  printf '%s' "$input" | script -qec \
+    "PATH='$FAKE_LXC_BIN:$PATH' bash '$FAKE_LXC_FORGE' $args > '$out' 2>&1; echo \$? > '$rc'" \
+    /dev/null > /dev/null 2>&1 || true
+  FORGE_TTY_OUT=$(tr -d '\r' < "$out")
+  FORGE_TTY_RC=$(tr -d '\r\n' < "$rc")
 }
 
 fake_lxc_calls() { cat "$FAKE_LXC_STATE/calls"; }

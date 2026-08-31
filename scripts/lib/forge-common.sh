@@ -101,6 +101,39 @@ _forge_worktree_dirs() {
     | awk -F/ '$NF ~ /^[A-Za-z0-9._-]+$/' || true
 }
 
+# Menu numéroté partagé par les commandes interactives : affiche la liste et
+# l'invite sur stderr, écrit l'index 1-based choisi sur stdout — pour que
+# `idx=$(forge_pick ...)` reste propre.
+#
+# On rend l'index et non la valeur pour que l'appelant puisse afficher un
+# libellé annoté ("cli (worktree existant)") tout en récupérant la valeur
+# brute dans son propre tableau.
+#
+# Retourne 1 sans rien demander si la liste est vide ou si stdin n'est pas un
+# terminal : un appel scripté ne doit pas se bloquer sur une invite que
+# personne ne lira, il retombe sur le message d'usage de l'appelant.
+forge_pick() {
+  local label="$1"; shift
+  local -a items=("$@")
+  local n=${#items[@]} i choice
+
+  [ "$n" -eq 0 ] && return 1
+  [ -t 0 ] || return 1
+
+  while :; do
+    for ((i = 0; i < n; i++)); do
+      printf '%2d) %s\n' "$((i + 1))" "${items[$i]}" >&2
+    done
+    printf '%s> ' "$label" >&2
+    read -r choice || return 1
+    if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "$n" ]; then
+      echo "$choice"
+      return 0
+    fi
+    echo "Choix invalide." >&2
+  done
+}
+
 # Repos gérés, un owner/repo par ligne. Ne lit que des clés de config LXD :
 # aucun `lxc exec`, pour rester assez rapide à alimenter une complétion ou un
 # picker interactif.
@@ -126,6 +159,70 @@ forge_task_names() {
 # Vrai si le container tourne.
 forge_container_running() {
   [ "$(lxc list "$1" -f json | jq -r '.[0].status')" = "Running" ]
+}
+
+# Sépare les positionnels des flags. Nécessaire depuis que les positionnels
+# peuvent manquer : `forge stop --force` prendrait sinon "--force" pour un nom
+# de repo. Renseigne FORGE_ARGS (tableau) et FORGE_FORCE.
+forge_parse_args() {
+  local a
+  FORGE_ARGS=()
+  FORGE_FORCE=""
+  for a in "$@"; do
+    case "$a" in
+      --force) FORGE_FORCE="--force" ;;
+      *)       FORGE_ARGS+=("$a") ;;
+    esac
+  done
+}
+
+# Résout l'argument <owner/repo> : rendu tel quel s'il est fourni, sinon
+# demandé parmi les repos gérés. Le message d'usage sert de repli quand on ne
+# peut pas demander (pas de TTY, ou l'utilisateur a interrompu la saisie).
+forge_resolve_repo() {
+  local owner_repo="$1" usage="$2" idx
+  local -a repos
+
+  if [ -n "$owner_repo" ]; then
+    echo "$owner_repo"
+    return 0
+  fi
+
+  mapfile -t repos < <(forge_repos)
+  if [ "${#repos[@]}" -eq 0 ]; then
+    echo "Error: no forge container yet. Run 'forge start <owner/repo> <task>' first." >&2
+    return 1
+  fi
+
+  idx=$(forge_pick "Repo" "${repos[@]}") || { echo "$usage" >&2; return 1; }
+  echo "${repos[$((idx - 1))]}"
+}
+
+# Résout l'argument <task> parmi les worktrees existants d'un container.
+# Ne sert qu'aux commandes qui agissent sur une tâche *déjà là* (resume,
+# finish) ; `forge start` a son propre menu, qui propose aussi de créer.
+forge_resolve_task() {
+  local container="$1" task_name="$2" usage="$3" idx
+  local -a tasks
+
+  if [ -n "$task_name" ]; then
+    echo "$task_name"
+    return 0
+  fi
+
+  if ! forge_container_running "$container"; then
+    echo "Error: container $container is stopped, so its tasks can't be listed. Name the task explicitly, or start it." >&2
+    return 1
+  fi
+
+  mapfile -t tasks < <(forge_task_names "$container")
+  if [ "${#tasks[@]}" -eq 0 ]; then
+    echo "Error: no task worktree in $container. Create one with 'forge start'." >&2
+    return 1
+  fi
+
+  idx=$(forge_pick "Task" "${tasks[@]}") || { echo "$usage" >&2; return 1; }
+  echo "${tasks[$((idx - 1))]}"
 }
 
 # WIP pre-flight for a single worktree dir. Always checks the dirty tree; in

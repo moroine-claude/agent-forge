@@ -1,18 +1,21 @@
-# forge finish <owner/repo> <task> [--force]
+# forge finish [<owner/repo>] [<task>] [--force]
 # Removes a task's worktree once its work is safely committed/pushed. Runs the
 # WIP pre-flight on that worktree unless --force. The branch ref stays in .git,
 # so a merged/abandoned branch can still be inspected or re-checked-out later.
+#
+# Les deux positionnels sont demandés quand ils manquent (cf. forge_pick).
 
 cmd_forge_finish() {
-  local owner_repo="$1" task_name="$2" force="${3:-}" container dir
+  local owner_repo task_name container dir
+  local usage="Usage: forge finish <owner/repo> <task> [--force]"
 
-  if [ -z "$owner_repo" ] || [ -z "$task_name" ]; then
-    echo "Usage: forge finish <owner/repo> <task> [--force]" >&2
-    return 1
-  fi
+  forge_parse_args "$@"
+  owner_repo=$(forge_resolve_repo "${FORGE_ARGS[0]:-}" "$usage") || return 1
   validate_owner_repo "$owner_repo" || return 1
-  validate_task_name "$task_name" || return 1
   container=$(require_container_for_repo "$owner_repo") || return 1
+
+  task_name=$(forge_resolve_task "$container" "${FORGE_ARGS[1]:-}" "$usage") || return 1
+  validate_task_name "$task_name" || return 1
 
   dir=$(worktree_abspath "$task_name")
   if ! lxc exec "$container" -- su - aiuser -c "test -e $dir"; then
@@ -20,12 +23,12 @@ cmd_forge_finish() {
     return 1
   fi
 
-  if [ "$force" != "--force" ]; then
+  if [ "$FORGE_FORCE" != "--force" ]; then
     _forge_check_one_worktree "$container" "$dir" || return 1
   fi
 
   echo "Removing worktree .trees/$task_name..."
-  if [ "$force" = "--force" ]; then
+  if [ "$FORGE_FORCE" = "--force" ]; then
     lxc exec "$container" -- su - aiuser -c "git -C /workspace worktree remove --force .trees/$task_name"
   else
     lxc exec "$container" -- su - aiuser -c "git -C /workspace worktree remove .trees/$task_name"

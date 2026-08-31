@@ -276,9 +276,15 @@ started, use `forge resume`; to get a fresh `main` under the same task name,
 ### Resume or finish a task
 
 ```bash
-./scripts/forge resume <owner/repo> <task>   # re-attach an existing task's tmux session
-./scripts/forge finish <owner/repo> <task> [--force]   # remove a finished task's worktree
+./scripts/forge resume [<owner/repo>] [<task>]   # re-attach an existing task's tmux session
+./scripts/forge finish [<owner/repo>] [<task>] [--force]   # remove a finished task's worktree
 ```
+
+Leave a bracketed argument out and `forge` asks for it as a numbered menu,
+built from the containers and worktrees that actually exist — the same
+source the bash completion reads. With no terminal on stdin (a script, CI)
+nothing is asked: the command prints its usage and exits non-zero rather
+than blocking on a prompt nobody will answer.
 
 `forge resume` does no fetch and no rebranch — it just starts the container
 if needed and re-attaches the task's existing tmux session. It errors out
@@ -415,9 +421,9 @@ The session stays accessible as long as the container is running and the `claude
 ### Stop / list / delete containers
 
 ```bash
-./scripts/forge stop <owner/repo> [--force]    # stops the whole container; refuses if any worktree has dirty/unpushed WIP unless --force
-./scripts/forge list                           # every container (repo, mode, LXD state, image build status) plus one row per task worktree (session attached/detached)
-./scripts/forge delete <owner/repo> [--force]  # refuses on dirty/unpushed WIP in any worktree unless --force (skipped if already stopped)
+./scripts/forge stop [<owner/repo>] [--force]    # stops the whole container; refuses if any worktree has dirty/unpushed WIP unless --force
+./scripts/forge list                             # every container (repo, mode, LXD state, image build status) plus one row per task worktree (session attached/detached)
+./scripts/forge delete [<owner/repo>] [--force]  # refuses on dirty/unpushed WIP in any worktree unless --force (skipped if already stopped)
 ```
 
 `forge stop`/`forge delete` operate on the whole container, not a single

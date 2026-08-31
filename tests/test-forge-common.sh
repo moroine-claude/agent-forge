@@ -405,6 +405,66 @@ else
   PASS=$((PASS + 1))
 fi
 
+# --- forge_pick : menu numéroté partagé par les commandes interactives ---
+# forge_pick refuse de prompter hors TTY, donc les cas interactifs passent par
+# un pty (script -qec). Le choix est écrit sur stdout, l'invite sur stderr :
+# on redirige séparément dans un fichier depuis l'intérieur du pty, sinon les
+# deux flux se mélangeraient dans le terminal simulé.
+PICK_TMP=$(mktemp -d)
+trap 'rm -r "$PICK_TMP"' EXIT
+
+pick_run() {
+  local input="$1"; shift
+  local args
+  args=$(printf '%q ' "$@")
+  printf '%s' "$input" | script -qec \
+    "source '$LIB'; forge_pick $args > '$PICK_TMP/out' 2> '$PICK_TMP/err'; echo \$? > '$PICK_TMP/rc'" \
+    /dev/null > /dev/null 2>&1 || true
+  PICK_OUT=$(cat "$PICK_TMP/out"); PICK_ERR=$(cat "$PICK_TMP/err"); PICK_RC=$(tr -d '\r\n' < "$PICK_TMP/rc")
+}
+
+assert_pick() {
+  local got="$1" want="$2" label="$3"
+  if [ "$got" = "$want" ]; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo "FAIL ($label): attendu [$want], obtenu [$got]"
+  fi
+}
+
+# Choix valide : l'index 1-based sur stdout, rien d'autre.
+pick_run $'2\n' "Repo" alpha beta gamma
+assert_pick "$PICK_OUT" "2" "forge_pick rend l'index choisi"
+assert_pick "$PICK_RC" "0" "forge_pick sort en 0 sur choix valide"
+
+# L'invite et la liste vont sur stderr, pour que $(forge_pick ...) reste propre.
+case "$PICK_ERR" in
+  *"1) alpha"*"3) gamma"*"Repo> "*) PASS=$((PASS + 1)) ;;
+  *) FAIL=$((FAIL + 1)); echo "FAIL: liste/invite absentes de stderr: [$PICK_ERR]" ;;
+esac
+
+# Saisie invalide : on redemande au lieu d'abandonner.
+pick_run $'9\nzero\n1\n' "Repo" alpha beta
+assert_pick "$PICK_OUT" "1" "forge_pick redemande après une saisie invalide"
+
+# Hors TTY (script, CI) : pas de blocage sur une invite que personne ne lira,
+# et surtout pas de choix pris dans un stdin qui ne lui était pas destiné.
+# stdin porte ici une saisie valide : sans la garde TTY, forge_pick la
+# consommerait et rendrait "1".
+if OUT=$(printf '1\n' | forge_pick "Repo" alpha beta 2>/dev/null); then
+  FAIL=$((FAIL + 1)); echo "FAIL: forge_pick devrait échouer hors TTY (a rendu [$OUT])"
+else
+  assert_pick "$OUT" "" "forge_pick n'écrit rien hors TTY"
+fi
+
+# Liste vide : rien à choisir.
+if forge_pick "Repo" < /dev/null > /dev/null 2>&1; then
+  FAIL=$((FAIL + 1)); echo "FAIL: forge_pick devrait échouer sur une liste vide"
+else
+  PASS=$((PASS + 1))
+fi
+
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]
