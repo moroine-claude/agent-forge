@@ -1,55 +1,206 @@
-# forge start <owner/repo> <task>
-# Provisions a container if none exists yet for the repo, then adds the
-# task's worktree and attaches its own Claude Code session inside it.
+# forge start [<owner/repo>] [<task>]
+# Provisions a container if none exists yet for the repo, then puts the task's
+# worktree in place and attaches its own Claude Code session inside it.
 # See design spec §2.
+#
+# Les deux positionnels sont demandés quand ils manquent (cf. forge_pick), et
+# la branche de la tâche est résolue au lieu de partir systématiquement de
+# origin/main : c'est ce qui permet de reprendre une tâche existante (branche
+# locale laissée par `forge finish`, ou branche déjà poussée depuis un autre
+# container — une PR ouverte).
 
 cmd_forge_start() {
-  local owner_repo="$1" task_name="$2"
+  local owner_repo task_name container ref=""
+  local usage="Usage: forge start <owner/repo> [<task>]"
 
-  if [ -z "$owner_repo" ] || [ -z "$task_name" ]; then
-    echo "Usage: forge start <owner/repo> <task>" >&2
-    return 1
-  fi
+  forge_parse_args "$@"
+  owner_repo=$(_forge_start_resolve_repo "${FORGE_ARGS[0]:-}" "$usage") || return 1
   validate_owner_repo "$owner_repo" || return 1
-  validate_task_name "$task_name" || return 1
+  task_name="${FORGE_ARGS[1]:-}"
 
-  local container
   container=$(sanitize_container_name "$owner_repo")
   check_container_name_collision "$container" "$owner_repo" || return 1
 
   if ! lxc info "$container" > /dev/null 2>&1; then
-    _forge_provision_container "$container" "$owner_repo" "$task_name" || return 1
+    # Un container neuf n'a ni worktree ni branche à proposer : le menu de
+    # tâches n'aurait rien à montrer, on demande simplement un nom.
+    if [ -z "$task_name" ]; then
+      task_name=$(forge_ask "New task name") || { echo "$usage" >&2; return 1; }
+    fi
+    validate_task_name "$task_name" || return 1
+    _forge_provision_container "$container" "$owner_repo" || return 1
   fi
 
   echo "Starting container $container..."
-  if [ "$(lxc list "$container" -f json | jq -r '.[0].status')" != "Running" ]; then
+  if ! forge_container_running "$container"; then
     lxc start "$container"
   fi
 
-  _forge_add_worktree "$container" "$task_name" || return 1
+  # Avant le menu, pas après : les branches d'origin qu'il propose doivent
+  # être à jour.
+  _forge_refresh_main "$container"
+
+  if [ -z "$task_name" ]; then
+    _forge_pick_start_task "$container" "$usage" || return 1
+    task_name="$FORGE_START_TASK"
+    ref="$FORGE_START_REF"
+  fi
+
+  validate_task_name "$task_name" || return 1
+  if [ -n "$ref" ]; then
+    validate_git_ref "$ref" || return 1
+  fi
+
+  _forge_add_worktree "$container" "$task_name" "$ref" || return 1
   _forge_attach_task "$container" "$task_name"
 }
 
-# Fetch + fast-forward main (autonomous only), then create the task's worktree.
-# Refuses if the worktree already exists (use `forge resume`).
-_forge_add_worktree() {
-  local container="$1" task_name="$2" mode
-  mode=$(forge_container_mode "$container")
+# Comme forge_resolve_repo, mais avec une entrée de plus : `forge start` est la
+# seule commande qui peut travailler sur un repo pas encore provisionné.
+_forge_start_resolve_repo() {
+  local owner_repo="$1" usage="$2" idx
+  local -a repos
 
-  if lxc exec "$container" -- su - aiuser -c "test -e /workspace/.trees/$task_name"; then
-    echo "Error: worktree .trees/$task_name already exists in $container. Use 'forge resume $(forge_container_repo "$container") $task_name'." >&2
+  if [ -n "$owner_repo" ]; then
+    echo "$owner_repo"
+    return 0
+  fi
+
+  mapfile -t repos < <(forge_repos)
+  if [ "${#repos[@]}" -eq 0 ]; then
+    echo "Error: no forge container yet. Name the repo: forge start <owner/repo> <task>." >&2
     return 1
   fi
 
-  if [ "$mode" = "supervised" ]; then
-    echo "Supervised container: skipping origin fetch (no credential); branching from last-known origin/main." >&2
-  else
-    echo "Refreshing main..."
-    lxc exec "$container" -- su - aiuser -c "git -C /workspace fetch origin && git -C /workspace merge --ff-only origin/main"
+  idx=$(forge_pick "Repo" "${repos[@]}" "autre repo…") || { echo "$usage" >&2; return 1; }
+  if [ "$idx" -gt "${#repos[@]}" ]; then
+    forge_ask "owner/repo" || { echo "$usage" >&2; return 1; }
+    return
+  fi
+  echo "${repos[$((idx - 1))]}"
+}
+
+# Fetch + fast-forward de main. Un container supervised n'a aucune credential
+# pour joindre origin : on reste sur les refs déjà connues localement.
+_forge_refresh_main() {
+  local container="$1"
+
+  if [ "$(forge_container_mode "$container")" = "supervised" ]; then
+    echo "Supervised container: skipping origin fetch (no credential); working from the last-known origin refs." >&2
+    return 0
   fi
 
-  echo "Creating worktree .trees/$task_name on agent/$task_name..."
-  lxc exec "$container" -- su - aiuser -c "git -C /workspace worktree add .trees/$task_name -b agent/$task_name origin/main"
+  echo "Refreshing main..."
+  lxc exec "$container" -- su - aiuser -c "git -C /workspace fetch origin && git -C /workspace merge --ff-only origin/main"
+}
+
+# Les noms de tâches derrière les branches agent/* d'un container, un par
+# ligne, pour un espace de refs donné (refs/heads/agent ou
+# refs/remotes/origin/agent).
+#
+# Le filtre de charset est la même défense en profondeur que
+# _forge_worktree_dirs : ces noms repartent dans un `su -c`.
+_forge_agent_branches() {
+  local container="$1" refspace="$2"
+  lxc exec "$container" -- su - aiuser -c \
+    "git -C /workspace for-each-ref --format='%(refname:short)' $refspace" 2>/dev/null \
+    | sed -E 's#^(origin/)?agent/##' \
+    | awk '$0 ~ /^[A-Za-z0-9._-]+$/' || true
+}
+
+_forge_branch_exists() {
+  lxc exec "$1" -- su - aiuser -c "git -C /workspace show-ref --verify --quiet $2" > /dev/null 2>&1
+}
+
+# Menu de tâches de `forge start` : worktrees déjà là, branches agent/* sans
+# worktree (locales, ou seulement sur origin — typiquement une PR ouverte
+# depuis un autre container), plus "nouvelle tâche" et "autre branche".
+#
+# Renseigne FORGE_START_TASK et FORGE_START_REF (vide = résolution
+# automatique) : deux valeurs à rendre, donc pas de stdout.
+_forge_pick_start_task() {
+  local container="$1" usage="$2" idx name ref task
+  local -a labels=("nouvelle tâche") values=("new")
+  local -A seen=()
+
+  while IFS= read -r name; do
+    [ -z "$name" ] && continue
+    seen[$name]=1
+    labels+=("$name (worktree existant — attach)")
+    values+=("task:$name")
+  done < <(forge_task_names "$container")
+
+  while IFS= read -r name; do
+    [ -z "$name" ] || [ -n "${seen[$name]:-}" ] && continue
+    seen[$name]=1
+    labels+=("$name (branche locale)")
+    values+=("task:$name")
+  done < <(_forge_agent_branches "$container" refs/heads/agent)
+
+  while IFS= read -r name; do
+    [ -z "$name" ] || [ -n "${seen[$name]:-}" ] && continue
+    seen[$name]=1
+    labels+=("$name (branche sur origin)")
+    values+=("task:$name")
+  done < <(_forge_agent_branches "$container" refs/remotes/origin/agent)
+
+  labels+=("autre branche…")
+  values+=("other")
+
+  idx=$(forge_pick "Task" "${labels[@]}") || { echo "$usage" >&2; return 1; }
+
+  FORGE_START_TASK=""
+  FORGE_START_REF=""
+  case "${values[$((idx - 1))]}" in
+    new)
+      FORGE_START_TASK=$(forge_ask "New task name") || { echo "$usage" >&2; return 1; }
+      ;;
+    other)
+      # La branche de départ peut être quelconque, mais on travaille toujours
+      # sur agent/<task> : le hook pre-bash.sh n'autorise le push que là.
+      ref=$(forge_ask "Ref") || { echo "$usage" >&2; return 1; }
+      task=$(forge_ask "New task name") || { echo "$usage" >&2; return 1; }
+      FORGE_START_REF="$ref"
+      FORGE_START_TASK="$task"
+      ;;
+    task:*)
+      FORGE_START_TASK="${values[$((idx - 1))]#task:}"
+      ;;
+  esac
+}
+
+# Met le worktree de la tâche en place. Ordre de résolution, chaque cas
+# annoncé pour qu'on sache sur quoi on atterrit :
+#   1. worktree déjà là           -> on s'y rattache (start est idempotent)
+#   2. ref explicite              -> nouvelle agent/<task> depuis cette ref
+#   3. branche locale agent/<task> -> worktree dessus (cas post-`forge finish`)
+#   4. origin/agent/<task>        -> reprise d'une branche poussée ailleurs
+#   5. rien                       -> nouvelle agent/<task> depuis origin/main
+_forge_add_worktree() {
+  local container="$1" task_name="$2" ref="${3:-}"
+
+  if lxc exec "$container" -- su - aiuser -c "test -e /workspace/.trees/$task_name"; then
+    echo "Worktree .trees/$task_name is already there — attaching to it."
+    return 0
+  fi
+
+  if [ -n "$ref" ]; then
+    if _forge_branch_exists "$container" "refs/heads/agent/$task_name"; then
+      echo "Error: branch agent/$task_name already exists; pick another task name so its history isn't overwritten." >&2
+      return 1
+    fi
+    echo "Creating worktree .trees/$task_name on a new agent/$task_name from $ref..."
+    lxc exec "$container" -- su - aiuser -c "git -C /workspace worktree add .trees/$task_name -b agent/$task_name $ref"
+  elif _forge_branch_exists "$container" "refs/heads/agent/$task_name"; then
+    echo "Resuming the existing local branch agent/$task_name in .trees/$task_name..."
+    lxc exec "$container" -- su - aiuser -c "git -C /workspace worktree add .trees/$task_name agent/$task_name"
+  elif _forge_branch_exists "$container" "refs/remotes/origin/agent/$task_name"; then
+    echo "Resuming agent/$task_name from origin in .trees/$task_name..."
+    lxc exec "$container" -- su - aiuser -c "git -C /workspace worktree add .trees/$task_name -b agent/$task_name origin/agent/$task_name"
+  else
+    echo "Creating worktree .trees/$task_name on a new agent/$task_name from origin/main..."
+    lxc exec "$container" -- su - aiuser -c "git -C /workspace worktree add .trees/$task_name -b agent/$task_name origin/main"
+  fi
 }
 
 # Attach (or create) the task's tmux session, running claude in its worktree.
@@ -83,7 +234,7 @@ _forge_attach_task() {
 }
 
 _forge_provision_container() {
-  local container="$1" owner_repo="$2" task_name="$3"
+  local container="$1" owner_repo="$2"
 
   if [ ! -f "/home/moroine/.claude/.credentials.json" ]; then
     echo "Error: /home/moroine/.claude/.credentials.json not found. Run 'claude auth login' on the host first." >&2

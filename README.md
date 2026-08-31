@@ -241,7 +241,7 @@ see the same object store.
 ### Start a container and a task (creates the container on first use)
 
 ```bash
-./scripts/forge start <owner/repo> <task>
+./scripts/forge start [<owner/repo>] [<task>]
 ```
 
 Container identity is derived from `owner/repo` — no project name to choose
@@ -262,16 +262,49 @@ provisions one first:
 Either way (freshly provisioned or already existing), `forge start` then
 starts the container if it's stopped, and:
 1. **Refreshes `main`** — autonomous containers `git fetch origin && git merge --ff-only origin/main` in `/workspace` first, so every new task branches from a genuinely current `main`; supervised containers have no credential to fetch with, so this step is skipped and the task branches from whatever `origin/main` was last fetched to (fetch it yourself on the host beforehand if you need it current — see "Supervised mode" below).
-2. **Adds the task's worktree** — `git worktree add .trees/<task> -b agent/<task> origin/main` inside `/workspace`. Refuses (pointing you at `forge resume`) if `.trees/<task>` already exists.
+2. **Puts the task's worktree in place** — resolving what `<task>` should branch from rather than always starting over from `main` (see "Resolving the task's branch" below).
 3. **Attaches the session** — starts (or re-attaches, via `tmux new-session -A`) a tmux session named `<task>`, `cd`'d into `.trees/<task>`, running `claude` in `auto` permission mode (`--permission-mode auto`) — autonomous by default, but the auto-mode classifier pauses for confirmation on sensitive actions (credential handling, irreversible deletion, pushes to protected branches, etc.). A session URL and QR code are displayed at startup.
 
-`forge start` always creates a **new** worktree for the task name given — it
-refuses (pointing you at `forge resume`) if `.trees/<task>` already exists,
-rather than silently re-attaching. Running it again with a *different* task
-name on a repo that already has a container just adds another worktree — no
-re-provisioning, no re-pasting the PAT. To re-attach a task you already
-started, use `forge resume`; to get a fresh `main` under the same task name,
-`forge finish` it first and `forge start` it again.
+Running `forge start` again with a *different* task name on a repo that
+already has a container just adds another worktree — no re-provisioning, no
+re-pasting the PAT.
+
+#### Resolving the task's branch
+
+`forge start` is idempotent: given a task whose worktree is already there, it
+attaches to it instead of failing. Otherwise it picks the branch to work from
+in this order, announcing which case it landed in so you always know what
+you're sitting on:
+
+| Situation | What happens |
+|-----------|--------------|
+| `.trees/<task>` already exists | Attach to it (same thing `forge resume` does) |
+| A ref was named through the `autre branche…` menu entry | New `agent/<task>` branched from that ref |
+| Local `agent/<task>` exists | Worktree on that branch — the case left behind by `forge finish`, which keeps the ref |
+| `origin/agent/<task>` exists | New local `agent/<task>` tracking it — a branch pushed from another container or machine, typically an open PR |
+| Nothing exists | New `agent/<task>` from `origin/main` |
+
+Leave `<task>` out and you get these as a menu instead — existing worktrees,
+`agent/*` branches that have no worktree (local, or only on `origin`), plus
+`nouvelle tâche` and `autre branche…`:
+
+```
+$ forge start moroine/agent-forge
+ 1) nouvelle tâche
+ 2) cli (worktree existant — attach)
+ 3) docs (branche locale)
+ 4) api (branche sur origin)
+ 5) autre branche…
+Task>
+```
+
+`autre branche…` asks for a ref and a task name, and is how you pick up a
+branch that doesn't follow the `agent/<task>` convention — say a
+`feature/*` branch a human pushed. The work still happens on `agent/<task>`
+branched from it, never on the original branch: the container's `pre-bash.sh`
+hook only lets the agent push to `origin agent/*`, so a worktree on any other
+branch could commit but never publish. The trade-off is that you get a fresh
+PR rather than adding commits to the existing one.
 
 ### Resume or finish a task
 
@@ -405,7 +438,7 @@ device:
 - **Browser**: open the session URL printed at startup, or go to [claude.ai/code](https://claude.ai/code) and find the session by its `<container>-<task>` name
 - **Mobile app**: tap **Code** in the Claude app navigation
 
-The session stays accessible as long as the container is running and the `claude` process is alive in that task's tmux session. If the Remote Control connection times out (network outage >10 min), re-run `forge resume <owner/repo> <task>` to re-attach (`forge start` would refuse — the worktree already exists) — or type `/remote-control` inside an existing session to re-enable it.
+The session stays accessible as long as the container is running and the `claude` process is alive in that task's tmux session. If the Remote Control connection times out (network outage >10 min), re-run `forge resume <owner/repo> <task>` to re-attach (`forge start` on that task does the same thing) — or type `/remote-control` inside an existing session to re-enable it.
 
 **Requirements**: the host must be authenticated with a claude.ai account (`claude auth login`). API key auth does not support Remote Control. New containers reuse this credential automatically at provisioning time (see "Start a container and a task" above); if you re-authenticate on the host afterward, existing containers keep their own copy until recreated.
 

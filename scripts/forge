@@ -20,7 +20,7 @@ usage() {
 Usage: forge <command> [args]
 
 Commands:
-  start <owner/repo> [task-name]   Provision (if needed) and start/attach a session
+  start [<owner/repo>] [<task>]     Provision (if needed) and start/attach a task session
   resume [<owner/repo>] [<task>]   Re-attach an existing task's session
   finish [<owner/repo>] [<task>]   Remove a finished task's worktree
   stop [<owner/repo>] [--force]    Stop a container (blocked on dirty/unpushed WIP unless --force)

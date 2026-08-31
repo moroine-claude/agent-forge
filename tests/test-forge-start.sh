@@ -113,14 +113,19 @@ assert_contains "$LIB" 'info/exclude'
 assert_contains "$LIB" 'lxc config set "$container" user.forge.image_commit'
 assert_not_contains "$LIB" 'git checkout -b "agent/$task_name"'
 
-# --- new in this task: task-name required (no init default) ---
-assert_contains "$LIB" 'Usage: forge start <owner/repo> <task>'
+# --- task-name optionnelle : demandée si absente, jamais defaultée ---
+assert_contains "$LIB" 'Usage: forge start <owner/repo> [<task>]'
 assert_not_contains "$LIB" 'task_name="${2:-init}"'
 
 # --- worktree add inside the container, from origin/main, on agent/<task> ---
 assert_contains "$LIB" 'git -C /workspace worktree add'
 assert_contains "$LIB" '-b agent/$task_name origin/main'
-assert_contains "$LIB" 'already exists'          # duplicate-worktree guard message
+# Un worktree déjà là n'est plus une erreur renvoyant vers `forge resume` :
+# c'est justement la tâche qu'on veut attaquer, on s'y rattache.
+assert_not_contains "$LIB" "Use 'forge resume"
+# Reprise d'une branche existante, locale ou seulement sur origin.
+assert_contains "$LIB" 'refs/heads/agent/$task_name'
+assert_contains "$LIB" 'refs/remotes/origin/agent/$task_name'
 
 # --- fetch + ff main (autonomous), skipped for supervised ---
 assert_contains "$LIB" 'git -C /workspace fetch origin'
@@ -148,6 +153,112 @@ assert_body_not_contains "$ATTACH_BODY" 'cd /workspace/.trees/'
 # (forge-image.sh). Without a login shell under tmux, rootless Docker breaks
 # silently — so the wrapper is load-bearing, not cosmetic.
 assert_body_contains "$ATTACH_BODY" 'exec bash -lc'
+
+# --- fonctionnel : résolution de branche et menu de tâches ---
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$ROOT/tests/lib/fake-lxc.sh"
+fake_lxc_init "$FORGE"
+trap fake_lxc_cleanup EXIT
+
+assert_out() {
+  if grep -qF -- "$1" <<< "$FORGE_TTY_OUT"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1)); echo "FAIL (sortie): attendu '$1' dans:"; sed 's/^/    /' <<< "$FORGE_TTY_OUT"
+  fi
+}
+assert_call() {
+  if grep -qF -- "$1" <<< "$(fake_lxc_calls)"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1)); echo "FAIL (appels lxc): attendu '$1' dans:"; fake_lxc_calls | sed 's/^/    /'
+  fi
+}
+refute_call() {
+  if grep -qF -- "$1" <<< "$(fake_lxc_calls)"; then
+    FAIL=$((FAIL + 1)); echo "FAIL (appels lxc): '$1' ne devrait pas être appelé"
+  else
+    PASS=$((PASS + 1))
+  fi
+}
+
+fake_lxc_image_commit "aaaa1111"
+fake_lxc_container agent-moroine-agent-forge Running moroine/agent-forge autonomous "aaaa1111"
+
+# Les règles sont matchées dans l'ordre : la plus spécifique d'abord, puis un
+# fourre-tout qui répond "n'existe pas".
+setup_rules() {
+  fake_lxc_reset_rules
+  fake_lxc_exec_rule 'git worktree list' 0 'worktree /workspace
+worktree /workspace/.trees/cli'
+  fake_lxc_exec_rule 'test -e /workspace/.trees/cli' 0
+  fake_lxc_exec_rule 'test -e /workspace/.trees/' 1
+  local rule
+  for rule in "$@"; do
+    fake_lxc_exec_rule "${rule%%|*}" "${rule##*|}"
+  done
+  fake_lxc_exec_rule 'show-ref' 1
+}
+
+# 1. Worktree déjà présent : on s'y rattache au lieu d'échouer.
+setup_rules
+fake_lxc_reset_calls
+fake_lxc_run_tty '' start moroine/agent-forge cli
+assert_call 'tmux new-session -A -s cli'
+refute_call 'worktree add'
+
+# 2. Branche locale existante (cas post-`forge finish`) : worktree dessus.
+setup_rules 'show-ref --verify --quiet refs/heads/agent/docs|0'
+fake_lxc_reset_calls
+fake_lxc_run_tty '' start moroine/agent-forge docs
+assert_call 'git -C /workspace worktree add .trees/docs agent/docs'
+
+# 3. Branche seulement sur origin (PR ouverte ailleurs) : on la reprend.
+setup_rules 'show-ref --verify --quiet refs/remotes/origin/agent/api|0'
+fake_lxc_reset_calls
+fake_lxc_run_tty '' start moroine/agent-forge api
+assert_call 'worktree add .trees/api -b agent/api origin/agent/api'
+
+# 4. Rien n'existe : nouvelle branche depuis origin/main, comme avant.
+setup_rules
+fake_lxc_reset_calls
+fake_lxc_run_tty '' start moroine/agent-forge neuf
+assert_call 'worktree add .trees/neuf -b agent/neuf origin/main'
+
+# 5. Tâche absente : menu mélangeant worktrees, branches locales et branches
+#    d'origin, plus "nouvelle tâche" et "autre branche".
+setup_rules
+fake_lxc_exec_rule 'for-each-ref' 0 ''
+fake_lxc_reset_rules
+fake_lxc_exec_rule 'git worktree list' 0 'worktree /workspace
+worktree /workspace/.trees/cli'
+fake_lxc_exec_rule "for-each-ref --format='%(refname:short)' refs/heads/agent" 0 'agent/docs'
+fake_lxc_exec_rule "for-each-ref --format='%(refname:short)' refs/remotes/origin/agent" 0 'origin/agent/api'
+fake_lxc_exec_rule 'test -e /workspace/.trees/' 1
+fake_lxc_exec_rule 'show-ref --verify --quiet refs/remotes/origin/agent/api' 0
+fake_lxc_exec_rule 'show-ref' 1
+fake_lxc_reset_calls
+fake_lxc_run_tty $'4\n' start moroine/agent-forge
+assert_out 'nouvelle tâche'
+assert_out 'cli (worktree existant'
+assert_out 'docs (branche locale)'
+assert_out 'api (branche sur origin)'
+assert_out 'autre branche'
+assert_call 'worktree add .trees/api -b agent/api origin/agent/api'
+
+# 6. "autre branche…" : on demande la ref puis le nom de tâche, et la branche
+#    de travail reste agent/<task> (le hook pre-bash n'autorise que ça au push).
+fake_lxc_reset_calls
+fake_lxc_run_tty $'5\norigin/feature/truc\ntruc\n' start moroine/agent-forge
+assert_out 'Ref> '
+assert_call 'worktree add .trees/truc -b agent/truc origin/feature/truc'
+
+# Hors TTY, une tâche absente reste une erreur d'usage.
+if OUT=$(PATH="$FAKE_LXC_BIN:$PATH" bash "$FORGE" start moroine/agent-forge < /dev/null 2>&1); then
+  FAIL=$((FAIL + 1)); echo "FAIL: start sans tâche hors TTY devrait échouer"
+else
+  if grep -qF 'Usage: forge start' <<< "$OUT"; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: usage attendu, obtenu: $OUT"; fi
+fi
 
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"

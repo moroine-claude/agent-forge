@@ -161,6 +161,30 @@ forge_container_running() {
   [ "$(lxc list "$1" -f json | jq -r '.[0].status')" = "Running" ]
 }
 
+# Lit une valeur libre au clavier. Même contrat que forge_pick : invite sur
+# stderr, valeur sur stdout, échec (sans rien demander) hors TTY.
+forge_ask() {
+  local label="$1" value
+
+  [ -t 0 ] || return 1
+  printf '%s> ' "$label" >&2
+  read -r value || return 1
+  [ -z "$value" ] && return 1
+  echo "$value"
+}
+
+# Valide une ref git saisie à la main. Elle est interpolée dans un `su -c`,
+# donc restreinte aux caractères sans risque de métacaractère shell ; le tiret
+# initial est exclu pour qu'elle ne puisse pas être prise par git pour une
+# option.
+validate_git_ref() {
+  local ref="$1"
+  if [[ ! "$ref" =~ ^[A-Za-z0-9._/-]+$ ]] || [[ "$ref" == -* ]]; then
+    echo "Error: ref must only contain [A-Za-z0-9._/-] and must not start with '-', got: $ref" >&2
+    return 1
+  fi
+}
+
 # Sépare les positionnels des flags. Nécessaire depuis que les positionnels
 # peuvent manquer : `forge stop --force` prendrait sinon "--force" pour un nom
 # de repo. Renseigne FORGE_ARGS (tableau) et FORGE_FORCE.

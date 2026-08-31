@@ -131,4 +131,5 @@ fake_lxc_run_tty() {
 
 fake_lxc_calls() { cat "$FAKE_LXC_STATE/calls"; }
 fake_lxc_reset_calls() { : > "$FAKE_LXC_STATE/calls"; }
+fake_lxc_reset_rules() { : > "$FAKE_LXC_STATE/exec_rules"; }
 fake_lxc_cleanup() { [ -n "$FAKE_LXC_STATE" ] && rm -r "$FAKE_LXC_STATE"; }
