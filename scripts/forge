@@ -28,6 +28,8 @@ Commands:
   list                              Show all containers: repo, mode, state, session
   image build|update                Rebuild the agent-base image (only affects new containers)
   completion bash                   Print a bash completion function (eval it in ~/.bashrc)
+  completion repos                  List managed owner/repo, one per line (machine-readable)
+  completion tasks <owner/repo>     List a repo's task names, one per line (machine-readable)
 EOF
 }
 
@@ -62,8 +64,10 @@ case "${1:-}" in
   completion)
     shift
     case "${1:-}" in
-      bash) cmd_forge_completion_bash ;;
-      *) echo "Usage: forge completion bash" >&2; exit 1 ;;
+      bash)  cmd_forge_completion_bash ;;
+      repos) cmd_forge_completion_repos ;;
+      tasks) shift; cmd_forge_completion_tasks "$@" ;;
+      *) echo "Usage: forge completion bash|repos|tasks <owner/repo>" >&2; exit 1 ;;
     esac
     ;;
   ""|-h|--help)

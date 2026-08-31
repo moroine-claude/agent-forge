@@ -101,6 +101,33 @@ _forge_worktree_dirs() {
     | awk -F/ '$NF ~ /^[A-Za-z0-9._-]+$/' || true
 }
 
+# Repos gérés, un owner/repo par ligne. Ne lit que des clés de config LXD :
+# aucun `lxc exec`, pour rester assez rapide à alimenter une complétion ou un
+# picker interactif.
+forge_repos() {
+  local name repo
+  for name in $(list_forge_containers); do
+    repo=$(forge_container_repo "$name")
+    [ -n "$repo" ] && echo "$repo"
+  done
+  return 0
+}
+
+# Noms de tâches (basename des worktrees) d'un container, un par ligne.
+# Container must be running.
+forge_task_names() {
+  local dir
+  while IFS= read -r dir; do
+    [ -z "$dir" ] && continue
+    basename "$dir"
+  done < <(_forge_worktree_dirs "$1")
+}
+
+# Vrai si le container tourne.
+forge_container_running() {
+  [ "$(lxc list "$1" -f json | jq -r '.[0].status')" = "Running" ]
+}
+
 # WIP pre-flight for a single worktree dir. Always checks the dirty tree; in
 # autonomous mode also the branch-name safety regex and unpushed commits.
 # Supervised containers have no credential to have pushed with, so only the

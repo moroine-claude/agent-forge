@@ -490,6 +490,19 @@ alias forge=/home/moroine/agent-forge/scripts/forge
 eval "$(forge completion bash)"
 ```
 
-Add those two lines to `~/.bashrc` to get `<owner/repo>` tab-completion on
-`forge start`/`stop`/`delete`/`resume`/`finish`, sourced dynamically from
-`forge list`.
+Add those two lines to `~/.bashrc` to get tab-completion on `forge
+start`/`resume`/`finish`/`stop`/`delete`: `<owner/repo>` in second position,
+then the repo's task names on `start`/`resume`/`finish` and `--force` on
+`stop`/`delete`/`finish`.
+
+The completion is fed by two machine-readable subcommands rather than by
+parsing the `forge list` table, so reformatting the table can't break it:
+
+```bash
+forge completion repos               # one owner/repo per line
+forge completion tasks <owner/repo>  # one task name per line
+```
+
+`completion repos` only reads LXD config keys (no `lxc exec`), which is what
+keeps a TAB press fast. `completion tasks` needs the container running — a
+stopped container simply lists nothing.
