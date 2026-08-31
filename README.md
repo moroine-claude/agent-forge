@@ -416,7 +416,7 @@ The session stays accessible as long as the container is running and the `claude
 
 ```bash
 ./scripts/forge stop <owner/repo> [--force]    # stops the whole container; refuses if any worktree has dirty/unpushed WIP unless --force
-./scripts/forge list                           # every container (repo, mode, LXD state, image build status) plus one row per task worktree (branch, session attached/detached)
+./scripts/forge list                           # every container (repo, mode, LXD state, image build status) plus one row per task worktree (session attached/detached)
 ./scripts/forge delete <owner/repo> [--force]  # refuses on dirty/unpushed WIP in any worktree unless --force (skipped if already stopped)
 ```
 
@@ -425,24 +425,32 @@ task — they run the WIP check across every `.trees/*` worktree (via the same
 check `forge finish` runs on one worktree). To wind down a single task
 without touching the others, use `forge finish` instead.
 
-`forge list` prints a header row per container followed by an indented row
-per feature worktree that container currently has checked out:
+`forge list` prints one row per container followed by an indented row per
+feature worktree that container currently has checked out:
 
 ```
-CONTAINER                    REPO                       MODE        STATE     BUILD
-agent-owner-repo              owner/repo                 autonomous  Running   ok
-  feature-a                  agent/feature-a             attached
-  feature-b                  agent/feature-b             detached
-agent-owner-other             owner/other                 supervised  Stopped   behind (a1b2c3d->9f8e7d6)
+REPO             MODE        STATE    BUILD
+owner/repo       autonomous  Running  ok
+  feature-a      attached
+  feature-b      detached
+  feature-c      no session
+owner/other      supervised  Stopped  behind
 ```
+
+Column widths are computed from the data, so a long repo name widens its
+column instead of shifting every column after it. Two columns are
+deliberately absent because they are derivable and only made the output
+wrap: the container name (always `agent-` plus the sanitized repo) and a
+task's branch (always `agent/<task>`).
 
 The `BUILD` column compares the container's stamped image commit against the
 latest `forge image build` (see "Image versioning" below): `ok` if they
-match, `behind (<old>-><new>)` (short commit SHAs) if the container is
-running an image older than latest build, `unknown` if either commit is
-unavailable (e.g. `agent-base` was never stamped). Worktree rows only show
-for running containers, and `attached`/`detached` reflects whether the
-task's tmux session currently has a client attached.
+match, `behind` if the container runs an image older than latest build,
+`unknown` if either commit is unavailable (e.g. `agent-base` was never
+stamped). Worktree rows only show for running containers;
+`attached`/`detached` reflects whether the task's tmux session currently has
+a client attached, and `no session` means the worktree exists but its tmux
+session isn't running.
 
 ### Image versioning
 
