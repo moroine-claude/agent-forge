@@ -53,13 +53,33 @@ _forge_add_worktree() {
 }
 
 # Attach (or create) the task's tmux session, running claude in its worktree.
+#
+# tmux MUST stay the direct target of `lxc exec`. With an intermediate
+# `su - aiuser -c "..."` shell, SIGWINCH never reaches the tmux client when
+# the host terminal is resized: the client keeps the size it read at attach
+# time and goes on drawing into a stale grid, so text overwrites dead cells
+# (diagnosed 2026-08-31 — the pty itself does resize correctly, only the
+# tmux client misses the signal; a tmux.conf cannot fix this).
+#
+# --user/--group/--cwd replace `su - aiuser` + `cd`. HOME already comes from
+# the LXD profile (environment.HOME), but TERM does not: no login shell is
+# left to set it, so forward the host's explicitly.
+#
+# `exec bash -lc` around claude is load-bearing, not cosmetic: `lxc exec`
+# sources no rc file, and DOCKER_HOST is exported from .bashrc (see
+# forge-image.sh). This puts the login shell *below* tmux, where it restores
+# the environment without sitting between the pty and the tmux client.
+#
+# 1001 is aiuser's UID/GID inside the container (see the raw.idmap block in
+# config/lxd-agent-profile.yaml), already relied on elsewhere.
 _forge_attach_task() {
   local container="$1" task_name="$2"
   echo "Attaching to $container session '$task_name' as aiuser..."
-  lxc exec "$container" -- su - aiuser -c "
-    cd /workspace/.trees/$task_name
-    tmux new-session -A -s '$task_name' 'claude --permission-mode auto --remote-control ${container}-${task_name}'
-  "
+  lxc exec "$container" --user 1001 --group 1001 \
+    --cwd "/workspace/.trees/$task_name" \
+    --env "TERM=${TERM:-xterm-256color}" \
+    -- tmux new-session -A -s "$task_name" \
+       "exec bash -lc 'claude --permission-mode auto --remote-control ${container}-${task_name}'"
 }
 
 _forge_provision_container() {

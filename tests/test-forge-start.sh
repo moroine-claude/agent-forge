@@ -30,6 +30,26 @@ assert_not_contains() {
   fi
 }
 
+assert_body_contains() {
+  local body="$1" pattern="$2"
+  if grep -qF -- "$pattern" <<< "$body"; then
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    echo "FAIL (attendu présent dans _forge_attach_task): $pattern"
+  fi
+}
+
+assert_body_not_contains() {
+  local body="$1" pattern="$2"
+  if grep -qF -- "$pattern" <<< "$body"; then
+    FAIL=$((FAIL + 1))
+    echo "FAIL (attendu absent de _forge_attach_task): $pattern"
+  else
+    PASS=$((PASS + 1))
+  fi
+}
+
 assert_line_before() {
   local file="$1" p1="$2" p2="$3" l1 l2
   l1=$(grep -nF -- "$p1" "$file" | head -1 | cut -d: -f1)
@@ -106,10 +126,28 @@ assert_contains "$LIB" 'already exists'          # duplicate-worktree guard mess
 assert_contains "$LIB" 'git -C /workspace fetch origin'
 assert_contains "$LIB" 'merge --ff-only origin/main'
 
-# --- per-task attach: session named after the task, cd into the worktree ---
+# --- per-task attach: session named after the task, worktree as cwd ---
 assert_contains "$LIB" 'tmux new-session -A -s'
-assert_contains "$LIB" 'cd /workspace/.trees/'
 assert_contains "$LIB" '--remote-control ${container}-${task_name}'
+
+# --- attach must keep tmux the DIRECT target of `lxc exec` ---
+# An intermediate `su - aiuser -c "..."` shell swallows SIGWINCH: the tmux
+# client never learns the new size on host-terminal resize and keeps drawing
+# into a stale grid (garbled display). These assertions are scoped to the
+# body of _forge_attach_task so unrelated `su - aiuser -c` calls elsewhere in
+# the file (provisioning) can't satisfy them by accident.
+ATTACH_BODY=$(sed -n '/^_forge_attach_task() {/,/^}/p' "$LIB")
+assert_body_contains "$ATTACH_BODY" '-- tmux new-session -A -s "$task_name"'
+assert_body_contains "$ATTACH_BODY" '--user 1001 --group 1001'
+assert_body_contains "$ATTACH_BODY" '--cwd "/workspace/.trees/$task_name"'
+assert_body_contains "$ATTACH_BODY" '--env "TERM=${TERM:-xterm-256color}"'
+assert_body_not_contains "$ATTACH_BODY" 'su - aiuser'
+assert_body_not_contains "$ATTACH_BODY" 'cd /workspace/.trees/'
+
+# `lxc exec` sources no rc file, but DOCKER_HOST is exported from .bashrc
+# (forge-image.sh). Without a login shell under tmux, rootless Docker breaks
+# silently — so the wrapper is load-bearing, not cosmetic.
+assert_body_contains "$ATTACH_BODY" 'exec bash -lc'
 
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"
