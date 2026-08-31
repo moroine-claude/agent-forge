@@ -45,6 +45,10 @@ assert_contains 'docker compose up'
 assert_contains '--privileged'
 assert_line_before '## Git' '## Docker'
 assert_line_before '## Docker' '## Périmètre'
+assert_contains '## Navigateur'
+assert_contains 'chrome-devtools-mcp'
+assert_line_before '## Docker' '## Navigateur'
+assert_line_before '## Navigateur' '## Périmètre'
 
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"

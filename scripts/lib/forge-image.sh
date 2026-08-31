@@ -41,6 +41,8 @@ _forge_image_build() {
   lxc exec "$setup" -- bash -c 'echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list'
   lxc exec "$setup" -- bash -c 'apt update && apt install -y gh'
   lxc exec "$setup" -- bash -c "wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/chrome.deb && apt install -y --fix-missing /tmp/chrome.deb"
+  echo "Installing chrome-devtools-mcp..."
+  lxc exec "$setup" -- npm install -g chrome-devtools-mcp@latest
   echo "Installing Docker (rootless)..."
   lxc exec "$setup" -- apt install -y uidmap dbus-user-session
   lxc exec "$setup" -- bash -c 'mkdir -p -m 755 /etc/apt/keyrings && curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc && chmod a+r /etc/apt/keyrings/docker.asc'

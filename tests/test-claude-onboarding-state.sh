@@ -34,6 +34,11 @@ python3 -m json.tool "$FILE" > /dev/null
 check "global onboarding accepted" "d['hasCompletedOnboarding']" "True"
 check "workspace trust accepted" "d['projects']['/workspace']['hasTrustDialogAccepted']" "True"
 check "workspace project onboarding accepted" "d['projects']['/workspace']['hasCompletedProjectOnboarding']" "True"
+check "chrome-devtools MCP command" "d['mcpServers']['chrome-devtools']['command']" "chrome-devtools-mcp"
+check "chrome-devtools MCP headless flag" "'--headless' in d['mcpServers']['chrome-devtools']['args']" "True"
+check "chrome-devtools MCP executablePath flag" "'--executablePath=/usr/bin/google-chrome-stable' in d['mcpServers']['chrome-devtools']['args']" "True"
+check "chrome-devtools MCP isolated flag" "'--isolated' in d['mcpServers']['chrome-devtools']['args']" "True"
+check "chrome-devtools MCP no-usage-statistics flag" "'--no-usage-statistics' in d['mcpServers']['chrome-devtools']['args']" "True"
 
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"

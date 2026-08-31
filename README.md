@@ -113,7 +113,8 @@ Build the base image:
 (Aliased as `forge image update` — same command, use whichever name you find
 more intuitive for a rebuild.) This scripts the same steps every time:
 launches a scratch `agent-base-setup` container, installs Node LTS, `pnpm`,
-Claude Code, `gh`, Chrome, Docker (rootless) and Compose, and the
+Claude Code, `gh`, Chrome, `chrome-devtools-mcp`,
+Docker (rootless) and Compose, and the
 `next-task` helper, creates `aiuser`, sets
 up `/workspace`/`.ssh`/`.claude` ownership, then publishes the `agent-base`
 alias and cleans up the scratch container. Only affects containers created
@@ -297,6 +298,22 @@ else (`docker run`, `docker compose up`, named volumes, workspace-relative
 bind mounts) works normally. See
 `docs/superpowers/specs/2026-07-17-agent-docker-support-design.md` for the
 full design rationale.
+
+### Browser automation (Chrome DevTools MCP)
+
+Every agent container gets `chrome-devtools-mcp` wired up globally as an MCP
+server — no `.mcp.json` needed per repo. It drives the headless
+`google-chrome-stable` already installed in the image, letting the agent
+navigate to a locally running dev server, take screenshots, and read
+console/network output — the tool needed to follow the "verify UI changes in
+a browser before reporting done" guidance in a container with no display and
+no `claude-in-chrome` extension pairing.
+
+Only reaches *new* containers: the binary is baked into the image at `forge
+image build` time, and the MCP server declaration is pushed to
+`~/.claude.json` once, at initial provisioning — neither refreshes on an
+already-existing container. Rebuild the image and recreate (`forge delete`
++ `forge start`) to pick it up on a container that predates this change.
 
 ### Token renewal
 
