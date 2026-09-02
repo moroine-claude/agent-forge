@@ -1,6 +1,8 @@
 #!/bin/bash
-# Tests structurels de scripts/forge (dispatch "image") et
-# scripts/lib/forge-image.sh. Lancer : bash tests/test-forge-image.sh
+# Tests structurels de scripts/forge (shim vers forge.ts) et
+# scripts/lib/forge-image.sh (script bash standalone). Le dispatch de
+# "forge image" est couvert par tests/e2e.test.ts.
+# Lancer : bash tests/test-forge-image.sh
 set -e
 
 FORGE="$(cd "$(dirname "$0")/.." && pwd)/scripts/forge"
@@ -44,9 +46,9 @@ echo "bash -n syntax check..."
 bash -n "$FORGE"
 bash -n "$LIB"
 
-assert_contains "$FORGE" 'source "$FORGE_LIB_DIR/forge-image.sh"'
-assert_contains "$FORGE" 'image)'
-assert_contains "$FORGE" 'cmd_forge_image "$@"'
+assert_contains "$FORGE" 'exec node "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/forge.ts" "$@"'
+assert_contains "$LIB" '#!/bin/bash'
+assert_contains "$LIB" 'if [ "${BASH_SOURCE[0]}" = "$0" ]; then'
 
 assert_contains "$LIB" 'build|update'
 assert_contains "$LIB" 'agent-base-setup'

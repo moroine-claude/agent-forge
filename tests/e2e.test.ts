@@ -78,3 +78,12 @@ test("image without a subcommand fails with its usage", () => {
   assert.equal(r.status, 1);
   assert.match(r.stderr, /Usage: forge image build\|update/);
 });
+
+test("the bash shim runs the TypeScript entry", () => {
+  const r = spawnSync(resolve("scripts/forge"), ["list"], {
+    encoding: "utf8",
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+  });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /^REPO\s+MODE\s+STATE\s+BUILD$/m);
+});
