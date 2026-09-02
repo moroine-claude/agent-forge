@@ -292,11 +292,25 @@ These run anywhere git and tmux exist, so they stay part of `npm test`.
 
 ### Layer 3 — real LXD, run on the host
 
-The `lxc` transport is the one layer the container cannot exercise: LXD needs
-capabilities the agent container does not have (`CapEff` is empty), Docker here
-is rootless so `--privileged` grants nothing, and the pre-bash hook blocks it —
-LXD-in-Docker is discouraged upstream regardless. So this layer runs on the LXD
-host, opt-in:
+The `lxc` transport is the one layer the agent container cannot exercise, and
+containerising it was investigated and rejected on evidence:
+
+- The agent container has no capabilities at all (`CapEff` is empty) and its
+  Docker is rootless, so `--privileged` would grant nothing even if the
+  pre-bash hook did not block it.
+- Running the LXD **daemon** in Docker on the host was the fallback. It requires
+  snap, which requires systemd, which requires a privileged container with
+  cgroup and `/dev/kmsg` wiring — each an unrelated reason for the test to
+  break, and a test that breaks for unrelated reasons stops being run. The
+  non-snap escape route does not exist: `pkgs.zabbly.com/lxd/stable` returns 404
+  for both noble and jammy (checked 2026-09-02); only Incus is packaged as a
+  `.deb`, and its client is `incus`, not the `lxc` this CLI actually invokes.
+- A containerised LXD would also be a *different* LXD — fresh install, `dir`
+  backend, no `agent` profile, no `agent-base` image. Since the point of this
+  layer is to pin the fakes to the environment forge really drives, fixtures
+  captured there would validate one synthetic environment against another.
+
+So this layer runs on the LXD host, opt-in:
 
 ```bash
 FORGE_INTEGRATION=1 npm run test:integration            # verify
@@ -307,20 +321,41 @@ Without `FORGE_INTEGRATION=1` it skips with a one-line explanation, so `npm test
 stays green on any machine.
 
 What it covers: it creates a throwaway container with `lxc init agent-base`
-(no start, no download, no PAT, no GitHub), stamps it with forge metadata, then
-runs the **real** CLI against the **real** `lxc` — `list`, `completion repos`,
-`completion tasks` (stopped container yields nothing, without erroring), and
-`delete`, which doubles as the teardown. `start` stays out of reach: it needs a
-bot PAT and a provisioned image.
+(never started — so no network, no cgroup setup, no PAT, no GitHub), stamps it
+with forge metadata, then runs the **real** CLI against the **real** `lxc` —
+`list`, `completion repos`, `completion tasks` (a stopped container yields
+nothing, without erroring), and `delete`, which doubles as the teardown.
+`start` stays out of reach: it needs a bot PAT and a provisioned image.
 
-Safety rules, because this runs against a machine holding real containers:
+**Isolation comes from an LXD project, not from naming conventions.** This runs
+against a machine holding real work, so the boundary has to be enforced by LXD
+rather than by a prefix the test promises to respect:
 
-- The container is named `agent-forge-selftest-<random>` and carries
-  `user.forge.repo = forge-selftest/throwaway`. Deletion requires **both** the
-  name prefix and that sentinel repo value to match; anything else is refused.
-- Teardown runs in a `finally`, and a stray from a killed run is cleaned by the
-  next invocation before it starts.
-- It never calls `stop`/`delete` on a container it did not create.
+```bash
+lxc project create forge-selftest -c features.images=false -c features.profiles=false
+```
+
+- Instances in another project do not appear in the default project's `lxc
+  list`, so a stray left by a killed run can never pollute `forge list`.
+- `features.images=false` inherits images from the default project, so
+  `agent-base` is visible without copying it.
+- Teardown is `lxc project delete forge-selftest`, which refuses to run while
+  anything is left inside — the check is LXD's, not the test's.
+- The container still carries a `user.forge.repo = forge-selftest/throwaway`
+  sentinel, and deletion still requires it to match. Defence in depth, no longer
+  the only defence.
+
+The CLI is pointed at that project **without modifying it**, by giving it an
+isolated client config directory through `LXD_CONF` whose default project is
+`forge-selftest`. `lxc project switch` is never used: it would mutate the
+operator's own current project, exactly the side effect this design avoids.
+
+`LXD_CONF` semantics are the one mechanism in this spec that could not be
+verified from the agent container, for lack of any LXD. **The implementation
+plan must verify it on the host before building on it.** If it does not behave
+as described, the fallback is an explicit `--project` flag threaded through
+`lxd.ts`; that widens the CLI's surface for a test's benefit, so it is a
+fallback rather than the plan.
 
 Diagnostics matter more here than elsewhere: a failure means the fake has
 drifted from reality, so an assertion failure prints the **raw command and its
