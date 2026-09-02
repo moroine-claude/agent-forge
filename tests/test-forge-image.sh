@@ -47,6 +47,7 @@ bash -n "$FORGE"
 bash -n "$LIB"
 
 assert_contains "$FORGE" 'exec node "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/forge.ts" "$@"'
+assert_contains "$FORGE" 'forge requires Node 24+'
 assert_contains "$LIB" '#!/bin/bash'
 assert_contains "$LIB" 'if [ "${BASH_SOURCE[0]}" = "$0" ]; then'
 
@@ -111,6 +112,22 @@ if [ "$code" -eq 0 ] && [ "$output" = "STILL_ALIVE" ]; then
 else
   FAIL=$((FAIL + 1))
   echo "FAIL (source de $LIB avec argument 'list', attendu STILL_ALIVE + code 0): code=$code sortie=[$output]"
+fi
+
+# 3) Le garde-fou de version : sous Node < 24 le type-stripping n'existe pas,
+#    et l'operateur recevrait une SyntaxError brute sur les annotations de
+#    type au lieu d'un message exploitable. On simule un vieux node en tete
+#    de PATH.
+fakebin=$(mktemp -d)
+trap 'rm -f "$fakebin/node"; rmdir "$fakebin"' EXIT
+printf '#!/bin/sh\nif [ "$1" = "-v" ]; then echo v20.11.1; exit 0; fi\nexit 1\n' > "$fakebin/node"
+chmod +x "$fakebin/node"
+output=$(PATH="$fakebin:$PATH" "$FORGE" list 2>&1) && code=0 || code=$?
+if [ "$code" -ne 0 ] && echo "$output" | grep -qF 'forge requires Node 24+ (found v20.11.1)'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo "FAIL (shim sous un node v20, attendu message + code non nul): code=$code sortie=[$output]"
 fi
 
 echo ""

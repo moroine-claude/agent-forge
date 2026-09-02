@@ -79,8 +79,17 @@ export function createPrompt(
           stdin.setRawMode(false);
           stdin.pause();
           stdin.off("data", onData);
+          stdin.off("end", onEnd);
+          stdin.off("error", onEnd);
           err("\n");
         };
+        // Sans ces deux-là, un stdin qui se ferme à l'invite du token (pipe
+        // fermé, ligne série coupée) ne résout JAMAIS la promesse : forge
+        // reste pendu indéfiniment. `read -s` en bash rendait un code non nul
+        // sur EOF ; on rend null, que provisionContainer traduit déjà en
+        // « empty token ». Même chemin de nettoyage, donc le terminal est
+        // rendu dans tous les cas.
+        const onEnd = () => { cleanup(); resolve(null); };
         const onData = (chunk: Buffer) => {
           for (const ch of chunk.toString("utf8")) {
             if (ch === "\r" || ch === "\n") { cleanup(); resolve(buf === "" ? null : buf); return; }
@@ -92,6 +101,8 @@ export function createPrompt(
         stdin.setRawMode(true);
         stdin.resume();
         stdin.on("data", onData);
+        stdin.on("end", onEnd);
+        stdin.on("error", onEnd);
       });
     },
   };

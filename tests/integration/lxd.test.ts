@@ -94,7 +94,14 @@ before((t) => {
     const real = join(process.env.HOME, ".config", "lxc");
     cpSync(real, conf, { recursive: true, errorOnExist: false, force: true });
   }
-  lxc(["project", "switch", PROJECT], { LXD_CONF: conf });   // dans la copie isolée
+  // Dans la copie isolée. Le résultat DOIT être vérifié : si LXD_CONF n'est
+  // pas honoré — le seul mécanisme que la spec signale comme non vérifié —
+  // ce switch part sur la config réelle de l'opérateur, et tout le run
+  // s'exécute dans SON projet par défaut, y créant des containers à côté de
+  // son vrai travail au lieu d'échouer bruyamment.
+  const switched = lxc(["project", "switch", PROJECT], { LXD_CONF: conf });
+  assert.equal(switched.status, 0,
+    raw(`could not switch the isolated LXD_CONF (${conf}) to project ${PROJECT}`, switched));
 
   container = `agent-forge-selftest-${Math.random().toString(36).slice(2, 8)}`;
   // init, jamais start : ni réseau, ni cgroups, ni PAT, ni GitHub.

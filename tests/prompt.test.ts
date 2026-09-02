@@ -87,3 +87,50 @@ test("ask releases stdin once resolved, even on a stream that never ends", async
   assert.equal(stdin.listenerCount("data"), 0);
   assert.equal(stdin.readableFlowing, false);
 });
+
+// stdin brut : askSecret passe le terminal en raw et lit les octets lui-même,
+// il lui faut donc setRawMode en plus d'isTTY. `rawModes` enregistre la
+// séquence pour vérifier que le terminal est bien rendu dans tous les cas.
+function rawTty() {
+  const s = new Readable({ read() {} }) as Readable & {
+    isTTY?: boolean;
+    setRawMode?: (m: boolean) => unknown;
+    rawModes: boolean[];
+  };
+  s.isTTY = true;
+  s.rawModes = [];
+  s.setRawMode = (m: boolean) => { s.rawModes.push(m); return s; };
+  return s;
+}
+
+test("askSecret returns the typed secret without echoing it", { timeout: 2000 }, async () => {
+  const stdin = rawTty();
+  const errs: string[] = [];
+  const pending = createPrompt(stdin, (s) => errs.push(s)).askSecret("Paste the token");
+  stdin.push("ghp_secret\n");
+  assert.equal(await pending, "ghp_secret");
+  assert.ok(!errs.join("").includes("ghp_secret"), "le secret a été écho sur stderr");
+  assert.deepEqual(stdin.rawModes, [true, false]);
+});
+
+// Avant le fix, askSecret n'écoutait ni 'end' ni 'error' : un stdin qui se
+// ferme à l'invite du token laissait forge pendu pour toujours.
+test("askSecret resolves null when stdin closes at the prompt", { timeout: 2000 }, async () => {
+  const stdin = rawTty();
+  const pending = createPrompt(stdin, () => {}).askSecret("Paste the token");
+  stdin.push(null);
+  assert.equal(await pending, null);
+  assert.deepEqual(stdin.rawModes, [true, false], "le terminal n'a pas été rendu");
+  assert.equal(stdin.listenerCount("data"), 0);
+  assert.equal(stdin.listenerCount("end"), 0);
+});
+
+test("askSecret resolves null when stdin errors", { timeout: 2000 }, async () => {
+  const stdin = rawTty();
+  const pending = createPrompt(stdin, () => {}).askSecret("Paste the token");
+  stdin.destroy(new Error("stdin went away"));
+  assert.equal(await pending, null);
+  assert.deepEqual(stdin.rawModes, [true, false], "le terminal n'a pas été rendu");
+  assert.equal(stdin.listenerCount("data"), 0);
+  assert.equal(stdin.listenerCount("error"), 0);
+});
