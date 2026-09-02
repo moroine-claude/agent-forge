@@ -37,8 +37,11 @@ export async function configGet(ctx: Context, name: string, key: string): Promis
   return r.code === 0 ? r.stdout.trim() : "";
 }
 
-export async function configSet(ctx: Context, name: string, key: string, value: string): Promise<void> {
-  await ctx.exec(["lxc", "config", "set", name, key, value]);
+// Les quatre mutateurs ci-dessous rendent leur ExecResult au lieu de le jeter :
+// c'est l'appelant qui décide (via mustSucceed) d'échouer bruyamment. Renvoyer
+// void revenait à avaler le code de sortie ET le stderr capturé.
+export function configSet(ctx: Context, name: string, key: string, value: string): Promise<ExecResult> {
+  return ctx.exec(["lxc", "config", "set", name, key, value]);
 }
 
 export async function imageProperty(ctx: Context, alias: string, key: string): Promise<string> {
@@ -53,16 +56,16 @@ export function execAsAgent(ctx: Context, name: string, script: string): Promise
   return ctx.exec(["lxc", "exec", name, "--", "su", "-", "aiuser", "-c", script]);
 }
 
-export async function startInstance(ctx: Context, name: string): Promise<void> {
-  await ctx.exec(["lxc", "start", name]);
+export function startInstance(ctx: Context, name: string): Promise<ExecResult> {
+  return ctx.exec(["lxc", "start", name]);
 }
 
-export async function stopInstance(ctx: Context, name: string): Promise<void> {
-  await ctx.exec(["lxc", "stop", name]);
+export function stopInstance(ctx: Context, name: string): Promise<ExecResult> {
+  return ctx.exec(["lxc", "stop", name]);
 }
 
-export async function deleteInstance(ctx: Context, name: string): Promise<void> {
-  await ctx.exec(["lxc", "delete", name, "--force"]);
+export function deleteInstance(ctx: Context, name: string): Promise<ExecResult> {
+  return ctx.exec(["lxc", "delete", name, "--force"]);
 }
 
 // tmux DOIT rester la cible directe de `lxc exec` : avec un `su - aiuser -c`

@@ -4,6 +4,7 @@
 // existe pour révéler du travail *oublié* avant qu'un re-provisioning ne
 // reclone à neuf, pas pour empêcher une perte de données.
 import type { Context } from "../context.ts";
+import { mustSucceed } from "../context.ts";
 import { validateRepo } from "../validate.ts";
 import { requireContainerForRepo } from "../containers.ts";
 import { deleteInstance, instanceStatus } from "../lxd.ts";
@@ -22,6 +23,6 @@ export async function cmdDelete(ctx: Context, repo: string | undefined, force: b
   }
 
   ctx.out(`Deleting container ${container}...`);
-  await deleteInstance(ctx, container);
+  await mustSucceed("lxc delete", deleteInstance(ctx, container));
   return 0;
 }

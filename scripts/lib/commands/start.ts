@@ -5,7 +5,7 @@
 // laissée par `forge finish`, ou branche déjà poussée depuis un autre
 // container, typiquement une PR ouverte.
 import type { Context } from "../context.ts";
-import { ForgeError } from "../context.ts";
+import { ForgeError, mustSucceed } from "../context.ts";
 import { sanitizeContainerName, validateGitRef, validateRepo, validateTaskName } from "../validate.ts";
 import { checkNameCollision, containerMode, forgeRepos, isRunning } from "../containers.ts";
 import { attachArgv, execAsAgent, instanceExists, startInstance } from "../lxd.ts";
@@ -39,7 +39,7 @@ export async function cmdStart(ctx: Context, repo?: string, task?: string): Prom
   }
 
   ctx.out(`Starting container ${container}...`);
-  if (!(await isRunning(ctx, container))) await startInstance(ctx, container);
+  if (!(await isRunning(ctx, container))) await mustSucceed("lxc start", startInstance(ctx, container));
 
   // Avant le menu, pas après : les branches d'origin qu'il propose doivent
   // être à jour.
@@ -86,8 +86,19 @@ async function refreshMain(ctx: Context, container: string): Promise<void> {
     return;
   }
   ctx.out("Refreshing main...");
-  await execAsAgent(ctx, container,
+  // Volontairement NON fatal, contrairement au reste des étapes mutantes : ce
+  // rafraîchissement n'alimente que des entrées en lecture (le menu et le
+  // point de départ origin/main). La branche supervised juste au-dessus part
+  // déjà, par conception, des dernières refs connues — un opérateur hors
+  // ligne doit pouvoir en faire autant plutôt que de voir `forge start`
+  // refuser de démarrer. Ce qui n'est pas acceptable, c'est le silence : le
+  // stderr de git est remonté tel quel, avec la conséquence énoncée.
+  const fetched = await execAsAgent(ctx, container,
     "git -C /workspace fetch origin && git -C /workspace merge --ff-only origin/main");
+  if (fetched.code !== 0) {
+    ctx.err(`WARNING: refreshing main failed: ${fetched.stderr.trim() || `exit code ${fetched.code}`}`);
+    ctx.err("Continuing from the last-known origin refs — the task may branch from a stale origin/main.");
+  }
 }
 
 // Menu mélangeant worktrees déjà là, branches agent/* sans worktree (locales
@@ -151,24 +162,26 @@ async function addWorktree(ctx: Context, container: string, task: string, ref: s
       );
     }
     ctx.out(`Creating worktree .trees/${task} on a new agent/${task} from ${ref}...`);
-    await execAsAgent(ctx, container, `git -C /workspace worktree add .trees/${task} -b agent/${task} ${ref}`);
+    await mustSucceed("git worktree add",
+      execAsAgent(ctx, container, `git -C /workspace worktree add .trees/${task} -b agent/${task} ${ref}`));
     return;
   }
 
   if (await branchExists(ctx, container, `refs/heads/agent/${task}`)) {
     ctx.out(`Resuming the existing local branch agent/${task} in .trees/${task}...`);
-    await execAsAgent(ctx, container, `git -C /workspace worktree add .trees/${task} agent/${task}`);
+    await mustSucceed("git worktree add",
+      execAsAgent(ctx, container, `git -C /workspace worktree add .trees/${task} agent/${task}`));
     return;
   }
 
   if (await branchExists(ctx, container, `refs/remotes/origin/agent/${task}`)) {
     ctx.out(`Resuming agent/${task} from origin in .trees/${task}...`);
-    await execAsAgent(ctx, container,
-      `git -C /workspace worktree add .trees/${task} -b agent/${task} origin/agent/${task}`);
+    await mustSucceed("git worktree add", execAsAgent(ctx, container,
+      `git -C /workspace worktree add .trees/${task} -b agent/${task} origin/agent/${task}`));
     return;
   }
 
   ctx.out(`Creating worktree .trees/${task} on a new agent/${task} from origin/main...`);
-  await execAsAgent(ctx, container,
-    `git -C /workspace worktree add .trees/${task} -b agent/${task} origin/main`);
+  await mustSucceed("git worktree add", execAsAgent(ctx, container,
+    `git -C /workspace worktree add .trees/${task} -b agent/${task} origin/main`));
 }

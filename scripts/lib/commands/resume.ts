@@ -2,7 +2,7 @@
 // Rattache la session tmux d'une tâche existante. Ni fetch ni rebranch —
 // c'est le rôle de `forge start`.
 import type { Context } from "../context.ts";
-import { ForgeError } from "../context.ts";
+import { ForgeError, mustSucceed } from "../context.ts";
 import { validateRepo, validateTaskName } from "../validate.ts";
 import { isRunning, requireContainerForRepo } from "../containers.ts";
 import { attachArgv, execAsAgent, startInstance } from "../lxd.ts";
@@ -16,7 +16,7 @@ export async function cmdResume(ctx: Context, repo?: string, task?: string): Pro
   const container = await requireContainerForRepo(ctx, ownerRepo);
 
   ctx.out(`Starting container ${container}...`);
-  if (!(await isRunning(ctx, container))) await startInstance(ctx, container);
+  if (!(await isRunning(ctx, container))) await mustSucceed("lxc start", startInstance(ctx, container));
 
   const taskName = await resolveTask(ctx, container, task, USAGE);
   validateTaskName(taskName);

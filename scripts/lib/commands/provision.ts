@@ -4,29 +4,14 @@
 // d'environnement pour que les tests ne touchent jamais un vrai home.
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import type { Context, ExecResult } from "../context.ts";
-import { ForgeError } from "../context.ts";
+import type { Context } from "../context.ts";
+import { ForgeError, mustSucceed } from "../context.ts";
 import { configSet, execAsAgent } from "../lxd.ts";
 import { currentImageCommit } from "../containers.ts";
 
 const home = () => process.env.FORGE_HOME ?? "/home/moroine";
 const repoDir = () => process.env.FORGE_REPO_DIR ?? join(home(), "agent-forge");
 const workspaces = () => process.env.FORGE_WORKSPACES ?? join(home(), "workspaces");
-
-// Le bash original tourne sous `set -e` : n'importe quelle étape en échec
-// interrompait tout le provisioning. Cette fonction restaure ce fail-fast
-// pour chaque étape mutante — appliquée uniformément plutôt qu'à une
-// sélection à la main, faute de quoi une étape non couverte peut échouer en
-// silence (c'est exactement ce qui manquait avant : le clone pouvait rater
-// et le container se retrouvait quand même timbré avec les métadonnées
-// forge, prêt à être réutilisé par erreur par checkNameCollision).
-async function mustSucceed(step: string, result: Promise<ExecResult>): Promise<ExecResult> {
-  const r = await result;
-  if (r.code !== 0) {
-    throw new ForgeError(`${step} failed: ${r.stderr.trim() || `exit code ${r.code}`}`);
-  }
-  return r;
-}
 
 export async function provisionContainer(ctx: Context, container: string, ownerRepo: string): Promise<void> {
   const credentials = join(home(), ".claude", ".credentials.json");
@@ -149,11 +134,12 @@ export async function provisionContainer(ctx: Context, container: string, ownerR
   if (lfs.code !== 0) throw new ForgeError(`git-lfs setup failed in ${container}.`);
 
   ctx.out("Stamping the image build this container came from...");
-  await configSet(ctx, container, "user.forge.image_commit", await currentImageCommit(ctx));
+  await mustSucceed("stamp image commit",
+    configSet(ctx, container, "user.forge.image_commit", await currentImageCommit(ctx)));
 
   ctx.out("Recording forge metadata...");
-  await configSet(ctx, container, "user.forge.repo", ownerRepo);
-  await configSet(ctx, container, "user.forge.mode", mode);
+  await mustSucceed("record forge repo", configSet(ctx, container, "user.forge.repo", ownerRepo));
+  await mustSucceed("record forge mode", configSet(ctx, container, "user.forge.mode", mode));
 
   if (mode === "supervised") {
     ctx.err("");

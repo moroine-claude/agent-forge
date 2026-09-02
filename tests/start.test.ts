@@ -1,11 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fakeContext } from "./lib/fake-context.ts";
+import type { ExecRule } from "./lib/fake-context.ts";
 import { cmdStart } from "../scripts/lib/commands/start.ts";
 
 const RUNNING = JSON.stringify([{ name: "agent-moroine-agent-forge", status: "Running" }]);
 
-function rules(extra: { match: string; code?: number; stdout?: string }[] = []) {
+function rules(extra: ExecRule[] = []): ExecRule[] {
   return [
     ...extra,
     { match: "agent-moroine-agent-forge user.forge.repo", stdout: "moroine/agent-forge" },
@@ -103,4 +104,47 @@ test("with no TTY, a missing task is a usage error rather than a hang", async ()
 test("an invalid ref from the menu is rejected before reaching su -c", async () => {
   const c = fakeContext({ rules: rules(), answers: [3, "--upload-pack=evil", "x"] });
   await assert.rejects(() => cmdStart(c, "moroine/agent-forge", undefined), /must not start with/);
+});
+
+// Fail-fast : sans mustSucceed, `git worktree add` pouvait échouer et start
+// enchaînait sur l'attach — dans un répertoire qui n'existe pas.
+test("a failing worktree add aborts instead of attaching to a missing directory", async () => {
+  const c = fakeContext({
+    rules: rules([{ match: "worktree add", code: 1, stderr: "fatal: invalid reference: origin/main\n" }]),
+  });
+  await assert.rejects(
+    () => cmdStart(c, "moroine/agent-forge", "fresh"),
+    /git worktree add failed: fatal: invalid reference: origin\/main/,
+  );
+  assert.ok(!c.calls.some((call) => call.includes("tmux")), "attaché malgré l'échec de la création");
+  assert.ok(!c.out_lines.some((l) => l.includes("Attaching to")), c.out_lines.join(" | "));
+});
+
+test("start fails when the container refuses to start", async () => {
+  const c = fakeContext({
+    rules: [
+      { match: "lxc start", code: 1, stderr: "Error: Failed to start device\n" },
+      ...rules().map((r) => (r.match === "lxc list"
+        ? { ...r, stdout: JSON.stringify([{ name: "agent-moroine-agent-forge", status: "Stopped" }]) }
+        : r)),
+    ],
+  });
+  await assert.rejects(
+    () => cmdStart(c, "moroine/agent-forge", "fresh"),
+    /lxc start failed: Error: Failed to start device/,
+  );
+  assert.ok(!c.calls.some((call) => call.join(" ").includes("worktree add")));
+});
+
+// Choix délibéré : le rafraîchissement de main n'est PAS fatal (l'opérateur
+// hors ligne doit pouvoir travailler sur les dernières refs connues, comme le
+// fait déjà un container supervised), mais il ne doit jamais être silencieux.
+test("a failing fetch is surfaced on stderr instead of passing silently", async () => {
+  const c = fakeContext({
+    rules: rules([{ match: "fetch origin", code: 1, stderr: "fatal: unable to access 'https://github.com/': timed out\n" }]),
+  });
+  await cmdStart(c, "moroine/agent-forge", "fresh");
+  const errs = c.err_lines.join("\n");
+  assert.match(errs, /WARNING: refreshing main failed: fatal: unable to access/);
+  assert.match(errs, /stale origin\/main/);
 });

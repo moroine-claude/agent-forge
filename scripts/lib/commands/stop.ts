@@ -1,6 +1,7 @@
 // forge stop [<owner/repo>] [--force]
 // Pré-vol WIP (arbre sale / commits non poussés) sauf --force.
 import type { Context } from "../context.ts";
+import { mustSucceed } from "../context.ts";
 import { validateRepo } from "../validate.ts";
 import { requireContainerForRepo } from "../containers.ts";
 import { stopInstance } from "../lxd.ts";
@@ -17,6 +18,6 @@ export async function cmdStop(ctx: Context, repo: string | undefined, force: boo
   if (!force) await checkAllWorktrees(ctx, container);
 
   ctx.out(`Stopping container ${container}...`);
-  await stopInstance(ctx, container);
+  await mustSucceed("lxc stop", stopInstance(ctx, container));
   return 0;
 }

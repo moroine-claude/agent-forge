@@ -48,3 +48,33 @@ test("delete runs the pre-flight on a running container", async () => {
   const c = fakeContext({ rules: RULES });
   await assert.rejects(() => cmdDelete(c, "moroine/agent-forge", false), /uncommitted changes/);
 });
+
+// Fail-fast : `ctx.exec` capture stderr là où bash en héritait. Sans
+// mustSucceed, un `lxc stop`/`lxc delete` en échec rendait 0 et n'affichait
+// rien du tout — pire que le bash d'origine sous `set -e`.
+test("stop fails loudly when lxc stop fails, surfacing its stderr", async () => {
+  const c = fakeContext({
+    rules: [
+      { match: "lxc stop", code: 1, stderr: "Error: The instance is currently in use\n" },
+      ...RULES,
+    ],
+  });
+  await assert.rejects(
+    () => cmdStop(c, "moroine/agent-forge", true),
+    /lxc stop failed: Error: The instance is currently in use/,
+  );
+});
+
+test("delete fails loudly when lxc delete fails, surfacing its stderr", async () => {
+  const c = fakeContext({
+    rules: [
+      { match: "lxc delete", code: 1, stderr: "Error: Instance is protected\n" },
+      { match: "agent-x user.forge.repo", stdout: "o/r" },
+      { match: "lxc list", stdout: JSON.stringify([{ name: "agent-x", status: "Stopped" }]) },
+    ],
+  });
+  await assert.rejects(
+    () => cmdDelete(c, "o/r", false),
+    /lxc delete failed: Error: Instance is protected/,
+  );
+});

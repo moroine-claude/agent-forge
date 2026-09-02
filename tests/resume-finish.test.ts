@@ -66,3 +66,41 @@ test("finish keeps the branch and kills the session", async () => {
   assert.ok(c.calls.some((call) => call.join(" ").includes("kill-session -t cli")));
   assert.ok(c.out_lines.some((l) => l.includes("branch agent/cli retained")));
 });
+
+// Fail-fast : sans mustSucceed, `git worktree remove` pouvait échouer et
+// finish annonçait quand même « Finished task cli » en rendant 0.
+test("finish fails when the worktree removal fails, and claims nothing", async () => {
+  const c = fakeContext({
+    rules: [
+      { match: "worktree remove", code: 1, stderr: "fatal: '.trees/cli' contains modified files\n" },
+      ...BASE,
+      { match: "test -e", code: 0 },
+      { match: "status --porcelain", stdout: "" },
+      { match: "user.forge.mode", stdout: "supervised" },
+    ],
+  });
+  await assert.rejects(
+    () => cmdFinish(c, "moroine/agent-forge", "cli", false),
+    /git worktree remove failed: fatal: '\.trees\/cli' contains modified files/,
+  );
+  assert.ok(
+    !c.out_lines.some((l) => l.includes("Finished task")),
+    `success announced despite the failure: ${c.out_lines.join(" | ")}`,
+  );
+});
+
+test("resume fails when the container refuses to start", async () => {
+  const c = fakeContext({
+    rules: [
+      { match: "lxc start", code: 1, stderr: "Error: Failed to start device\n" },
+      { match: "agent-moroine-agent-forge user.forge.repo", stdout: "moroine/agent-forge" },
+      { match: "lxc list", stdout: JSON.stringify([{ name: "agent-moroine-agent-forge", status: "Stopped" }]) },
+      { match: "test -e", code: 0 },
+    ],
+  });
+  await assert.rejects(
+    () => cmdResume(c, "moroine/agent-forge", "cli"),
+    /lxc start failed: Error: Failed to start device/,
+  );
+  assert.ok(!c.calls.some((call) => call.includes("tmux")), "attaché malgré l'échec du démarrage");
+});
