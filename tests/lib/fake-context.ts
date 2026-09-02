@@ -1,0 +1,64 @@
+// Contexte scripté pour les tests unitaires. `exec` répond selon une table de
+// règles ordonnée (première correspondance gagnante, comme un routeur), et
+// `prompt` sert une file de réponses préparées.
+import type { Context, ExecOptions, ExecResult, Prompt } from "../../scripts/lib/context.ts";
+
+export type ExecRule = { match: string; code?: number; stdout?: string; stderr?: string };
+
+export type FakeOptions = {
+  rules?: ExecRule[];
+  answers?: (number | string | null)[];
+  tty?: boolean;
+};
+
+export type FakeContext = Context & {
+  calls: string[][];
+  out_lines: string[];
+  err_lines: string[];
+};
+
+export function fakeContext(opts: FakeOptions = {}): FakeContext {
+  const rules = opts.rules ?? [];
+  const answers = [...(opts.answers ?? [])];
+  const tty = opts.tty ?? true;
+  const calls: string[][] = [];
+  const out_lines: string[] = [];
+  const err_lines: string[] = [];
+
+  const exec = async (argv: string[], _opts?: ExecOptions): Promise<ExecResult> => {
+    calls.push(argv);
+    const joined = argv.join(" ");
+    for (const rule of rules) {
+      if (joined.includes(rule.match)) {
+        return { code: rule.code ?? 0, stdout: rule.stdout ?? "", stderr: rule.stderr ?? "" };
+      }
+    }
+    return { code: 0, stdout: "", stderr: "" };
+  };
+
+  const prompt: Prompt = {
+    async pick(label, items) {
+      err_lines.push(`${label}> [${items.join(" | ")}]`);
+      if (!tty) return null;
+      const a = answers.shift();
+      return typeof a === "number" ? a : null;
+    },
+    async ask(label) {
+      err_lines.push(`${label}> `);
+      if (!tty) return null;
+      const a = answers.shift();
+      return typeof a === "string" ? a : null;
+    },
+  };
+
+  return {
+    exec,
+    attach: async (argv) => { calls.push(argv); return 0; },
+    prompt,
+    out: (line) => out_lines.push(line),
+    err: (line) => err_lines.push(line),
+    calls,
+    out_lines,
+    err_lines,
+  };
+}
