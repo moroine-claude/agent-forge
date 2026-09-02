@@ -113,4 +113,12 @@ _forge_image_build() {
   echo "Image agent-base published (build $build_commit)."
 }
 
-cmd_forge_image "$@"
+# Exécutable ET sourçable en sécurité : l'ancien scripts/forge source ce
+# fichier avant tout dispatch (set -e en tête), donc un appel inconditionnel
+# ici tuait tout le processus sur les arguments du script appelant. Ce garde
+# standard ne se déclenche que quand le fichier est exécuté directement
+# (comme le fait commands/image.ts via `bash <path> <sub>`), pas quand il
+# est sourcé.
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  cmd_forge_image "$@"
+fi
