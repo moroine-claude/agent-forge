@@ -266,7 +266,7 @@ provisions one first:
 
 Either way (freshly provisioned or already existing), `forge start` then
 starts the container if it's stopped, and:
-1. **Refreshes `main`** — autonomous containers `git fetch origin && git merge --ff-only origin/main` in `/workspace` first, so every new task branches from a genuinely current `main`; supervised containers have no credential to fetch with, so this step is skipped and the task branches from whatever `origin/main` was last fetched to (fetch it yourself on the host beforehand if you need it current — see "Supervised mode" below).
+1. **Refreshes `main`** — autonomous containers `git fetch origin && git merge --ff-only origin/main` in `/workspace` first, so every new task branches from a genuinely current `main`; supervised containers have no credential to fetch with, so this step is skipped and the task branches from whatever `origin/main` was last fetched to (fetch it yourself on the host beforehand if you need it current — see "Supervised mode" below). A fetch that *fails* (host offline, origin unreachable) is not fatal either: the failure and git's own message are printed on stderr, and the task branches from the last-known `origin/main` rather than refusing to start.
 2. **Puts the task's worktree in place** — resolving what `<task>` should branch from rather than always starting over from `main` (see "Resolving the task's branch" below).
 3. **Attaches the session** — starts (or re-attaches, via `tmux new-session -A`) a tmux session named `<task>`, `cd`'d into `.trees/<task>`, running `claude` in `auto` permission mode (`--permission-mode auto`) — autonomous by default, but the auto-mode classifier pauses for confirmation on sensitive actions (credential handling, irreversible deletion, pushes to protected branches, etc.). A session URL and QR code are displayed at startup.
 
@@ -284,26 +284,26 @@ you're sitting on:
 | Situation | What happens |
 |-----------|--------------|
 | `.trees/<task>` already exists | Attach to it (same thing `forge resume` does) |
-| A ref was named through the `autre branche…` menu entry | New `agent/<task>` branched from that ref |
+| A ref was named through the `other branch…` menu entry | New `agent/<task>` branched from that ref |
 | Local `agent/<task>` exists | Worktree on that branch — the case left behind by `forge finish`, which keeps the ref |
 | `origin/agent/<task>` exists | New local `agent/<task>` tracking it — a branch pushed from another container or machine, typically an open PR |
 | Nothing exists | New `agent/<task>` from `origin/main` |
 
 Leave `<task>` out and you get these as a menu instead — existing worktrees,
 `agent/*` branches that have no worktree (local, or only on `origin`), plus
-`nouvelle tâche` and `autre branche…`:
+`new task` and `other branch…`:
 
 ```
 $ forge start moroine/agent-forge
- 1) nouvelle tâche
- 2) cli (worktree existant — attach)
- 3) docs (branche locale)
- 4) api (branche sur origin)
- 5) autre branche…
+ 1) new task
+ 2) cli (existing worktree — attach)
+ 3) docs (local branch)
+ 4) api (branch on origin)
+ 5) other branch…
 Task>
 ```
 
-`autre branche…` asks for a ref and a task name, and is how you pick up a
+`other branch…` asks for a ref and a task name, and is how you pick up a
 branch that doesn't follow the `agent/<task>` convention — say a
 `feature/*` branch a human pushed. The work still happens on `agent/<task>`
 branched from it, never on the original branch: the container's `pre-bash.sh`
