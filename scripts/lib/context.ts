@@ -9,6 +9,7 @@ export type ExecOptions = { input?: string };
 export type Prompt = {
   pick(label: string, items: string[]): Promise<number | null>;
   ask(label: string): Promise<string | null>;
+  askSecret(label: string): Promise<string | null>;
 };
 
 export type Context = {

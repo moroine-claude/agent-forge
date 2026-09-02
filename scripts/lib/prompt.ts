@@ -66,5 +66,33 @@ export function createPrompt(
         return value === "" ? null : value;
       });
     },
+
+    // Le PAT ne doit pas s'afficher : node:readline échoue par défaut, il faut
+    // passer stdin en raw et consommer les octets à la main.
+    async askSecret(label) {
+      const stdin = input as NodeJS.ReadStream;
+      if (!stdin.isTTY || typeof stdin.setRawMode !== "function") return null;
+      err(`${label}: `);
+      return new Promise<string | null>((resolve) => {
+        let buf = "";
+        const cleanup = () => {
+          stdin.setRawMode(false);
+          stdin.pause();
+          stdin.off("data", onData);
+          err("\n");
+        };
+        const onData = (chunk: Buffer) => {
+          for (const ch of chunk.toString("utf8")) {
+            if (ch === "\r" || ch === "\n") { cleanup(); resolve(buf === "" ? null : buf); return; }
+            if (ch === "\u0003") { cleanup(); resolve(null); return; }   // Ctrl-C
+            if (ch === "\u007f") { buf = buf.slice(0, -1); continue; }   // backspace
+            buf += ch;
+          }
+        };
+        stdin.setRawMode(true);
+        stdin.resume();
+        stdin.on("data", onData);
+      });
+    },
   };
 }

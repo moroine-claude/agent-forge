@@ -49,6 +49,12 @@ export function fakeContext(opts: FakeOptions = {}): FakeContext {
       const a = answers.shift();
       return typeof a === "string" ? a : null;
     },
+    async askSecret(label) {
+      err_lines.push(`${label}: `);
+      if (!tty) return null;
+      const a = answers.shift();
+      return typeof a === "string" ? a : null;
+    },
   };
 
   return {
