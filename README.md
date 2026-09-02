@@ -19,6 +19,11 @@ SSH (port 2222, Ed25519, no password)
 - SSH access (keyboard/screen) for initial setup
 - Claude Pro account
 - GitHub bot account, invited as a **write collaborator** on each target repo
+- Node.js 24+ on the host (the `forge` CLI is TypeScript, run directly by Node's
+  type stripping — no build step, no `npm install`). Node is separately installed
+  *inside* the agent image; this entry is about the host. No `jq` needed on the
+  host either — the CLI parses `lxc list -f json` in-process instead of shelling
+  out to it.
 
 ## Setup
 
@@ -545,3 +550,36 @@ forge completion tasks <owner/repo>  # one task name per line
 `completion repos` only reads LXD config keys (no `lxc exec`), which is what
 keeps a TAB press fast. `completion tasks` needs the container running — a
 stopped container simply lists nothing.
+
+### Developing the CLI
+
+The CLI lives in `scripts/forge.ts` and `scripts/lib/`, written in TypeScript
+and executed directly by Node — there is no build step and no runtime
+dependency, which is why the host needs nothing but Node itself.
+
+```bash
+npm install          # development only: typescript + @types/node
+npm test             # unit + contract (real git/tmux) + the retained bash tests
+npm run check        # tsc --noEmit — Node strips types without checking them
+```
+
+`npm run check` is not optional in spirit: Node erases type annotations without
+verifying them, so `tsc` is what makes the types mean anything.
+
+Two things stay in bash on purpose: `scripts/lib/forge-image.sh`, which is a
+sequence of provisioning shell piped into a container (in TypeScript it would
+just become template strings of the same shell, with no readability gain),
+and `.claude/hooks/pre-bash.sh`, a container-side security control that must
+stay auditable and independent of the container's Node install.
+
+A third test layer runs against a real LXD and is opt-in, because it needs
+the host:
+
+```bash
+FORGE_INTEGRATION=1 npm run test:integration
+```
+
+It creates a throwaway container inside a dedicated `forge-selftest` LXD
+project — instances in another project never appear in `forge list` — and
+deletes it again. Its `--capture` mode refreshes `tests/fixtures/`, which is
+what keeps the faked `lxc` in the other layers honest.
