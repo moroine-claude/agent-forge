@@ -57,7 +57,12 @@ test("autonomous mode reads the token without echoing and never puts it in argv"
     // Le token part sur stdin de `gh auth login`, jamais en argv : argv est
     // visible dans ps.
     assert.ok(!c.calls.some((call) => call.join(" ").includes("ghp_secret")));
-    assert.ok(c.calls.some((call) => call.join(" ").includes("gh auth login")));
+    const loginIdx = c.calls.findIndex((call) => call.join(" ").includes("gh auth login"));
+    assert.ok(loginIdx >= 0);
+    // Et le token doit réellement partir sur stdin de cet appel précis, pas
+    // seulement être absent d'argv : sans ceci, un régression qui cesserait
+    // de passer { input: token } à ctx.exec passerait ce test.
+    assert.equal(c.execOptions[loginIdx]?.input, "ghp_secret");
     assert.ok(c.calls.some((call) => call.join(" ").includes("git clone https://github.com/o/r.git")));
   } finally { teardown(); }
 });
@@ -100,5 +105,22 @@ test("git-lfs failure aborts provisioning", async () => {
   try {
     const c = fakeContext({ rules: [IMAGE_OK, { match: "git lfs install", code: 1 }], answers: ["s"] });
     await assert.rejects(() => provisionContainer(c, "agent-x", "o/r"), /git-lfs setup failed/);
+  } finally { teardown(); }
+});
+
+test("a failing clone aborts provisioning before metadata is recorded", async () => {
+  setup();
+  try {
+    const c = fakeContext({
+      rules: [IMAGE_OK, { match: "git clone git@github.com", code: 1, stderr: "Permission denied (publickey)" }],
+      answers: ["s"],
+    });
+    await assert.rejects(() => provisionContainer(c, "agent-x", "o/r"), /clone/i);
+    // Sans le fail-fast, l'exécution retombait sur git-lfs puis sur les
+    // configSet forge.*, timbrant un container vide comme provisionné —
+    // exactement l'état que checkNameCollision (Task 6) traite comme
+    // réutilisable. C'est le filet de régression pour cette propriété.
+    assert.ok(!c.calls.some((call) => call.join(" ").includes("user.forge.repo")));
+    assert.ok(!c.calls.some((call) => call.join(" ").includes("git lfs install")));
   } finally { teardown(); }
 });
