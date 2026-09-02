@@ -10,18 +10,29 @@ export function createPrompt(
   input: MaybeTTY = process.stdin,
   err: (s: string) => void = (s) => { process.stderr.write(s); },
 ): Prompt {
-  // Une seule interface pour toute la durée de vie du prompt, créée à la
-  // première vraie lecture. En recréer une par question ferait perdre les
-  // lignes déjà mises en tampon par readline dès qu'un chunk contient
-  // plusieurs réponses (le cas normal d'un flux non interactif) : la
-  // fermer jette ce tampon, et une nouvelle interface arrive après la fin
-  // du flux. readline referme cette interface tout seul quand le flux se
-  // termine, donc rien à fermer explicitement ici.
-  let lines: AsyncIterator<string> | undefined;
-  async function readLine(): Promise<string | null> {
-    if (!lines) lines = createInterface({ input, terminal: false })[Symbol.asyncIterator]();
-    const { value, done } = await lines.next();
-    return done ? null : value;
+  // Une interface par appel de haut niveau (un pick() ou un ask() entier,
+  // pas une ligne), fermée dans le finally dès que cet appel se résout.
+  // La partager sur toute la boucle de relance d'un même pick() est ce qui
+  // évite de perdre les lignes déjà mises en tampon par readline quand un
+  // chunk contient plusieurs réponses (le cas normal d'un flux non
+  // interactif). Mais readline ne se ferme tout seul que si le flux se
+  // termine — un vrai TTY interactif n'émet jamais 'end' — donc sans ce
+  // close() explicite l'interface garde stdin résumé et son listener
+  // 'data' attaché après la résolution de l'appel, ce qui volerait les
+  // frappes destinées à un attach() lancé ensuite (ex. tmux en stdio
+  // "inherit"). D'où le close() explicite ici, pas de raccourci possible.
+  async function withReadLine<T>(fn: (next: () => Promise<string | null>) => Promise<T>): Promise<T> {
+    const rl = createInterface({ input, terminal: false });
+    const lines = rl[Symbol.asyncIterator]();
+    const next = async (): Promise<string | null> => {
+      const { value, done } = await lines.next();
+      return done ? null : value;
+    };
+    try {
+      return await fn(next);
+    } finally {
+      rl.close();
+    }
   }
 
   return {
@@ -31,24 +42,29 @@ export function createPrompt(
       if (items.length === 0) return null;
       if (!input.isTTY) return null;
 
-      for (;;) {
-        items.forEach((item, i) => err(`${String(i + 1).padStart(2)}) ${item}\n`));
-        err(`${label}> `);
-        const answer = await readLine();
-        if (answer === null) return null;
-        const n = Number(answer.trim());
-        if (Number.isInteger(n) && n >= 1 && n <= items.length) return n;
-        err("Invalid choice.\n");
-      }
+      return withReadLine(async (next) => {
+        for (;;) {
+          items.forEach((item, i) => err(`${String(i + 1).padStart(2)}) ${item}\n`));
+          err(`${label}> `);
+          const answer = await next();
+          if (answer === null) return null;
+          const n = Number(answer.trim());
+          if (Number.isInteger(n) && n >= 1 && n <= items.length) return n;
+          err("Invalid choice.\n");
+        }
+      });
     },
 
     async ask(label) {
       if (!input.isTTY) return null;
-      err(`${label}> `);
-      const answer = await readLine();
-      if (answer === null) return null;
-      const value = answer.trim();
-      return value === "" ? null : value;
+
+      return withReadLine(async (next) => {
+        err(`${label}> `);
+        const answer = await next();
+        if (answer === null) return null;
+        const value = answer.trim();
+        return value === "" ? null : value;
+      });
     },
   };
 }

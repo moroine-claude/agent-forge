@@ -11,6 +11,17 @@ function stream(text: string, isTTY: boolean) {
 const tty = (t: string) => stream(t, true);
 const notTty = (t: string) => stream(t, false);
 
+// Un flux TTY qui ne se termine jamais, comme un vrai stdin interactif —
+// contrairement à `tty()`, qui vient de Readable.from et finit toujours par
+// émettre 'end'. Sert à vérifier que pick()/ask() rendent la main sur stdin
+// (rl.close()) une fois résolus, plutôt que de compter sur la fin du flux.
+function liveTty(firstLine: string) {
+  const s = new Readable({ read() {} }) as Readable & { isTTY?: boolean };
+  s.isTTY = true;
+  s.push(firstLine);
+  return s;
+}
+
 test("pick returns the 1-based index of a valid choice", async () => {
   const p = createPrompt(tty("2\n"), () => {});
   assert.equal(await p.pick("Repo", ["alpha", "beta", "gamma"]), 2);
@@ -59,4 +70,20 @@ test("ask returns the typed value, and null on an empty line", async () => {
 
 test("ask returns null with no TTY", async () => {
   assert.equal(await createPrompt(notTty("x\n"), () => {}).ask("Ref"), null);
+});
+
+test("pick releases stdin once resolved, even on a stream that never ends", async () => {
+  const stdin = liveTty("2\n");
+  const p = createPrompt(stdin, () => {});
+  assert.equal(await p.pick("Repo", ["alpha", "beta", "gamma"]), 2);
+  assert.equal(stdin.listenerCount("data"), 0);
+  assert.equal(stdin.readableFlowing, false);
+});
+
+test("ask releases stdin once resolved, even on a stream that never ends", async () => {
+  const stdin = liveTty("my-task\n");
+  const p = createPrompt(stdin, () => {});
+  assert.equal(await p.ask("New task name"), "my-task");
+  assert.equal(stdin.listenerCount("data"), 0);
+  assert.equal(stdin.readableFlowing, false);
 });
