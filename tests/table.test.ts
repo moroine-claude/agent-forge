@@ -28,13 +28,21 @@ test("a long value widens its own column instead of shifting the others", () => 
   ];
   const w = columnWidths(rows);
   const lines = rows.map((r) => formatRow(r, w));
-  // Chaque colonne commence à la même position sur toutes les lignes.
-  for (const col of [1, 2, 3]) {
+  // Vérifier l'alignement direct : le contenu de chaque colonne doit correspondre
+  // à la cellule source quand on extrait la tranche de la ligne au offset calculé.
+  for (let col = 0; col < w.length; col++) {
     const offset = w.slice(0, col).reduce((a, b) => a + b + 2, 0);
-    for (const line of lines) {
-      assert.notEqual(line[offset], " ", `colonne ${col} désalignée: ${line}`);
+    for (let rowIdx = 0; rowIdx < lines.length; rowIdx++) {
+      const line = lines[rowIdx];
+      const cell = rows[rowIdx][col];
+      const sliced = line.slice(offset, offset + w[col]).trim();
+      assert.equal(sliced, cell, `column ${col} misaligned at row ${rowIdx}: expected "${cell}", got "${sliced}"`);
     }
   }
+});
+
+test("columnWidths handles rows of differing lengths", () => {
+  assert.deepEqual(columnWidths([["a", "b"], ["ccc", "dddd", "eeeee", "f"]]), [3, 4, 5, 1]);
 });
 
 test("the widest realistic row stays within 80 columns", () => {
