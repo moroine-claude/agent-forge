@@ -35,6 +35,8 @@ test("delete skips the pre-flight on an already stopped container", async () => 
     rules: [
       { match: "agent-x user.forge.repo", stdout: "o/r" },
       { match: "lxc list", stdout: JSON.stringify([{ name: "agent-x", status: "Stopped" }]) },
+      { match: "git worktree list", stdout: "worktree /workspace\nworktree /workspace/.trees/cli\n" },
+      { match: "status --porcelain", stdout: " M scripts/forge\n" },
     ],
   });
   assert.equal(await cmdDelete(c, "o/r", false), 0);
