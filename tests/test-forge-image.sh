@@ -82,6 +82,35 @@ assert_contains "$LIB" 'git -C "$FORGE_REPO_DIR" rev-parse HEAD'
 # next-task is gone
 assert_not_contains "$LIB" 'next-task'
 
+# --- garde source vs execution directe (voir le fix "safely sourceable") ---
+# Le guard `if [ "${BASH_SOURCE[0]}" = "$0" ]; then cmd_forge_image "$@"; fi`
+# a un mode d'echec silencieux : s'il evalue mal, `forge image build` devient
+# un no-op sans que rien dans la suite ne le remarque. Ces deux assertions
+# couvrent les deux moities du guard, sans toucher lxc.
+
+# 1) Execute directement sans argument : cmd_forge_image doit tourner et
+#    imprimer l'usage. Pas de lxc en jeu : la branche usage retourne avant
+#    tout provisioning.
+output=$(bash "$LIB" 2>&1) && code=0 || code=$?
+if [ "$code" -ne 0 ] && echo "$output" | grep -qF 'Usage: forge image build|update'; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo "FAIL (execution directe de $LIB sans argument, attendu usage + code non nul): code=$code sortie=[$output]"
+fi
+
+# 2) Source, la garde doit empecher cmd_forge_image de tourner avec les
+#    arguments du script appelant — c'est exactement ce qui a casse l'ancien
+#    scripts/forge avant le fix (set -e + cmd_forge_image "$@" inconditionnel
+#    tuait tout le process pendant le sourcing).
+output=$(bash -c 'set -e; source "'"$LIB"'"; echo STILL_ALIVE' list 2>&1) && code=0 || code=$?
+if [ "$code" -eq 0 ] && [ "$output" = "STILL_ALIVE" ]; then
+  PASS=$((PASS + 1))
+else
+  FAIL=$((FAIL + 1))
+  echo "FAIL (source de $LIB avec argument 'list', attendu STILL_ALIVE + code 0): code=$code sortie=[$output]"
+fi
+
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]
