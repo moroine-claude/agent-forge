@@ -212,10 +212,12 @@ shell string. The port does not reduce this exposure and must not weaken it:
 ### 8. Tooling
 
 - `package.json`: `"type": "module"`, `typescript` as the only devDependency, and
-  three scripts — `test:unit` (`node --test tests/*.test.ts`), `test:bash` (runs
-  each retained `tests/test-*.sh`, failing on the first non-zero exit), and `test`
-  running both. `check` is `tsc --noEmit`. Two runners coexist because the
-  retained bash tests cover bash and config files that are staying.
+  the scripts `test:unit` (`node --test tests/*.test.ts`), `test:contract`
+  (`node --test tests/contract/*.test.ts`), `test:bash` (runs each retained
+  `tests/test-*.sh`, failing on the first non-zero exit), `test` running those
+  three, and `test:integration` (host-only, see Testing Layer 3) deliberately
+  **outside** `test`. `check` is `tsc --noEmit`. Several runners coexist because
+  the retained bash tests cover bash and config files that are staying.
 - `tsconfig.json`: `erasableSyntaxOnly`, `allowImportingTsExtensions`, `noEmit`,
   `verbatimModuleSyntax`, `strict`.
 - `node_modules/` is added to `.gitignore`.
@@ -226,7 +228,7 @@ bot PAT and the SSH signing key free of npm supply-chain surface.
 
 ## Files touched
 
-**Added**: `scripts/forge.ts`, `scripts/lib/{context,prompt,validate,table,lxd,containers,worktrees,wip}.ts`, `scripts/lib/commands/*.ts` (8 files), `tests/*.test.ts`, `tests/lib/fake-context.ts`, `tests/lib/fake-lxc.ts`, `package.json`, `tsconfig.json`.
+**Added**: `scripts/forge.ts`, `scripts/lib/{context,prompt,validate,table,lxd,containers,worktrees,wip}.ts`, `scripts/lib/commands/*.ts` (8 files), `tests/*.test.ts`, `tests/lib/fake-context.ts`, `tests/lib/fake-lxc.ts`, `tests/contract/*.test.ts` (real git/tmux), `tests/integration/lxd.test.ts` (host-only), `tests/fixtures/{lxc-list.json,lxc-config-get.txt}`, `package.json`, `tsconfig.json`.
 
 **Rewritten**: `scripts/forge` (becomes the shim), `README.md` (Node 24+ prerequisite, CLI section), `.gitignore`.
 
@@ -236,6 +238,13 @@ bot PAT and the SSH signing key free of npm supply-chain surface.
 
 ## Testing
 
+Fakes encode what the author *believes* an external command returns. If the
+belief is wrong, every test passes and the CLI breaks. The suite is therefore
+layered so that the belief is pinned to reality wherever that is cheap, and
+faked only where it is thin.
+
+### Layer 1 — unit and end-to-end, against fakes
+
 `node --test` over `tests/*.test.ts`, with two harnesses:
 
 - `fake-context.ts` — a `Context` whose `exec` matches argv against an ordered
@@ -243,7 +252,9 @@ bot PAT and the SSH signing key free of npm supply-chain surface.
   of answers (and can be set to "no TTY" so `pick`/`ask` return `null`), and whose
   `out`/`err` accumulate lines for assertion. Commands are called directly.
 - `fake-lxc.ts` — a small executable Node stub placed on `PATH` for the
-  end-to-end tests that spawn the real `scripts/forge`.
+  end-to-end tests that spawn the real `scripts/forge`. Its canned `lxc list -f
+  json` and `lxc config get` responses are **loaded from `tests/fixtures/`**,
+  captured from a real LXD rather than hand-written (see Layer 3).
 
 Coverage carried over from the bash suite, expressed as behaviour rather than
 `grep`:
@@ -262,17 +273,89 @@ Coverage carried over from the bash suite, expressed as behaviour rather than
 - End-to-end (3–4 tests): dispatch of an unknown command, `--force` accepted in
   any position, usage on a missing argument with no TTY, and exit codes.
 
+### Layer 2 — real `git` and `tmux` contracts, no LXD needed
+
+The commands that run *inside* a container are where the parsing lives, and
+therefore where the bugs live. They need no LXD to exercise: `tests/contract/`
+builds a real throwaway git repository (real worktrees, real `agent/*` branches)
+and a real tmux server on a private socket (`tmux -L forge-test`), then runs the
+actual parsers against real output.
+
+Pins: `git worktree list --porcelain` (blank-line-separated stanzas),
+`for-each-ref --format='%(refname:short)' refs/heads/agent` (yields `agent/cli`,
+not `refs/heads/agent/cli` — the strip is load-bearing), `show-ref --verify
+--quiet` as a boolean probe, and `tmux list-sessions -F '#{session_name}
+#{session_attached}'` including the **no-server case, which exits 1 with a
+message on stderr** — the reason `exec` must never throw on a non-zero exit (§3).
+
+These run anywhere git and tmux exist, so they stay part of `npm test`.
+
+### Layer 3 — real LXD, run on the host
+
+The `lxc` transport is the one layer the container cannot exercise: LXD needs
+capabilities the agent container does not have (`CapEff` is empty), Docker here
+is rootless so `--privileged` grants nothing, and the pre-bash hook blocks it —
+LXD-in-Docker is discouraged upstream regardless. So this layer runs on the LXD
+host, opt-in:
+
+```bash
+FORGE_INTEGRATION=1 npm run test:integration            # verify
+FORGE_INTEGRATION=1 npm run test:integration -- --capture   # verify + refresh fixtures
+```
+
+Without `FORGE_INTEGRATION=1` it skips with a one-line explanation, so `npm test`
+stays green on any machine.
+
+What it covers: it creates a throwaway container with `lxc init agent-base`
+(no start, no download, no PAT, no GitHub), stamps it with forge metadata, then
+runs the **real** CLI against the **real** `lxc` — `list`, `completion repos`,
+`completion tasks` (stopped container yields nothing, without erroring), and
+`delete`, which doubles as the teardown. `start` stays out of reach: it needs a
+bot PAT and a provisioned image.
+
+Safety rules, because this runs against a machine holding real containers:
+
+- The container is named `agent-forge-selftest-<random>` and carries
+  `user.forge.repo = forge-selftest/throwaway`. Deletion requires **both** the
+  name prefix and that sentinel repo value to match; anything else is refused.
+- Teardown runs in a `finally`, and a stray from a killed run is cleaned by the
+  next invocation before it starts.
+- It never calls `stop`/`delete` on a container it did not create.
+
+Diagnostics matter more here than elsewhere: a failure means the fake has
+drifted from reality, so an assertion failure prints the **raw command and its
+raw output** rather than a diffed summary — the point is to be pasteable back
+into a design discussion.
+
+`--capture` writes `tests/fixtures/lxc-list.json` and `lxc-config-get.txt`,
+which Layer 1's stub replays. Refreshing them is how the faked layer stays
+honest across LXD upgrades.
+
 ## Delivery
 
-One PR, six reviewable commits, so the repo never carries two live
+One PR, seven reviewable commits, so the repo never carries two live
 implementations:
 
 1. Foundation — `context`, `prompt`, `validate`, `table` + tests
-2. LXD access and domain — `lxd`, `containers`, `worktrees`, `wip` + tests
+2. LXD access and domain — `lxd`, `containers`, `worktrees`, `wip`, plus the
+   Layer 2 contract tests against real git and tmux
 3. Simple commands — `list`, `completion`, `stop`, `delete`
 4. Worktree commands — `resume`, `finish`, `start`
 5. Switch the shim; delete the bash CLI and its tests
-6. README — Node 24+ prerequisite, CLI section
+6. Layer 3 host integration test and the fixtures it captures
+7. README — Node 24+ prerequisite, CLI section, how to run the host test
+
+Commit 6 is the one that needs a machine with LXD. It is written so it can be
+run from the host against this branch, and its output pasted back if it fails:
+
+```bash
+git fetch origin agent/cli && git checkout agent/cli
+FORGE_INTEGRATION=1 npm run test:integration
+```
+
+No `npm install` is needed to run it: the script is `node --test` over a `.ts`
+file with no imports outside `node:`, so the host still needs nothing but Node.
+`typescript` is only required for `npm run check`.
 
 ## Deferred
 
