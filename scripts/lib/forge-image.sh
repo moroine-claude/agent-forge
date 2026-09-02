@@ -1,3 +1,11 @@
+#!/bin/bash
+set -e
+
+# Ce script reste en bash (voir la spec, Non-goals) mais n'est plus sourcé par
+# un dispatcher bash : il s'exécute seul, appelé par commands/image.ts.
+# FORGE_REPO_DIR était sa seule dépendance à forge-common.sh.
+FORGE_REPO_DIR="${FORGE_REPO_DIR:-/home/moroine/agent-forge}"
+
 # forge image build (alias: forge image update)
 # Scripts the manual agent-base build sequence from README §5.
 # Only affects containers created after the rebuild — already-running
@@ -104,3 +112,13 @@ _forge_image_build() {
 
   echo "Image agent-base published (build $build_commit)."
 }
+
+# Exécutable ET sourçable en sécurité : l'ancien scripts/forge source ce
+# fichier avant tout dispatch (set -e en tête), donc un appel inconditionnel
+# ici tuait tout le processus sur les arguments du script appelant. Ce garde
+# standard ne se déclenche que quand le fichier est exécuté directement
+# (comme le fait commands/image.ts via `bash <path> <sub>`), pas quand il
+# est sourcé.
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  cmd_forge_image "$@"
+fi

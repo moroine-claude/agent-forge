@@ -1,77 +1,15 @@
 #!/bin/bash
-set -e
-
-# forge — single entry point for agent-forge container lifecycle.
-# Subcommands live in scripts/lib/forge-*.sh, sourced below.
-
-FORGE_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/lib" && pwd)"
-source "$FORGE_LIB_DIR/forge-common.sh"
-source "$FORGE_LIB_DIR/forge-start.sh"
-source "$FORGE_LIB_DIR/forge-resume.sh"
-source "$FORGE_LIB_DIR/forge-stop.sh"
-source "$FORGE_LIB_DIR/forge-delete.sh"
-source "$FORGE_LIB_DIR/forge-finish.sh"
-source "$FORGE_LIB_DIR/forge-list.sh"
-source "$FORGE_LIB_DIR/forge-image.sh"
-source "$FORGE_LIB_DIR/forge-completion.sh"
-
-usage() {
-  cat <<'EOF'
-Usage: forge <command> [args]
-
-Commands:
-  start <owner/repo> [task-name]   Provision (if needed) and start/attach a session
-  resume <owner/repo> <task>       Re-attach an existing task's session
-  finish <owner/repo> <task>       Remove a finished task's worktree
-  stop <owner/repo> [--force]      Stop a container (blocked on dirty/unpushed WIP unless --force)
-  delete <owner/repo> [--force]    Delete a container (blocked on dirty/unpushed WIP unless --force)
-  list                              Show all containers: repo, mode, state, session
-  image build|update                Rebuild the agent-base image (only affects new containers)
-  completion bash                   Print a bash completion function (eval it in ~/.bashrc)
-EOF
-}
-
-case "${1:-}" in
-  start)
-    shift
-    cmd_forge_start "$@"
-    ;;
-  resume)
-    shift
-    cmd_forge_resume "$@"
-    ;;
-  finish)
-    shift
-    cmd_forge_finish "$@"
-    ;;
-  stop)
-    shift
-    cmd_forge_stop "$@"
-    ;;
-  delete)
-    shift
-    cmd_forge_delete "$@"
-    ;;
-  list)
-    cmd_forge_list "$@"
-    ;;
-  image)
-    shift
-    cmd_forge_image "$@"
-    ;;
-  completion)
-    shift
-    case "${1:-}" in
-      bash) cmd_forge_completion_bash ;;
-      *) echo "Usage: forge completion bash" >&2; exit 1 ;;
-    esac
-    ;;
-  ""|-h|--help)
-    usage
-    ;;
-  *)
-    echo "Error: unknown command '$1'" >&2
-    usage >&2
-    exit 1
-    ;;
-esac
+# Le type-stripping de Node se déclenche sur l'extension .ts : un fichier nommé
+# `forge` ne serait pas traité. Ce shim garde donc la commande inchangée.
+#
+# Le type-stripping n'existe qu'à partir de Node 24 : sans ce garde-fou,
+# l'opérateur sur une version plus ancienne reçoit une SyntaxError brute sur
+# les annotations de type, au lieu d'un message qui dit quoi faire.
+version="$(node -v 2>/dev/null)" || { echo "forge requires Node 24+ (node not found)" >&2; exit 1; }
+major="${version#v}"
+major="${major%%.*}"
+if ! [ "$major" -ge 24 ] 2>/dev/null; then
+  echo "forge requires Node 24+ (found $version)" >&2
+  exit 1
+fi
+exec node "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/forge.ts" "$@"
