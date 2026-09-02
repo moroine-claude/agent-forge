@@ -86,8 +86,14 @@ before((t) => {
   assert.equal(created.status, 0, raw("could not create the test project", created));
 
   conf = mkdtempSync(join(tmpdir(), "forge-lxdconf-"));
-  const real = join(process.env.HOME ?? "", ".config", "lxc");
-  if (real) cpSync(real, conf, { recursive: true, errorOnExist: false, force: true });
+  // `join()` de segments non vides n'est jamais falsy : un `if (real)` ne
+  // teste rien. Ce qu'il faut vérifier, c'est que HOME est bien défini et
+  // que la source existe — sinon on laisse l'échec de cpSync être explicite
+  // plutôt que de deviner un chemin relatif erroné.
+  if (process.env.HOME && existsSync(join(process.env.HOME, ".config", "lxc"))) {
+    const real = join(process.env.HOME, ".config", "lxc");
+    cpSync(real, conf, { recursive: true, errorOnExist: false, force: true });
+  }
   lxc(["project", "switch", PROJECT], { LXD_CONF: conf });   // dans la copie isolée
 
   container = `agent-forge-selftest-${Math.random().toString(36).slice(2, 8)}`;
@@ -100,18 +106,28 @@ before((t) => {
 
 after(() => {
   if (!ENABLED) return;
-  // Double garde : le préfixe de nom ET la sentinelle doivent correspondre.
-  const repo = inProject(["config", "get", container, "user.forge.repo"]).stdout.trim();
-  if (container.startsWith("agent-forge-selftest-") && repo === SENTINEL) {
-    inProject(["delete", container, "--force"]);
+  // `container` et `conf` ne sont affectés que plus loin dans before() (conf
+  // juste après le `project create` réussi, container juste avant le `lxc
+  // init`) : si before() a jeté avant l'un des deux — client lxc absent,
+  // projet non créable —, after() tourne quand même (node:test le garantit
+  // même quand before() a jeté) et ne doit ni planter dessus ni sauter le
+  // nettoyage de ce qui EST là. Chaque étape est indépendante : l'échec de
+  // l'une ne doit pas empêcher les suivantes.
+  if (container) {
+    // Double garde : le préfixe de nom ET la sentinelle doivent correspondre.
+    const repo = inProject(["config", "get", container, "user.forge.repo"]).stdout.trim();
+    if (container.startsWith("agent-forge-selftest-") && repo === SENTINEL) {
+      inProject(["delete", container, "--force"]);
+    }
   }
   // `project delete` refuse de partir s'il reste quoi que ce soit dedans :
-  // c'est LXD qui vérifie, pas nous.
+  // c'est LXD qui vérifie, pas nous. On tente même sans container connu : le
+  // projet a pu être créé avant un échec plus tardif dans before().
   const removed = lxc(["project", "delete", PROJECT]);
   if (removed.status !== 0) {
     console.error(raw(`WARNING: project ${PROJECT} not deleted — inspect it`, removed));
   }
-  rmSync(conf, { recursive: true, force: true });
+  if (conf) rmSync(conf, { recursive: true, force: true });
 });
 
 function forge(args: string[]) {
