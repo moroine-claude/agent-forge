@@ -2,14 +2,20 @@
 // Ne sait rien d'argv ni des terminaux.
 import type { Context } from "./context.ts";
 import { ForgeError } from "./context.ts";
+import type { Instance } from "./lxd.ts";
 import { configGet, imageProperty, instanceExists, instanceStatus, listInstances } from "./lxd.ts";
 
 export type BuildStatus = "unknown" | "up-to-date" | "behind";
 
+// Séparé de listForgeContainers pour que `forge list`, qui a déjà besoin des
+// statuts, puisse filtrer une liste déjà chargée au lieu de relancer
+// `lxc list` — la convention de nommage reste définie ici, à un seul endroit.
+export function forgeContainerNames(instances: Instance[]): string[] {
+  return instances.map((i) => i.name).filter((n) => n.startsWith("agent-"));
+}
+
 export async function listForgeContainers(ctx: Context): Promise<string[]> {
-  return (await listInstances(ctx))
-    .map((i) => i.name)
-    .filter((n) => n.startsWith("agent-"));
+  return forgeContainerNames(await listInstances(ctx));
 }
 
 export function containerRepo(ctx: Context, name: string): Promise<string> {

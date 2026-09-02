@@ -5,10 +5,10 @@
 // la branche d'une tâche (toujours agent/<task>).
 import type { Context } from "../context.ts";
 import { columnWidths, formatRow } from "../table.ts";
-import { instanceStatus } from "../lxd.ts";
+import { listInstances } from "../lxd.ts";
 import {
   buildStatus, containerImageCommit, containerMode, containerRepo,
-  currentImageCommit, listForgeContainers,
+  currentImageCommit, forgeContainerNames,
 } from "../containers.ts";
 import { sessionStates, taskNames } from "../worktrees.ts";
 
@@ -26,10 +26,16 @@ export async function cmdList(ctx: Context): Promise<number> {
   const latest = await currentImageCommit(ctx);
   const entries: Entry[] = [];
 
-  for (const name of await listForgeContainers(ctx)) {
+  // Un seul `lxc list` pour toute la commande : instanceStatus le relançait
+  // en entier par container, soit N+1 listings complets là où un index par
+  // nom suffit. `forge list` est la commande la plus lancée.
+  const instances = await listInstances(ctx);
+  const statuses = new Map(instances.map((i) => [i.name, i.status]));
+
+  for (const name of forgeContainerNames(instances)) {
     const repo = await containerRepo(ctx, name);
     const mode = await containerMode(ctx, name);
-    const status = (await instanceStatus(ctx, name)) ?? "Unknown";
+    const status = statuses.get(name) ?? "Unknown";
     const stamp = await containerImageCommit(ctx, name);
 
     const entry: Entry = {

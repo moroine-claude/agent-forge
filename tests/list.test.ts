@@ -55,10 +55,35 @@ test("a stopped container yields no task rows and is not inspected", async () =>
 test("a long repo name widens its column instead of shifting the others", async () => {
   const c = ctx();
   await cmdList(c);
-  const modeAt = c.out_lines[0].indexOf("MODE");
-  for (const line of c.out_lines.filter((l) => !l.startsWith(" "))) {
-    assert.notEqual(line[modeAt], " ", `misaligned: ${line}`);
+  // Les cellules attendues, et les largeurs recalculées à la main : le test ne
+  // doit rien emprunter à table.ts, sinon il valide l'implémentation par
+  // elle-même. `assert.notEqual(line[modeAt], " ")` — ce qu'il y avait ici —
+  // ne prouvait rien : un formatRow complétant un caractère de trop court le
+  // passe (démontré sur table.test.ts, d'où la même approche par tranches).
+  const rows = [
+    ["REPO", "MODE", "STATE", "BUILD"],
+    ["moroine/agent-forge", "autonomous", "Running", "behind"],
+    ["acme/super-long-repository-name", "supervised", "Stopped", "ok"],
+  ];
+  const widths = rows[0].map((_, col) => Math.max(...rows.map((r) => r[col].length)));
+  const lines = c.out_lines.filter((l) => !l.startsWith(" "));
+  assert.equal(lines.length, rows.length);
+
+  for (let col = 0; col < widths.length; col++) {
+    const offset = widths.slice(0, col).reduce((a, b) => a + b + 2, 0);
+    for (let i = 0; i < lines.length; i++) {
+      const sliced = lines[i].slice(offset, offset + widths[col]).trim();
+      assert.equal(sliced, rows[i][col],
+        `column ${col} misaligned on row ${i}: expected "${rows[i][col]}", got "${sliced}" in "${lines[i]}"`);
+    }
   }
+});
+
+test("forge list runs a single lxc list for the whole command", async () => {
+  const c = ctx();
+  await cmdList(c);
+  const listings = c.calls.filter((call) => call.join(" ") === "lxc list -f json");
+  assert.equal(listings.length, 1, `${listings.length} full listings instead of 1`);
 });
 
 test("no line wraps an 80-column terminal", async () => {
