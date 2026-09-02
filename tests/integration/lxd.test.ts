@@ -40,9 +40,47 @@ before((t) => {
   const probe = lxc(["--version"]);
   assert.equal(probe.status, 0, raw("no usable lxc client", probe));
 
+  // Nettoyage d'un résidu de run tué, AVANT de tenter la suppression du
+  // projet : LXD refuse `project delete` tant qu'il reste quoi que ce soit
+  // dedans, donc un container oublié ferait échouer la suppression puis la
+  // recréation ("already exists"), forçant un nettoyage manuel — exactement
+  // ce que ce bloc évite. On énumère avec `--project` (jamais
+  // `lxc project switch`, qui muterait le projet courant de l'opérateur, et
+  // ce avant même que le LXD_CONF isolé existe) et on ne supprime que ce qui
+  // porte à la fois notre préfixe de nom ET la sentinelle — même double
+  // garde que le teardown de after(). Un statut non nul ici signifie très
+  // probablement que le projet n'existe pas encore (premier run) : ce n'est
+  // pas une erreur, on continue simplement sans rien à nettoyer.
+  const stray = lxc(["--project", PROJECT, "list", "-f", "json"]);
+  if (stray.status === 0) {
+    let instances: { name: string }[] = [];
+    try {
+      const parsed: unknown = JSON.parse(stray.stdout);
+      if (Array.isArray(parsed)) instances = parsed as { name: string }[];
+    } catch {
+      // Sortie inattendue : on laisse `project create` échouer plus bas et
+      // remonter l'erreur brute plutôt que de deviner quoi supprimer.
+    }
+    for (const inst of instances) {
+      if (!inst.name.startsWith("agent-forge-selftest-")) continue;
+      const repo = lxc(["--project", PROJECT, "config", "get", inst.name, "user.forge.repo"]).stdout.trim();
+      if (repo === SENTINEL) {
+        lxc(["--project", PROJECT, "delete", inst.name, "--force"]);
+      } else {
+        // Porte notre préfixe mais pas la sentinelle : on n'y touche pas.
+        // Le `project create` qui suit échouera bruyamment si le projet
+        // n'est pas vide, ce qui est le comportement voulu.
+        console.error(raw(
+          `WARNING: leaving unrecognised instance ${inst.name} (repo=${JSON.stringify(repo)}) in ${PROJECT} alone`,
+          stray,
+        ));
+      }
+    }
+  }
+
   // Projet dédié. features.images=false hérite des images du projet par
   // défaut, donc agent-base reste visible sans copie.
-  lxc(["project", "delete", PROJECT]);            // résidu d'un run tué
+  lxc(["project", "delete", PROJECT]);            // résidu d'un run tué, maintenant vide (ou absent)
   const created = lxc(["project", "create", PROJECT,
     "-c", "features.images=false", "-c", "features.profiles=false"]);
   assert.equal(created.status, 0, raw("could not create the test project", created));
