@@ -1,0 +1,174 @@
+// forge start [<owner/repo>] [<task>]
+//
+// La branche de la tâche est *résolue* au lieu de partir systématiquement de
+// origin/main : c'est ce qui permet de reprendre une tâche existante — branche
+// laissée par `forge finish`, ou branche déjà poussée depuis un autre
+// container, typiquement une PR ouverte.
+import type { Context } from "../context.ts";
+import { ForgeError } from "../context.ts";
+import { sanitizeContainerName, validateGitRef, validateRepo, validateTaskName } from "../validate.ts";
+import { checkNameCollision, containerMode, forgeRepos, isRunning } from "../containers.ts";
+import { attachArgv, execAsAgent, instanceExists, startInstance } from "../lxd.ts";
+import { agentBranches, branchExists, taskNames } from "../worktrees.ts";
+import { provisionContainer } from "./provision.ts";
+
+const USAGE = "Usage: forge start <owner/repo> [<task>]";
+
+type Choice = { task: string; ref: string };
+
+export async function cmdStart(ctx: Context, repo?: string, task?: string): Promise<number> {
+  const ownerRepo = await startResolveRepo(ctx, repo);
+  validateRepo(ownerRepo);
+
+  const container = sanitizeContainerName(ownerRepo);
+  await checkNameCollision(ctx, container, ownerRepo);
+
+  let taskName = task ?? "";
+  let ref = "";
+
+  if (!(await instanceExists(ctx, container))) {
+    // Un container neuf n'a ni worktree ni branche à proposer : le menu
+    // n'aurait rien à montrer, on demande simplement un nom.
+    if (!taskName) {
+      const asked = await ctx.prompt.ask("New task name");
+      if (!asked) throw new ForgeError(USAGE);
+      taskName = asked;
+    }
+    validateTaskName(taskName);
+    await provisionContainer(ctx, container, ownerRepo);
+  }
+
+  ctx.out(`Starting container ${container}...`);
+  if (!(await isRunning(ctx, container))) await startInstance(ctx, container);
+
+  // Avant le menu, pas après : les branches d'origin qu'il propose doivent
+  // être à jour.
+  await refreshMain(ctx, container);
+
+  if (!taskName) {
+    const choice = await pickStartTask(ctx, container);
+    taskName = choice.task;
+    ref = choice.ref;
+  }
+
+  validateTaskName(taskName);
+  if (ref) validateGitRef(ref);
+
+  await addWorktree(ctx, container, taskName, ref);
+
+  ctx.out(`Attaching to ${container} session '${taskName}' as aiuser...`);
+  return ctx.attach(attachArgv(container, taskName, process.env.TERM ?? "xterm-256color"));
+}
+
+// Comme resolveRepo, mais avec une entrée de plus : `forge start` est la seule
+// commande qui peut travailler sur un repo pas encore provisionné.
+async function startResolveRepo(ctx: Context, repo?: string): Promise<string> {
+  if (repo) return repo;
+  const repos = await forgeRepos(ctx);
+  if (repos.length === 0) {
+    throw new ForgeError("no forge container yet. Name the repo: forge start <owner/repo> <task>.");
+  }
+  const idx = await ctx.prompt.pick("Repo", [...repos, "other repo…"]);
+  if (idx === null) throw new ForgeError(USAGE);
+  if (idx > repos.length) {
+    const typed = await ctx.prompt.ask("owner/repo");
+    if (!typed) throw new ForgeError(USAGE);
+    return typed;
+  }
+  return repos[idx - 1];
+}
+
+// Un container supervised n'a aucune credential pour joindre origin : on reste
+// sur les refs déjà connues localement.
+async function refreshMain(ctx: Context, container: string): Promise<void> {
+  if ((await containerMode(ctx, container)) === "supervised") {
+    ctx.err("Supervised container: skipping origin fetch (no credential); working from the last-known origin refs.");
+    return;
+  }
+  ctx.out("Refreshing main...");
+  await execAsAgent(ctx, container,
+    "git -C /workspace fetch origin && git -C /workspace merge --ff-only origin/main");
+}
+
+// Menu mélangeant worktrees déjà là, branches agent/* sans worktree (locales
+// ou seulement sur origin), plus "new task" et "other branch…".
+async function pickStartTask(ctx: Context, container: string): Promise<Choice> {
+  const labels: string[] = ["new task"];
+  const values: string[] = ["new"];
+  const seen = new Set<string>();
+
+  for (const name of await taskNames(ctx, container)) {
+    seen.add(name);
+    labels.push(`${name} (existing worktree — attach)`);
+    values.push(`task:${name}`);
+  }
+  for (const name of await agentBranches(ctx, container, "refs/heads/agent")) {
+    if (seen.has(name)) continue;
+    seen.add(name);
+    labels.push(`${name} (local branch)`);
+    values.push(`task:${name}`);
+  }
+  for (const name of await agentBranches(ctx, container, "refs/remotes/origin/agent")) {
+    if (seen.has(name)) continue;
+    seen.add(name);
+    labels.push(`${name} (branch on origin)`);
+    values.push(`task:${name}`);
+  }
+  labels.push("other branch…");
+  values.push("other");
+
+  const idx = await ctx.prompt.pick("Task", labels);
+  if (idx === null) throw new ForgeError(USAGE);
+  const value = values[idx - 1];
+
+  if (value === "new") {
+    const name = await ctx.prompt.ask("New task name");
+    if (!name) throw new ForgeError(USAGE);
+    return { task: name, ref: "" };
+  }
+  if (value === "other") {
+    // La branche de départ peut être quelconque, mais on travaille toujours
+    // sur agent/<task> : le hook pre-bash.sh n'autorise le push que là.
+    const namedRef = await ctx.prompt.ask("Ref");
+    if (!namedRef) throw new ForgeError(USAGE);
+    const name = await ctx.prompt.ask("New task name");
+    if (!name) throw new ForgeError(USAGE);
+    return { task: name, ref: namedRef };
+  }
+  return { task: value.slice("task:".length), ref: "" };
+}
+
+async function addWorktree(ctx: Context, container: string, task: string, ref: string): Promise<void> {
+  if ((await execAsAgent(ctx, container, `test -e /workspace/.trees/${task}`)).code === 0) {
+    ctx.out(`Worktree .trees/${task} is already there — attaching to it.`);
+    return;
+  }
+
+  if (ref) {
+    if (await branchExists(ctx, container, `refs/heads/agent/${task}`)) {
+      throw new ForgeError(
+        `branch agent/${task} already exists; pick another task name so its history isn't overwritten.`,
+      );
+    }
+    ctx.out(`Creating worktree .trees/${task} on a new agent/${task} from ${ref}...`);
+    await execAsAgent(ctx, container, `git -C /workspace worktree add .trees/${task} -b agent/${task} ${ref}`);
+    return;
+  }
+
+  if (await branchExists(ctx, container, `refs/heads/agent/${task}`)) {
+    ctx.out(`Resuming the existing local branch agent/${task} in .trees/${task}...`);
+    await execAsAgent(ctx, container, `git -C /workspace worktree add .trees/${task} agent/${task}`);
+    return;
+  }
+
+  if (await branchExists(ctx, container, `refs/remotes/origin/agent/${task}`)) {
+    ctx.out(`Resuming agent/${task} from origin in .trees/${task}...`);
+    await execAsAgent(ctx, container,
+      `git -C /workspace worktree add .trees/${task} -b agent/${task} origin/agent/${task}`);
+    return;
+  }
+
+  ctx.out(`Creating worktree .trees/${task} on a new agent/${task} from origin/main...`);
+  await execAsAgent(ctx, container,
+    `git -C /workspace worktree add .trees/${task} -b agent/${task} origin/main`);
+}
