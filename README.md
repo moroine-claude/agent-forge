@@ -531,8 +531,18 @@ Add an alias alongside the `eval` line so both work the same way:
 
 ```bash
 alias forge=/home/moroine/agent-forge/scripts/forge
-eval "$(forge completion bash)"
+eval "$(/home/moroine/agent-forge/scripts/forge completion bash)"
 ```
+
+**Use the full path in the `eval`, not the alias.** That line has to run
+`forge` at the moment `~/.bashrc` reaches it, and an alias defined on a later
+line — or a `PATH` entry added further down — is not available yet. When it
+cannot run, `$(...)` is empty, `eval ""` defines nothing, and completion falls
+back to filenames with no error to explain why. `type _forge_completions`
+returning "not found" is the symptom.
+
+The emitted function itself calls `forge` by absolute path, so it keeps
+working regardless of how `forge` is resolved in your shell.
 
 Add those two lines to `~/.bashrc` to get tab-completion on `forge
 start`/`resume`/`finish`/`stop`/`delete`: `<owner/repo>` in second position,

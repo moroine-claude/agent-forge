@@ -1,5 +1,7 @@
 // La fonction bash à évaluer, plus les deux sous-commandes à sortie machine
 // qui l'alimentent — et qui servent aussi de source aux menus interactifs.
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { Context } from "../context.ts";
 import { ForgeError } from "../context.ts";
 import { validateRepo } from "../validate.ts";
@@ -8,7 +10,19 @@ import { taskNames } from "../worktrees.ts";
 
 const USAGE = "Usage: forge completion bash|repos|tasks <owner/repo>";
 
-export const COMPLETION_SCRIPT = `_forge_completions() {
+// Chemin absolu du shim `scripts/forge`. import.meta.url designe forge.ts ;
+// le shim est son voisin, et c'est lui l'executable.
+export const FORGE_BIN = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "forge");
+
+// La fonction emise appelle forge par CHEMIN ABSOLU, jamais par son nom. Un
+// `eval "$(forge completion bash)"` place dans un .bashrc avant la ligne qui
+// definit l'alias (ou qui ajoute forge au PATH) ne produit rien du tout, et
+// `eval ""` ne definit aucune fonction : la complétion retombe alors
+// silencieusement sur les noms de fichiers. Ancrer le chemin supprime cette
+// dependance a l'ordre, et rend la fonction independante de la maniere dont
+// `forge` est resolu au moment de la complétion.
+export function completionScript(forgeBin: string): string {
+  return `_forge_completions() {
   local cur cmd
   cur="\${COMP_WORDS[COMP_CWORD]}"
   cmd="\${COMP_WORDS[1]}"
@@ -21,11 +35,11 @@ export const COMPLETION_SCRIPT = `_forge_completions() {
   case "$cmd" in
     start|resume|finish|stop|delete)
       case "$COMP_CWORD" in
-        2) COMPREPLY=($(compgen -W "$(forge completion repos 2>/dev/null)" -- "$cur")) ;;
+        2) COMPREPLY=($(compgen -W "$(${forgeBin} completion repos 2>/dev/null)" -- "$cur")) ;;
         3)
           case "$cmd" in
             start|resume|finish)
-              COMPREPLY=($(compgen -W "$(forge completion tasks "\${COMP_WORDS[2]}" 2>/dev/null)" -- "$cur")) ;;
+              COMPREPLY=($(compgen -W "$(${forgeBin} completion tasks "\${COMP_WORDS[2]}" 2>/dev/null)" -- "$cur")) ;;
             stop|delete)
               COMPREPLY=($(compgen -W "--force" -- "$cur")) ;;
           esac
@@ -39,6 +53,7 @@ export const COMPLETION_SCRIPT = `_forge_completions() {
   return 0
 }
 complete -F _forge_completions forge`;
+}
 
 export async function cmdCompletion(
   ctx: Context,
@@ -46,7 +61,7 @@ export async function cmdCompletion(
   repo: string | undefined,
 ): Promise<number> {
   if (sub === "bash") {
-    ctx.out(COMPLETION_SCRIPT);
+    ctx.out(completionScript(FORGE_BIN));
     return 0;
   }
 
