@@ -2,7 +2,7 @@
 // l'hôte : elle crée ~/workspaces/<container>, et en mode supervised y clone
 // par SSH. Les chemins hôte restent surchargeables par variable
 // d'environnement pour que les tests ne touchent jamais un vrai home.
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { Context } from "../context.ts";
 import { ForgeError, mustSucceed } from "../context.ts";
@@ -21,6 +21,9 @@ export async function provisionContainer(ctx: Context, container: string, ownerR
   if ((await ctx.exec(["lxc", "image", "info", "agent-base"])).code !== 0) {
     throw new ForgeError("image agent-base not found. Run 'forge image build' first.");
   }
+
+  const workspaceDir = join(workspaces(), container);
+  const reuseWorkspace = await workspaceIsReusable(ctx, workspaceDir, ownerRepo);
 
   ctx.err("Mode for this container?");
   ctx.err("  [a] autonomous — bot pushes commits and opens PRs itself");
@@ -41,7 +44,6 @@ export async function provisionContainer(ctx: Context, container: string, ownerR
     ctx.exec(["lxc", "exec", container, "--", "rm", "-f", "/etc/sudoers.d/90-cloud-init-users"]));
 
   ctx.out("Mounting workspace...");
-  const workspaceDir = join(workspaces(), container);
   mkdirSync(workspaceDir, { recursive: true });
   // raw.idmap dans le profil mappe moroine (1000) vers aiuser (1001) et gère
   // aussi root : pas besoin d'idmap shifting sur ce device.
@@ -97,11 +99,13 @@ export async function provisionContainer(ctx: Context, container: string, ownerR
   await mustSucceed("record forge mode marker",
     execAsAgent(ctx, container, `echo '${mode}' > /home/aiuser/.claude/forge-mode`));
 
-  if (mode === "supervised") {
-    ctx.out(`Cloning ${ownerRepo} on the host (branch main)...`);
-    await mustSucceed("clone repository",
-      ctx.exec(["git", "clone", `git@github.com:${ownerRepo}.git`, workspaceDir]));
-  } else {
+  // Supervised passe par SSH avec l'agent forwardé de l'humain ; autonomous
+  // par HTTPS avec le credential helper que `gh auth setup-git` vient d'armer.
+  const remote = mode === "supervised"
+    ? `git@github.com:${ownerRepo}.git`
+    : `https://github.com/${ownerRepo}.git`;
+
+  if (mode === "autonomous") {
     ctx.err("");
     ctx.err("==============================================================");
     ctx.err("  GitHub token required (BOT account, fine-grained PAT)");
@@ -122,10 +126,22 @@ export async function provisionContainer(ctx: Context, container: string, ownerR
     const status = await execAsAgent(ctx, container, "gh auth status --hostname github.com");
     if (status.code !== 0) throw new ForgeError("the pasted token was rejected by GitHub.");
     await mustSucceed("gh auth setup-git", execAsAgent(ctx, container, "gh auth setup-git"));
+  }
 
+  if (reuseWorkspace) {
+    // Le clone survivant vient peut-être d'un container de l'autre mode : son
+    // origin pointerait alors vers un protocole pour lequel CE container n'a
+    // aucun credential. On le réaligne plutôt que de laisser le premier fetch
+    // échouer.
+    ctx.out(`Reusing the existing clone in ${workspaceDir}...`);
+    await mustSucceed("realign origin remote",
+      ctx.exec(["git", "-C", workspaceDir, "remote", "set-url", "origin", remote]));
+  } else if (mode === "supervised") {
+    ctx.out(`Cloning ${ownerRepo} on the host (branch main)...`);
+    await mustSucceed("clone repository", ctx.exec(["git", "clone", remote, workspaceDir]));
+  } else {
     ctx.out(`Cloning ${ownerRepo} (branch main)...`);
-    await mustSucceed("clone repository",
-      execAsAgent(ctx, container, `git clone https://github.com/${ownerRepo}.git /workspace`));
+    await mustSucceed("clone repository", execAsAgent(ctx, container, `git clone ${remote} /workspace`));
   }
 
   ctx.out("Configuring git-lfs and ignoring worktrees...");
@@ -148,4 +164,37 @@ export async function provisionContainer(ctx: Context, container: string, ownerR
   }
 
   ctx.out(`Container ${container} provisioned.`);
+}
+
+// `forge delete` ne supprime QUE le container : ~/workspaces/<container> est
+// monté depuis l'hôte et survit délibérément (delete.ts). Un re-provisioning
+// tombait donc sur un `git clone` dans un répertoire non vide — et seulement
+// après avoir créé le container, monté le disque et fait coller le PAT,
+// laissant derrière lui un container à moitié provisionné sans métadonnée
+// forge. On tranche ici, avant de rien créer :
+//   - clone du même repo  -> on le réutilise (le travail supervised non
+//     récupéré est la seule copie qui existe : on n'efface rien) ;
+//   - autre chose non vide -> on s'arrête sans y toucher.
+async function workspaceIsReusable(ctx: Context, workspaceDir: string, ownerRepo: string): Promise<boolean> {
+  if (!existsSync(workspaceDir) || readdirSync(workspaceDir).length === 0) return false;
+
+  // Sonde : un code non nul est une réponse (« pas un dépôt git »), pas une
+  // panne — d'où l'absence de mustSucceed.
+  const origin = await ctx.exec(["git", "-C", workspaceDir, "remote", "get-url", "origin"]);
+  if (origin.code !== 0 || remoteRepo(origin.stdout) !== ownerRepo.toLowerCase()) {
+    throw new ForgeError(
+      `${workspaceDir} already exists, is not empty, and is not a clone of ${ownerRepo}. ` +
+      "It is the only copy of whatever it contains, so provisioning stops rather than overwrite it: " +
+      "move it aside (or remove it) and run the command again.");
+  }
+  return true;
+}
+
+// Réduit une URL de remote à son `owner/repo`, quelle que soit sa forme :
+// git@github.com:o/r.git, https://github.com/o/r, ssh://git@github.com/o/r.git
+// — y compris via un alias SSH (~/.ssh/config), d'où la comparaison sur le
+// chemin seul et pas sur l'hôte.
+function remoteRepo(url: string): string {
+  const match = url.trim().replace(/\.git$/, "").match(/([^/:]+\/[^/]+)$/);
+  return match ? match[1].toLowerCase() : "";
 }

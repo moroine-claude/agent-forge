@@ -1,8 +1,10 @@
 // forge delete [<owner/repo>] [--force]
 // Pré-vol WIP sauf --force ou container déjà arrêté (stop l'a déjà fait). Le
-// workspace est monté depuis l'hôte et survit de toute façon : ce contrôle
-// existe pour révéler du travail *oublié* avant qu'un re-provisioning ne
-// reclone à neuf, pas pour empêcher une perte de données.
+// workspace est monté depuis l'hôte et survit de toute façon — un
+// re-provisioning l'adopte tel quel au lieu de recloner par-dessus
+// (provision.ts, workspaceIsReusable) : ce contrôle existe pour révéler du
+// travail *oublié* tant que le container est encore là, pas pour empêcher une
+// perte de données.
 import type { Context } from "../context.ts";
 import { mustSucceed } from "../context.ts";
 import { validateRepo } from "../validate.ts";
