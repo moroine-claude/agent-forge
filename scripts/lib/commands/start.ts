@@ -4,7 +4,7 @@
 // origin/main : c'est ce qui permet de reprendre une tâche existante — branche
 // laissée par `forge finish`, ou branche déjà poussée depuis un autre
 // container, typiquement une PR ouverte.
-import type { Context } from "../context.ts";
+import type { Context, ExecResult } from "../context.ts";
 import { ForgeError, mustSucceed } from "../context.ts";
 import { sanitizeContainerName, validateGitRef, validateRepo, validateTaskName } from "../validate.ts";
 import { checkNameCollision, containerMode, forgeRepos, isRunning } from "../containers.ts";
@@ -86,6 +86,12 @@ async function refreshMain(ctx: Context, container: string): Promise<void> {
     return;
   }
   ctx.out("Refreshing main...");
+  // Deux étapes distinctes, et pas un `&&` : seul le fetch conditionne le
+  // point de départ des worktrees (addWorktree part d'origin/main, jamais du
+  // ref local main). Les chaîner faisait accuser origin/main d'être périmé
+  // alors qu'il venait d'être rafraîchi, dès que la seule avancée de main
+  // échouait.
+  //
   // Volontairement NON fatal, contrairement au reste des étapes mutantes : ce
   // rafraîchissement n'alimente que des entrées en lecture (le menu et le
   // point de départ origin/main). La branche supervised juste au-dessus part
@@ -93,12 +99,40 @@ async function refreshMain(ctx: Context, container: string): Promise<void> {
   // ligne doit pouvoir en faire autant plutôt que de voir `forge start`
   // refuser de démarrer. Ce qui n'est pas acceptable, c'est le silence : le
   // stderr de git est remonté tel quel, avec la conséquence énoncée.
-  const fetched = await execAsAgent(ctx, container,
-    "git -C /workspace fetch origin && git -C /workspace merge --ff-only origin/main");
+  const fetched = await execAsAgent(ctx, container, "git -C /workspace fetch origin");
   if (fetched.code !== 0) {
     ctx.err(`WARNING: refreshing main failed: ${fetched.stderr.trim() || `exit code ${fetched.code}`}`);
     ctx.err("Continuing from the last-known origin refs — the task may branch from a stale origin/main.");
+    return;
   }
+
+  const advanced = await advanceMain(ctx, container);
+  if (advanced.code !== 0) {
+    ctx.err(`WARNING: fast-forwarding main in /workspace failed: ${advanced.stderr.trim() || `exit code ${advanced.code}`}`);
+    ctx.err("origin refs are current, so the task still branches from an up-to-date origin/main; only /workspace's own main lags.");
+  }
+}
+
+// Fait avancer le ref `main` du clone principal — jamais HEAD.
+//
+// `git merge --ff-only origin/main` fusionne dans la branche SORTIE dans
+// /workspace. Le clone principal est censé être épinglé sur main, mais rien ne
+// le garantit : retrouvé sur `agent/agent-forge` sur l'hôte réel, le refresh
+// mourait sur « Not possible to fast-forward » alors que `main` était un
+// ancêtre propre d'origin/main — et une branche agent/* simplement en retard
+// aurait été avancée en silence, ce qu'on ne nous a jamais demandé de faire.
+async function advanceMain(ctx: Context, container: string): Promise<ExecResult> {
+  // Sonde : un code non nul (HEAD détaché) est une réponse, pas une panne.
+  const head = await execAsAgent(ctx, container, "git -C /workspace symbolic-ref --quiet HEAD");
+  if (head.stdout.trim() === "refs/heads/main") {
+    // main est sorti ici : le ref et le working tree doivent bouger ensemble.
+    return execAsAgent(ctx, container, "git -C /workspace merge --ff-only origin/main");
+  }
+  // main n'est pas sorti ici : on avance le ref seul. `fetch <src>:<dst>`
+  // refuse un non-fast-forward ET refuse d'écrire dans une branche sortie dans
+  // une worktree — deux garde-fous appliqués par git lui-même, sans que le
+  // working tree de /workspace soit touché.
+  return execAsAgent(ctx, container, "git -C /workspace fetch origin main:main");
 }
 
 // Menu mélangeant worktrees déjà là, branches agent/* sans worktree (locales

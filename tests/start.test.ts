@@ -148,3 +148,50 @@ test("a failing fetch is surfaced on stderr instead of passing silently", async 
   assert.match(errs, /WARNING: refreshing main failed: fatal: unable to access/);
   assert.match(errs, /stale origin\/main/);
 });
+
+// `git merge --ff-only origin/main` fusionne dans la branche SORTIE dans
+// /workspace, pas dans `main`. Le clone principal est censé être épinglé sur
+// main, mais rien ne le garantit : sur le vrai hôte il s'était retrouvé sur
+// `agent/agent-forge`, et le refresh mourait sur « Not possible to
+// fast-forward » alors que `main` était un ancêtre propre d'origin/main. Pire :
+// une branche agent/* en retard aurait été avancée en silence. On fait donc
+// avancer le REF main, jamais HEAD.
+test("the main ref is advanced without merging into the checked-out branch", async () => {
+  const c = fakeContext({
+    rules: rules([{ match: "symbolic-ref --quiet HEAD", stdout: "refs/heads/agent/agent-forge\n" }]),
+  });
+  await cmdStart(c, "moroine/agent-forge", "fresh");
+  const flat = c.calls.map((x) => x.join(" "));
+  assert.ok(flat.some((l) => l.includes("fetch origin main:main")), flat.join("\n"));
+  assert.ok(!flat.some((l) => l.includes("merge")), "aucun merge ne doit toucher la branche sortie");
+});
+
+test("when /workspace is on main, the checkout itself is fast-forwarded", async () => {
+  const c = fakeContext({
+    rules: rules([{ match: "symbolic-ref --quiet HEAD", stdout: "refs/heads/main\n" }]),
+  });
+  await cmdStart(c, "moroine/agent-forge", "fresh");
+  const flat = c.calls.map((x) => x.join(" "));
+  // Ici le ref ET le working tree doivent bouger ensemble : un
+  // `fetch origin main:main` refuserait d'écrire dans une branche sortie.
+  assert.ok(flat.some((l) => l.includes("--ff-only origin/main")), flat.join("\n"));
+  assert.ok(!flat.some((l) => l.includes("fetch origin main:main")), "pas de fetch dans une branche sortie");
+});
+
+// Le fetch et l'avancée de main étaient chaînés par `&&` et rapportés comme un
+// seul échec : une avancée qui échoue accusait donc origin/main d'être périmé,
+// alors que le fetch venait de le rafraîchir. Deux étapes, deux diagnostics.
+test("a failed main update does not claim origin/main is stale", async () => {
+  const c = fakeContext({
+    rules: rules([
+      { match: "symbolic-ref --quiet HEAD", stdout: "refs/heads/agent/agent-forge\n" },
+      { match: "fetch origin main:main", code: 1, stderr: " ! [rejected] main -> main (non-fast-forward)\n" },
+    ]),
+  });
+  await cmdStart(c, "moroine/agent-forge", "fresh");
+  const errs = c.err_lines.join("\n");
+  assert.match(errs, /non-fast-forward/);
+  assert.doesNotMatch(errs, /stale origin\/main/);
+  // Le worktree part quand même d'origin/main, qui EST à jour.
+  assert.ok(added(c).includes("origin/main"), added(c));
+});

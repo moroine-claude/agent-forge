@@ -145,9 +145,13 @@ export async function provisionContainer(ctx: Context, container: string, ownerR
   }
 
   ctx.out("Configuring git-lfs and ignoring worktrees...");
-  const lfs = await execAsAgent(ctx, container,
-    "cd /workspace && git lfs install && { grep -qxF '.trees/' .git/info/exclude || echo '.trees/' >> .git/info/exclude; }");
-  if (lfs.code !== 0) throw new ForgeError(`git-lfs setup failed in ${container}.`);
+  // Passe par mustSucceed comme toute autre étape mutante : ce site d'appel
+  // avait été oublié par c89dbf4 et jetait le stderr, ne laissant à
+  // l'opérateur qu'un « git-lfs setup failed » sans le motif du refus de git.
+  // C'est aussi la première commande du container à toucher /workspace : un
+  // montage illisible se manifeste ici, et son message doit être lisible.
+  await mustSucceed(`git-lfs setup in ${container}`, execAsAgent(ctx, container,
+    "cd /workspace && git lfs install && { grep -qxF '.trees/' .git/info/exclude || echo '.trees/' >> .git/info/exclude; }"));
 
   ctx.out("Stamping the image build this container came from...");
   await mustSucceed("stamp image commit",
