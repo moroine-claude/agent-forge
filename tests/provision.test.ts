@@ -104,7 +104,27 @@ test("git-lfs failure aborts provisioning", async () => {
   setup();
   try {
     const c = fakeContext({ rules: [IMAGE_OK, { match: "git lfs install", code: 1 }], answers: ["s"] });
-    await assert.rejects(() => provisionContainer(c, "agent-x", "o/r"), /git-lfs setup failed/);
+    await assert.rejects(() => provisionContainer(c, "agent-x", "o/r"), /git-lfs setup in agent-x failed/);
+  } finally { teardown(); }
+});
+
+// Ce site d'appel avait été oublié par le passage à mustSucceed (c89dbf4) :
+// l'opérateur recevait « git-lfs setup failed in <container>. » et rien
+// d'autre, alors que la seule information utile — pourquoi git a refusé — est
+// dans le stderr que ctx.exec capture. Sans elle, l'échec n'est pas
+// diagnosticable depuis la sortie de `forge start`.
+test("a git-lfs failure reports git's own message, not just the step name", async () => {
+  setup();
+  try {
+    const c = fakeContext({
+      rules: [IMAGE_OK, {
+        match: "git lfs install",
+        code: 1,
+        stderr: "Hook already exists: pre-push\n",
+      }],
+      answers: ["s"],
+    });
+    await assert.rejects(() => provisionContainer(c, "agent-x", "o/r"), /Hook already exists: pre-push/);
   } finally { teardown(); }
 });
 
