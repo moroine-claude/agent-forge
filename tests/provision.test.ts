@@ -124,3 +124,83 @@ test("a failing clone aborts provisioning before metadata is recorded", async ()
     assert.ok(!c.calls.some((call) => call.join(" ").includes("git lfs install")));
   } finally { teardown(); }
 });
+
+// ~/workspaces/<container> survit à `forge delete` : le re-provisioning
+// tombait sur `git clone` dans un répertoire non vide, APRÈS avoir créé le
+// container et fait coller le PAT. Ces tests verrouillent les deux moitiés du
+// fix : réutiliser le clone du bon repo, et trancher avant toute création.
+function seedWorkspace(container: string, ...files: string[]) {
+  const dir = join(home, "workspaces", container);
+  mkdirSync(dir, { recursive: true });
+  for (const f of files) writeFileSync(join(dir, f), "x");
+  return dir;
+}
+
+const ORIGIN = (url: string) => ({ match: "remote get-url", stdout: `${url}\n` });
+
+test("un workspace laissé par un container supprimé est réutilisé au lieu de casser le clone", async () => {
+  setup();
+  try {
+    seedWorkspace("agent-x", "README.md");
+    const c = fakeContext({ rules: [IMAGE_OK, ORIGIN("git@github.com:o/r.git")], answers: ["s"] });
+    await provisionContainer(c, "agent-x", "o/r");
+    const flat = c.calls.map((call) => call.join(" "));
+    assert.ok(!flat.some((l) => l.includes("git clone")), "pas de clone par-dessus un clone existant");
+    assert.ok(flat.some((l) => l.includes("remote set-url origin git@github.com:o/r.git")));
+    assert.ok(flat.some((l) => l.includes("user.forge.repo")), "le provisioning doit aller au bout");
+  } finally { teardown(); }
+});
+
+test("la réutilisation réaligne le remote sur le mode autonome (https, pas ssh)", async () => {
+  setup();
+  try {
+    seedWorkspace("agent-x", "README.md");
+    const c = fakeContext({ rules: [IMAGE_OK, ORIGIN("git@github.com:o/r.git")], answers: ["a", "ghp_secret"] });
+    await provisionContainer(c, "agent-x", "o/r");
+    const flat = c.calls.map((call) => call.join(" "));
+    assert.ok(!flat.some((l) => l.includes("git clone")));
+    assert.ok(flat.some((l) => l.includes("remote set-url origin https://github.com/o/r.git")));
+    // Le container a toujours besoin de gh auth pour pousser, clone ou pas.
+    assert.ok(flat.some((l) => l.includes("gh auth login")));
+  } finally { teardown(); }
+});
+
+test("un workspace non vide appartenant à un autre repo arrête tout avant de créer le container", async () => {
+  setup();
+  try {
+    seedWorkspace("agent-x", "README.md");
+    const c = fakeContext({ rules: [IMAGE_OK, ORIGIN("git@github.com:someone/else.git")], answers: ["s"] });
+    await assert.rejects(() => provisionContainer(c, "agent-x", "o/r"), /not a clone of o\/r/);
+    assert.ok(!c.calls.some((call) => call.join(" ").includes("lxc launch")), "rien ne doit être créé");
+  } finally { teardown(); }
+});
+
+test("un workspace non vide qui n'est pas un dépôt git arrête tout avant de créer le container", async () => {
+  setup();
+  try {
+    seedWorkspace("agent-x", "notes.txt");
+    const c = fakeContext({ rules: [IMAGE_OK, { match: "remote get-url", code: 128 }], answers: ["s"] });
+    await assert.rejects(() => provisionContainer(c, "agent-x", "o/r"), /not a clone of o\/r/);
+    assert.ok(!c.calls.some((call) => call.join(" ").includes("lxc launch")));
+  } finally { teardown(); }
+});
+
+test("le pré-vol ne demande même pas le mode quand le workspace est inutilisable", async () => {
+  setup();
+  try {
+    seedWorkspace("agent-x", "notes.txt");
+    const c = fakeContext({ rules: [IMAGE_OK, { match: "remote get-url", code: 128 }], answers: ["s"] });
+    await assert.rejects(() => provisionContainer(c, "agent-x", "o/r"));
+    assert.ok(!c.err_lines.some((l) => l.startsWith("Choice")), "pas de question posée pour rien");
+  } finally { teardown(); }
+});
+
+test("un répertoire workspace vide se clone normalement", async () => {
+  setup();
+  try {
+    seedWorkspace("agent-x");
+    const c = fakeContext({ rules: [IMAGE_OK], answers: ["s"] });
+    await provisionContainer(c, "agent-x", "o/r");
+    assert.ok(c.calls.some((call) => call.join(" ").includes("git clone git@github.com:o/r.git")));
+  } finally { teardown(); }
+});

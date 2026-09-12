@@ -260,6 +260,7 @@ provisions one first:
 - Pre-accepts onboarding and installs the `superpowers` plugin, so the first `claude` launch skips the setup questions
 - **Autonomous:** prompts for the bot's fine-grained PAT (see setup §6), authenticates `gh` inside the container — the token is never written to host disk — and clones `https://github.com/<owner/repo>.git` into `/workspace` inside the container
 - **Supervised:** no token prompt; clones `git@github.com:<owner/repo>.git` on the host over SSH, using your own forwarded agent (§7) — the container never receives any GitHub credential
+- Either clone step is **skipped when `~/workspaces/<container>` already holds a clone of that same repo** — a workspace left behind by a previously deleted container is adopted as-is, with only its `origin` URL realigned on the new container's mode (see "Re-provisioning over an existing workspace" below)
 - Runs `git lfs install` in the fresh clone (`git-lfs` itself ships preinstalled in the `agent-base` image, via `forge image build`) and adds `.trees/` to `.git/info/exclude` so worktrees never show up as untracked noise in `/workspace`
 - Stamps the container with the commit `forge image build` last ran from (`user.forge.image_commit`), so `forge list` can later tell you if it's running an older image than the latest build
 - Records `owner/repo` and mode on the container itself (LXD config keys) — there's no separate registry file; `forge list` and future `forge start` calls discover containers this way
@@ -517,10 +518,38 @@ up the newer image:
 ./scripts/forge start <owner/repo> <task>
 ```
 
-This re-provisions from scratch (new PAT prompt for autonomous containers,
-fresh clone) and re-creates the worktree for `<task>` — any other worktrees
-that existed only in the deleted container are gone with it, so finish or
-retrieve them first.
+This re-provisions from scratch (new PAT prompt for autonomous containers)
+and re-creates the worktree for `<task>` — any other worktrees that existed
+only in the deleted container are gone with it, so finish or retrieve them
+first. The clone itself is *not* redone: `forge delete` only removes the
+container, and `~/workspaces/<container>` — which in supervised mode is the
+only copy of any work you haven't retrieved yet — survives on the host, so
+the new container adopts it (see "Re-provisioning over an existing
+workspace" below).
+
+### Re-provisioning over an existing workspace
+
+`forge delete` removes the container only. `~/workspaces/<container>` is a
+host directory bind-mounted into it, and it deliberately outlives the
+container — in supervised mode it is the **sole** copy of any commit you
+haven't retrieved yet. Provisioning therefore never clones over it blindly.
+Before creating anything (no container, no mount, no PAT prompt), it looks at
+that directory:
+
+| State of `~/workspaces/<container>` | What provisioning does |
+| --- | --- |
+| Missing, or empty | Clones normally |
+| A clone of the same `owner/repo` | Adopts it — no clone — and runs `git remote set-url origin` to match the new container's mode (`git@github.com:…` supervised, `https://github.com/…` autonomous) |
+| Anything else, non-empty | Stops with an error, having touched neither the directory nor the host |
+
+The adopted clone keeps its branches and its `.trees/` worktrees, so a
+container recreated to pick up a newer image comes back with its history
+intact. To genuinely start from a fresh clone, move or remove the directory
+yourself first — that deletion is yours to make, never the tool's:
+
+```bash
+mv ~/workspaces/<container> ~/workspaces/<container>.old   # review, then remove
+```
 
 ### Bash completion
 
