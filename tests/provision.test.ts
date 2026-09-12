@@ -100,11 +100,14 @@ test("forge metadata is recorded after the clone, not before", async () => {
   } finally { teardown(); }
 });
 
-test("git-lfs failure aborts provisioning", async () => {
+// Les filtres LFS sont la moitié qui compte (ils font marcher checkout et
+// commit des fichiers LFS), et elle est déterministe : config globale,
+// indépendante de l'état du dépôt. Elle reste fatale.
+test("failing to install the LFS filters aborts provisioning", async () => {
   setup();
   try {
-    const c = fakeContext({ rules: [IMAGE_OK, { match: "git lfs install", code: 1 }], answers: ["s"] });
-    await assert.rejects(() => provisionContainer(c, "agent-x", "o/r"), /git-lfs setup in agent-x failed/);
+    const c = fakeContext({ rules: [IMAGE_OK, { match: "lfs install --skip-repo", code: 1 }], answers: ["s"] });
+    await assert.rejects(() => provisionContainer(c, "agent-x", "o/r"), /git-lfs filters in agent-x failed/);
   } finally { teardown(); }
 });
 
@@ -118,13 +121,56 @@ test("a git-lfs failure reports git's own message, not just the step name", asyn
   try {
     const c = fakeContext({
       rules: [IMAGE_OK, {
-        match: "git lfs install",
+        match: "lfs install --skip-repo",
         code: 1,
-        stderr: "Hook already exists: pre-push\n",
+        stderr: "fatal: not in a git directory\n",
       }],
       answers: ["s"],
     });
-    await assert.rejects(() => provisionContainer(c, "agent-x", "o/r"), /Hook already exists: pre-push/);
+    await assert.rejects(() => provisionContainer(c, "agent-x", "o/r"), /fatal: not in a git directory/);
+  } finally { teardown(); }
+});
+
+// Le cas ccas-produits-numeriques/portail : workspace adopté dont les hooks
+// avaient été écrits par un git-lfs plus récent que celui de l'image, et dont
+// `core.hooksPath` pointe sur `.husky/_`. `git lfs install` refuse alors
+// d'écraser le pre-push et sort 2. Abandonner le provisioning là-dessus
+// laissait un container à moitié provisionné — exactement la pathologie que
+// 7edc5d0 venait de supprimer — pour une raison qui n'empêche rien du travail
+// de l'agent. Les hooks du dépôt sont donc best-effort.
+const HOOKS_CONFLICT = {
+  match: "cd /workspace && git lfs install",
+  code: 2,
+  stderr: "Hook already exists: pre-push\n\nTo resolve this, either:\n  1: run `git lfs update --manual`\n",
+};
+
+test("a repo that manages its own hooks does not abort provisioning", async () => {
+  setup();
+  try {
+    const c = fakeContext({ rules: [IMAGE_OK, HOOKS_CONFLICT], answers: ["s"] });
+    await provisionContainer(c, "agent-x", "o/r");
+    const errs = c.err_lines.join("\n");
+    assert.match(errs, /Hook already exists: pre-push/);
+    assert.match(errs, /filters are installed/i);
+    // Le provisioning doit être allé jusqu'au bout : sans les métadonnées, le
+    // container est irrécupérable pour checkNameCollision.
+    assert.ok(c.calls.some((call) => call.join(" ").includes("user.forge.repo")));
+  } finally { teardown(); }
+});
+
+// L'exclude ne dépend pas de LFS : il était chaîné derrière `git lfs install`
+// par un `&&`, donc un conflit de hooks emportait aussi `.trees/`, et
+// /workspace se retrouvait avec ses worktrees en bruit non suivi.
+test("the worktree exclude is written even when the hooks step fails", async () => {
+  setup();
+  try {
+    const c = fakeContext({ rules: [IMAGE_OK, HOOKS_CONFLICT], answers: ["s"] });
+    await provisionContainer(c, "agent-x", "o/r");
+    const flat = c.calls.map((call) => call.join(" "));
+    assert.ok(flat.some((l) => l.includes("info/exclude")), flat.join("\n"));
+    // …et il ne doit pas être accroché à `git lfs install` par un &&.
+    assert.ok(!flat.some((l) => l.includes("lfs install") && l.includes("info/exclude")),
+      "l'exclude doit être une étape à part");
   } finally { teardown(); }
 });
 

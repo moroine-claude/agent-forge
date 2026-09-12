@@ -144,14 +144,47 @@ export async function provisionContainer(ctx: Context, container: string, ownerR
     await mustSucceed("clone repository", execAsAgent(ctx, container, `git clone ${remote} /workspace`));
   }
 
-  ctx.out("Configuring git-lfs and ignoring worktrees...");
-  // Passe par mustSucceed comme toute autre étape mutante : ce site d'appel
+  // Les trois étapes ci-dessous étaient une seule commande chaînée par des
+  // `&&`. Elles n'ont ni la même cible ni la même fiabilité, et les souder
+  // faisait qu'un dépôt gérant ses propres hooks emportait tout le
+  // provisioning avec lui.
+  //
+  // Passent par mustSucceed comme toute autre étape mutante : ce site d'appel
   // avait été oublié par c89dbf4 et jetait le stderr, ne laissant à
   // l'opérateur qu'un « git-lfs setup failed » sans le motif du refus de git.
-  // C'est aussi la première commande du container à toucher /workspace : un
-  // montage illisible se manifeste ici, et son message doit être lisible.
-  await mustSucceed(`git-lfs setup in ${container}`, execAsAgent(ctx, container,
-    "cd /workspace && git lfs install && { grep -qxF '.trees/' .git/info/exclude || echo '.trees/' >> .git/info/exclude; }"));
+  ctx.out("Installing git-lfs filters...");
+  // `--skip-repo` : les filtres clean/smudge/process, dans la config globale,
+  // sans toucher aux hooks du dépôt. C'est la moitié qui compte — elle fait
+  // marcher checkout et commit des fichiers LFS — et elle est déterministe,
+  // donc fatale si elle échoue.
+  await mustSucceed(`git-lfs filters in ${container}`,
+    execAsAgent(ctx, container, "git lfs install --skip-repo"));
+
+  ctx.out("Ignoring worktrees in the main clone...");
+  // Indépendant de LFS, et c'est aussi la première commande du container à
+  // toucher /workspace : un montage illisible se manifeste ici, et son message
+  // doit être lisible.
+  await mustSucceed(`worktree exclude in ${container}`, execAsAgent(ctx, container,
+    "cd /workspace && { grep -qxF '.trees/' .git/info/exclude || echo '.trees/' >> .git/info/exclude; }"));
+
+  ctx.out("Installing git-lfs hooks in /workspace...");
+  // Best-effort, délibérément. `git lfs install` refuse d'écraser un pre-push
+  // qu'il ne reconnaît pas et sort 2 — ce qui arrive dès que le dépôt gère ses
+  // propres hooks (husky pose `core.hooksPath`, et git-lfs installe alors
+  // dedans) ou que les hooks présents ont été écrits par un autre git-lfs que
+  // celui de l'image. Depuis qu'un workspace survivant est adopté au lieu
+  // d'être recloné, les deux sont des entrées normales. Abandonner là-dessus
+  // laissait un container à moitié provisionné sans métadonnée forge —
+  // exactement la pathologie supprimée par l'adoption — pour une raison qui
+  // n'empêche rien du travail de l'agent.
+  const hooks = await execAsAgent(ctx, container, "cd /workspace && git lfs install");
+  if (hooks.code !== 0) {
+    ctx.err(`WARNING: installing git-lfs hooks in /workspace failed: ${hooks.stderr.trim() || `exit code ${hooks.code}`}`);
+    ctx.err("The LFS filters are installed, so LFS files still check out and commit normally; only the pre-push");
+    ctx.err("upload hook is missing. Expected when the project manages its own hooks (husky, lefthook) or when");
+    ctx.err("they were written by another git-lfs version. If a task touches LFS-tracked files, run");
+    ctx.err("'git lfs update --manual' in /workspace to merge the hooks by hand.");
+  }
 
   ctx.out("Stamping the image build this container came from...");
   await mustSucceed("stamp image commit",
