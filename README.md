@@ -137,6 +137,10 @@ created afterward.
 
 > **Note:** if you built `agent-base` before `gh` was part of the build, rebuild it — autonomous containers need the GitHub CLI.
 
+To build the layered `agent-base-super` image (base + nested LXD, for super
+mode), run `forge image build super` — but create and configure the
+`agent-super` profile first (see "Super mode" below).
+
 Create the agent LXD profile:
 
 ```bash
@@ -390,6 +394,32 @@ was last fetched to — which may be stale. If you want a task to start from a
 genuinely current `main`, fetch it yourself from a host shell in the
 workspace directory (`git -C /home/moroine/workspaces/<container> fetch
 origin`) before running `forge start`.
+
+### Super mode
+
+For self-hosting agent-forge itself: a super container is an **autonomous
+container plus a nested LXD**, so an agent can run `forge`, `lxc`, and the real
+integration tests (`FORGE_INTEGRATION=1 npm run test:integration`) against a
+live LXD fully isolated from the host's. Git discipline is identical to
+autonomous mode (push `agent/*`, open a PR, human merges).
+
+Setup (once), in order — the profile must exist before the image, because the
+build container itself needs its capabilities:
+
+```bash
+lxc profile create agent-super
+lxc profile edit agent-super   # paste config/lxd-agent-super-profile.yaml
+./scripts/forge image build super
+```
+
+`agent-super` is `agent` with three capabilities restored
+(`mac_admin`, `mac_override`, `sys_ptrace`) that the nested LXD's snapd needs;
+`security.privileged` stays `false` and the seccomp blocklist stays on. The
+nested LXD (`agent-base-super` image) cannot see the host's LXD — the agent's
+`lxc` only drives its own nested daemon.
+
+Pick super at `forge start` (the `[u]` choice). Everything else — PAT prompt,
+`gh auth`, HTTPS clone, PR flow — is the autonomous path.
 
 ### Docker/Compose access
 

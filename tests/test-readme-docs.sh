@@ -52,6 +52,9 @@ assert_contains 'Supervised mode'
 assert_contains 'git remote add'
 assert_contains 'rebase --reset-author'
 assert_not_contains 'fetch-only credential'
+assert_contains 'forge image build super'
+assert_contains 'agent-super'
+assert_contains 'nested LXD'
 
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"

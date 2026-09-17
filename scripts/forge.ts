@@ -21,7 +21,7 @@ Commands:
   stop [<owner/repo>] [--force]     Stop a container (blocked on dirty/unpushed WIP unless --force)
   delete [<owner/repo>] [--force]   Delete a container (blocked on dirty/unpushed WIP unless --force)
   list                              Show all containers: repo, mode, state, build
-  image build|update                Rebuild the agent-base image (only affects new containers)
+  image build|update [super]        Rebuild agent-base (or, with super, agent-base-super = base + nested LXD)
   completion bash                   Print a bash completion function (eval it in ~/.bashrc)
   completion repos                  List managed owner/repo, one per line (machine-readable)
   completion tasks <owner/repo>     List a repo's task names, one per line (machine-readable)
