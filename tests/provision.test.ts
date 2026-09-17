@@ -224,3 +224,38 @@ test("un répertoire workspace vide se clone normalement", async () => {
     assert.ok(c.calls.some((call) => call.join(" ").includes("git clone git@github.com:o/r.git")));
   } finally { teardown(); }
 });
+
+test("super mode launches agent-base-super under agent-super and inits nested LXD", async () => {
+  setup();
+  try {
+    const c = fakeContext({ rules: [IMAGE_OK], answers: ["u", "ghp_secret"] });
+    await provisionContainer(c, "agent-x", "o/r");
+    const flat = c.calls.map((call) => call.join(" "));
+    assert.ok(flat.some((l) => l.includes("lxc launch agent-base-super agent-x --profile agent-super")));
+    assert.ok(flat.some((l) => l.includes("lxd init --minimal")), "nested LXD initialised");
+    // super garde le flux autonome : credential + clone https
+    assert.ok(flat.some((l) => l.includes("gh auth login")));
+    assert.ok(flat.some((l) => l.includes("git clone https://github.com/o/r.git")));
+    assert.ok(c.calls.some((call) => call.join(" ").includes("user.forge.mode super")));
+  } finally { teardown(); }
+});
+
+test("super mode stamps the agent-base-super image commit", async () => {
+  setup();
+  try {
+    const c = fakeContext({
+      rules: [IMAGE_OK, { match: "image get-property agent-base-super", stdout: "SUPERSHA\n" }],
+      answers: ["u", "ghp_secret"],
+    });
+    await provisionContainer(c, "agent-x", "o/r");
+    assert.ok(c.calls.some((call) => call.join(" ").includes("user.forge.image_commit SUPERSHA")));
+  } finally { teardown(); }
+});
+
+test("super mode refuses when agent-base-super is missing", async () => {
+  setup();
+  try {
+    const c = fakeContext({ rules: [{ match: "image info agent-base-super", code: 1 }], answers: ["u"] });
+    await assert.rejects(() => provisionContainer(c, "agent-x", "o/r"), /image agent-base-super not found/);
+  } finally { teardown(); }
+});
