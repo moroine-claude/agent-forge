@@ -14,10 +14,14 @@ FORGE_REPO_DIR="${FORGE_REPO_DIR:-/home/moroine/agent-forge}"
 cmd_forge_image() {
   case "${1:-}" in
     build|update)
-      _forge_image_build
+      case "${2:-}" in
+        "") _forge_image_build ;;
+        super) _forge_image_build_super ;;
+        *) echo "Usage: forge image build|update [super]" >&2; return 1 ;;
+      esac
       ;;
     *)
-      echo "Usage: forge image build|update" >&2
+      echo "Usage: forge image build|update [super]" >&2
       return 1
       ;;
   esac
@@ -111,6 +115,49 @@ _forge_image_build() {
   lxc image set-property agent-base user.forge.commit "$build_commit"
 
   echo "Image agent-base published (build $build_commit)."
+}
+
+_forge_image_build_super() {
+  local setup="agent-super-setup"
+
+  # agent-base-super se construit EN COUCHE par-dessus agent-base : on le bâtit
+  # d'abord s'il manque, plutôt que d'échouer.
+  if ! lxc image info agent-base > /dev/null 2>&1; then
+    echo "agent-base image missing; building it first..."
+    _forge_image_build
+  fi
+
+  if lxc info "$setup" > /dev/null 2>&1; then
+    echo "Removing leftover $setup container from a previous failed build..."
+    lxc delete "$setup" --force
+  fi
+
+  echo "Launching scratch container $setup from agent-base (profile agent-super)..."
+  # Le profil agent-super garde mac_admin/mac_override/sys_ptrace : sans elles,
+  # snap-confine ne peut pas charger ses profils AppArmor et `snap install lxd`
+  # échoue (prouvé par le spike du 2026-09-17).
+  lxc launch agent-base "$setup" --profile agent-super
+
+  # snapd est présent dans agent-base mais ni démarré ni seedé : on le démarre
+  # et on attend le seed avant d'installer le snap LXD.
+  echo "Starting snapd and installing nested LXD..."
+  lxc exec "$setup" -- systemctl start snapd.socket snapd.service
+  lxc exec "$setup" -- snap wait system seed.loaded
+  lxc exec "$setup" -- snap install lxd
+  # aiuser pilote le socket LXD interne sans sudo.
+  lxc exec "$setup" -- usermod -aG lxd aiuser
+
+  lxc stop "$setup"
+  lxc image delete agent-base-super 2>/dev/null || true
+  lxc publish "$setup" --alias agent-base-super
+  lxc delete "$setup"
+
+  # Même tampon que agent-base : `forge list` compare le container à ce commit.
+  local build_commit
+  build_commit=$(git -C "$FORGE_REPO_DIR" rev-parse HEAD)
+  lxc image set-property agent-base-super user.forge.commit "$build_commit"
+
+  echo "Image agent-base-super published (build $build_commit)."
 }
 
 # Exécutable ET sourçable en sécurité : l'ancien scripts/forge source ce

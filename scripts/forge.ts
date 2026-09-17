@@ -39,7 +39,7 @@ function dispatch(ctx: Context, positionals: string[], force: boolean): Promise<
     case "stop": return cmdStop(ctx, a, force);
     case "delete": return cmdDelete(ctx, a, force);
     case "list": return cmdList(ctx);
-    case "image": return cmdImage(ctx, a);
+    case "image": return cmdImage(ctx, a, b);
     case "completion": return cmdCompletion(ctx, a, b);
     default: throw new ForgeError(`unknown command '${cmd}'\n${USAGE}`);
   }
