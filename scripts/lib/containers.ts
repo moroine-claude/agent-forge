@@ -82,6 +82,17 @@ export function currentImageCommit(ctx: Context): Promise<string> {
   return imageProperty(ctx, "agent-base", "user.forge.commit");
 }
 
+// L'image de base dépend du mode : super embarque un LXD imbriqué, livré par
+// une image dédiée agent-base-super (voir la spec super mode). Autonomous et
+// supervised partagent agent-base.
+export function baseImageFor(mode: string): string {
+  return mode === "super" ? "agent-base-super" : "agent-base";
+}
+
+export function latestImageCommitFor(ctx: Context, mode: string): Promise<string> {
+  return imageProperty(ctx, baseImageFor(mode), "user.forge.commit");
+}
+
 export function containerImageCommit(ctx: Context, name: string): Promise<string> {
   return configGet(ctx, name, "user.forge.image_commit");
 }
