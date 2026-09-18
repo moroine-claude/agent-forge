@@ -7,11 +7,15 @@ import { fileURLToPath } from "node:url";
 import type { Context } from "../context.ts";
 import { ForgeError } from "../context.ts";
 
-export async function cmdImage(ctx: Context, sub: string | undefined): Promise<number> {
+export async function cmdImage(ctx: Context, sub: string | undefined, target?: string): Promise<number> {
   if (sub !== "build" && sub !== "update") {
-    throw new ForgeError("Usage: forge image build|update");
+    throw new ForgeError("Usage: forge image build|update [super]");
+  }
+  if (target !== undefined && target !== "super") {
+    throw new ForgeError("Usage: forge image build|update [super]");
   }
   const script = join(dirname(fileURLToPath(import.meta.url)), "..", "forge-image.sh");
   // attach, pas exec : le build est long et sa sortie doit défiler en direct.
-  return ctx.attach(["bash", script, sub]);
+  const scriptArgs = target ? [sub, target] : [sub];
+  return ctx.attach(["bash", script, ...scriptArgs]);
 }

@@ -31,6 +31,11 @@ Tu es un agent Claude Code tournant dans un container LXD isolé sur un serveur 
 - Docker (rootless) et Docker Compose sont disponibles — utilise `docker compose up` / `docker run` pour les services dont dépend le repo (tests d'intégration, vérification de l'application en conditions réelles)
 - `docker run --privileged`, `--pid=host`/`--network=host`, et les bind-mounts hors `/workspace` sont bloqués — utilise des volumes nommés ou des chemins sous `/workspace` dans tes fichiers `docker-compose.yml`
 
+## Super mode (LXD imbriqué)
+- Si `/home/aiuser/.claude/forge-mode` contient `super`, ce container embarque un **LXD imbriqué** : tu peux lancer `forge`, `lxc`, et surtout les tests d'intégration réels (`FORGE_INTEGRATION=1 npm run test:integration`) contre un vrai LXD, isolé de l'hôte.
+- Le `lxc` de ce container ne pilote **que** le LXD imbriqué — il ne voit jamais le LXD de l'hôte.
+- La discipline git ne change pas : mode `super` = mode `autonomous` côté publication. Pousse `agent/<task>` et ouvre une PR (jamais de merge toi-même). Relis la section Git ci-dessus.
+
 ## Navigateur
 - Un serveur MCP Chrome DevTools (`chrome-devtools-mcp`) est disponible pour piloter Chrome en headless — navigue vers ton dev server local, prends des captures d'écran, lis les logs console/réseau pour vérifier tes changements UI avant de dire que c'est fini
 

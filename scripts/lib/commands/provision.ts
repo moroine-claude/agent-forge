@@ -7,7 +7,7 @@ import { join } from "node:path";
 import type { Context } from "../context.ts";
 import { ForgeError, mustSucceed } from "../context.ts";
 import { configSet, execAsAgent } from "../lxd.ts";
-import { currentImageCommit } from "../containers.ts";
+import { baseImageFor, latestImageCommitFor } from "../containers.ts";
 
 const home = () => process.env.FORGE_HOME ?? "/home/moroine";
 const repoDir = () => process.env.FORGE_REPO_DIR ?? join(home(), "agent-forge");
@@ -18,21 +18,25 @@ export async function provisionContainer(ctx: Context, container: string, ownerR
   if (!existsSync(credentials)) {
     throw new ForgeError(`${credentials} not found. Run 'claude auth login' on the host first.`);
   }
-  if ((await ctx.exec(["lxc", "image", "info", "agent-base"])).code !== 0) {
-    throw new ForgeError("image agent-base not found. Run 'forge image build' first.");
-  }
-
   const workspaceDir = join(workspaces(), container);
   const reuseWorkspace = await workspaceIsReusable(ctx, workspaceDir, ownerRepo);
 
   ctx.err("Mode for this container?");
   ctx.err("  [a] autonomous — bot pushes commits and opens PRs itself");
   ctx.err("  [s] supervised — no credential; you retrieve and publish the work yourself");
-  const choice = (await ctx.prompt.ask("Choice [a/s]")) ?? "a";
-  const mode = choice.toLowerCase().startsWith("s") ? "supervised" : "autonomous";
+  ctx.err("  [u] super — autonomous + nested LXD (self-host agent-forge: run forge/lxc/integration tests)");
+  const choice = (await ctx.prompt.ask("Choice [a/s/u]")) ?? "a";
+  const mode = modeFromChoice(choice);
+
+  const baseImage = baseImageFor(mode);
+  if ((await ctx.exec(["lxc", "image", "info", baseImage])).code !== 0) {
+    const target = mode === "super" ? "forge image build super" : "forge image build";
+    throw new ForgeError(`image ${baseImage} not found. Run '${target}' first.`);
+  }
+  const profile = mode === "super" ? "agent-super" : "agent";
 
   ctx.out(`Creating container ${container}...`);
-  await mustSucceed("lxc launch", ctx.exec(["lxc", "launch", "agent-base", container, "--profile", "agent"]));
+  await mustSucceed("lxc launch", ctx.exec(["lxc", "launch", baseImage, container, "--profile", profile]));
 
   // Supprime le compte ubuntu laissé par cloud-init, qui peut avoir un accès
   // administrateur sans mot de passe. Tolérant délibérément (comme le
@@ -42,6 +46,17 @@ export async function provisionContainer(ctx: Context, container: string, ownerR
   await ctx.exec(["lxc", "exec", container, "--", "deluser", "--remove-home", "ubuntu"]);
   await mustSucceed("remove cloud-init sudoers file",
     ctx.exec(["lxc", "exec", container, "--", "rm", "-f", "/etc/sudoers.d/90-cloud-init-users"]));
+
+  // Super mode : initialise le LXD imbriqué. snapd + le snap LXD sont déjà
+  // dans l'image (forge image build super) ; on attend le seed puis on
+  // initialise un pool `dir` + un bridge internes, une fois par container.
+  if (mode === "super") {
+    ctx.out("Initializing the nested LXD daemon...");
+    await mustSucceed("wait nested snapd seed",
+      ctx.exec(["lxc", "exec", container, "--", "snap", "wait", "system", "seed.loaded"]));
+    await mustSucceed("nested lxd init",
+      ctx.exec(["lxc", "exec", container, "--", "/snap/bin/lxd", "init", "--minimal"]));
+  }
 
   ctx.out("Mounting workspace...");
   mkdirSync(workspaceDir, { recursive: true });
@@ -105,7 +120,7 @@ export async function provisionContainer(ctx: Context, container: string, ownerR
     ? `git@github.com:${ownerRepo}.git`
     : `https://github.com/${ownerRepo}.git`;
 
-  if (mode === "autonomous") {
+  if (mode === "autonomous" || mode === "super") {
     ctx.err("");
     ctx.err("==============================================================");
     ctx.err("  GitHub token required (BOT account, fine-grained PAT)");
@@ -155,7 +170,7 @@ export async function provisionContainer(ctx: Context, container: string, ownerR
 
   ctx.out("Stamping the image build this container came from...");
   await mustSucceed("stamp image commit",
-    configSet(ctx, container, "user.forge.image_commit", await currentImageCommit(ctx)));
+    configSet(ctx, container, "user.forge.image_commit", await latestImageCommitFor(ctx, mode)));
 
   ctx.out("Recording forge metadata...");
   await mustSucceed("record forge repo", configSet(ctx, container, "user.forge.repo", ownerRepo));
@@ -192,6 +207,14 @@ async function workspaceIsReusable(ctx: Context, workspaceDir: string, ownerRepo
       "move it aside (or remove it) and run the command again.");
   }
   return true;
+}
+
+// a/s/u -> autonomous/supervised/super. Défaut autonomous.
+function modeFromChoice(choice: string): string {
+  const c = choice.trim().toLowerCase();
+  if (c.startsWith("s")) return "supervised";
+  if (c.startsWith("u")) return "super";
+  return "autonomous";
 }
 
 // Réduit une URL de remote à son `owner/repo`, quelle que soit sa forme :

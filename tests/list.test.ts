@@ -102,3 +102,25 @@ test("a container with no repo metadata falls back to its name", async () => {
   await cmdList(c);
   assert.match(c.out_lines[1], /^agent-orphan\s+-\s+Stopped\s+unknown$/);
 });
+
+test("forge list compares a super container against agent-base-super", async () => {
+  const LIST_SUPER = JSON.stringify([{ name: "agent-o-r", status: "Running" }]);
+  const c = fakeContext({
+    rules: [
+      { match: "lxc list", stdout: LIST_SUPER },
+      // agent-base-super avant agent-base : "agent-base" est sous-chaîne de
+      // "agent-base-super", donc la règle la plus spécifique doit gagner.
+      { match: "image get-property agent-base-super", stdout: "SUPERSHA" },
+      { match: "image get-property agent-base", stdout: "BASESHA" },
+      { match: "agent-o-r user.forge.repo", stdout: "o/r" },
+      { match: "agent-o-r user.forge.mode", stdout: "super" },
+      { match: "agent-o-r user.forge.image_commit", stdout: "SUPERSHA" },
+      { match: "sessions", stdout: "" },
+    ],
+  });
+  await cmdList(c);
+  const row = c.out_lines.find((l) => l.includes("o/r"));
+  assert.ok(row, "super container row present");
+  assert.ok(row.includes("super"), "MODE column shows super");
+  assert.ok(row.includes("ok"), "BUILD is ok when stamp matches agent-base-super");
+});
