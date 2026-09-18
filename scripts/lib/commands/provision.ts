@@ -92,9 +92,15 @@ export async function provisionContainer(ctx: Context, container: string, ownerR
   await mustSucceed("update Claude Code",
     ctx.exec(["lxc", "exec", container, "--", "npm", "install", "-g", "@anthropic-ai/claude-code@latest"]));
 
+  // URL HTTPS explicite, pas la forme raccourcie owner/repo : claude resout
+  // cette derniere en git@github.com, or le container n'a aucune confiance SSH
+  // envers GitHub — et c'est deliberé. En mode autonome il passe par HTTPS avec
+  // un PAT restreint, en supervised il n'a aucune credential. Ajouter la cle
+  // hote de github aux known_hosts du container elargirait cette surface pour
+  // un depot public que HTTPS sert tres bien.
   ctx.out("Installing Claude plugins...");
   await mustSucceed("install Claude plugins", execAsAgent(ctx, container,
-    "claude plugin marketplace add anthropics/claude-plugins-official && claude plugin install superpowers@claude-plugins-official"));
+    "claude plugin marketplace add https://github.com/anthropics/claude-plugins-official.git && claude plugin install superpowers@claude-plugins-official"));
 
   ctx.out("Installing Claude global instructions...");
   await mustSucceed("push CLAUDE.md", ctx.exec(["lxc", "file", "push", join(repoDir(), "templates", "CLAUDE.md"),

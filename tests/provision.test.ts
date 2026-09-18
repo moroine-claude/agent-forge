@@ -77,6 +77,25 @@ test("autonomous mode refuses an empty token", async () => {
   } finally { teardown(); }
 });
 
+test("the plugin marketplace is added over HTTPS, never over SSH", async () => {
+  setup();
+  try {
+    const c = fakeContext({ rules: [IMAGE_OK], answers: ["s"] });
+    await provisionContainer(c, "agent-x", "o/r");
+    const add = c.calls.map((call) => call.join(" ")).find((l) => l.includes("plugin marketplace add"));
+    assert.ok(add, "no marketplace add issued");
+    // Le container n'a aucune confiance SSH envers GitHub, et c'est voulu :
+    // en autonome il passe par HTTPS + PAT, en supervised il n'a aucune
+    // credential. La forme raccourcie owner/repo est resolue en SSH par
+    // claude, d'ou un echec de verification de cle hote.
+    assert.ok(add.includes("https://github.com/anthropics/claude-plugins-official"),
+      `marketplace add must use an explicit HTTPS URL, got: ${add}`);
+    assert.ok(!add.includes("git@github.com"), `marketplace add must not use SSH, got: ${add}`);
+    assert.ok(!/add anthropics\/claude-plugins-official/.test(add),
+      `the owner/repo shorthand resolves to SSH, got: ${add}`);
+  } finally { teardown(); }
+});
+
 test("supervised mode never asks for a token and clones on the host", async () => {
   setup();
   try {
