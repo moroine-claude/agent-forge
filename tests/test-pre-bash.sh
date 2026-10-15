@@ -132,9 +132,16 @@ expect_allow 'git status'
 expect_allow 'git commit -m "feat: x"'
 expect_allow 'ls -la /workspace'
 
-# --- git merge : seule forme autorisée = "git merge [--no-edit] origin/main" ---
+# --- git merge : seules formes autorisées = "git merge [--no-edit] origin/main|origin/next" ---
 expect_allow 'git merge origin/main'
 expect_allow 'git merge --no-edit origin/main'
+# origin/next : branche longue de la v2, base des tâches agent/* qui en partent
+expect_allow 'git merge origin/next'
+expect_allow 'git merge --no-edit origin/next'
+expect_block 'git merge next'
+expect_block 'git merge origin/next-feature'
+expect_block 'git merge origin/nextx'
+expect_block 'git merge origin/next && git push origin next'
 expect_block 'git merge main'
 expect_block 'git merge feature-x'
 expect_block 'git merge origin/agent-forge'

@@ -44,7 +44,14 @@ assert_contains '/home/aiuser/.claude/forge-mode'
 assert_contains '`autonomous`'
 assert_contains '`supervised`'
 assert_contains 'git push -u origin agent/<task-name>'
-assert_contains 'gh pr create --base main'
+# La base de la PR n'est plus figée sur main : c'est la branche dont la tâche
+# est partie (main par défaut, next pour la v2 d'agent-forge).
+assert_contains 'gh pr create --base <base>'
+assert_not_contains 'gh pr create --base main'
+assert_contains 'git merge origin/<base>'
+assert_contains 'origin/next'
+assert_contains 'git log -p <base>..agent/<task-name>'
+assert_contains 'git rebase --reset-author <base>'
 assert_contains "aucune** credential GitHub"
 assert_contains 'arrête-toi là'
 assert_line_before '/home/aiuser/.claude/forge-mode' '`autonomous`'
