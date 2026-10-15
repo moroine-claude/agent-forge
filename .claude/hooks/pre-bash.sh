@@ -100,18 +100,20 @@ if echo "$COMMAND" | grep -qE 'git[[:space:]]+(checkout|switch)[[:space:]]+(main
   block "Passage sur main/master non autorisé. Rester sur la branche agent/*."
 fi
 
-# Politique git merge : default-deny, sauf "git merge origin/main" (avec ou
-# sans --no-edit), qui sert uniquement à rafraîchir une branche agent/* avec
-# les derniers changements de main avant de pousser. Jamais l'inverse
-# (merger une branche/PR vers main — ça reste "Ouvrir une PR à la place"),
+# Politique git merge : default-deny, sauf "git merge origin/main" et
+# "git merge origin/next" (avec ou sans --no-edit), qui servent uniquement à
+# rafraîchir une branche agent/* avec les derniers changements de sa base
+# avant de pousser — main par défaut, next pour les tâches de la v2
+# d'agent-forge, développée sur cette branche longue. Jamais l'inverse
+# (merger une branche/PR vers sa base — ça reste "Ouvrir une PR à la place"),
 # jamais une autre branche/commit arbitraire. Même découpage par segment que
 # la politique git push, pour qu'un merge interdit ne se cache pas derrière
 # un merge autorisé dans une commande chaînée.
 if echo "$COMMAND" | grep -qE 'git[[:space:]]+merge([[:space:]]|$)'; then
   while IFS= read -r SEGMENT; do
     if printf '%s\n' "$SEGMENT" | grep -qE 'git[[:space:]]+merge([[:space:]]|$)'; then
-      if ! printf '%s\n' "$SEGMENT" | grep -qE '^[[:space:]]*git[[:space:]]+merge([[:space:]]+--no-edit)?[[:space:]]+origin/main[[:space:]]*$'; then
-        block "git merge autorisé uniquement sous la forme 'git merge origin/main' (rafraîchir depuis main, jamais l'inverse)."
+      if ! printf '%s\n' "$SEGMENT" | grep -qE '^[[:space:]]*git[[:space:]]+merge([[:space:]]+--no-edit)?[[:space:]]+origin/(main|next)[[:space:]]*$'; then
+        block "git merge autorisé uniquement sous la forme 'git merge origin/main' ou 'git merge origin/next' (rafraîchir depuis sa base, jamais l'inverse)."
       fi
     fi
   done <<< "$(printf '%s\n' "$COMMAND" | tr ';&|' '\n\n\n')"

@@ -22,7 +22,7 @@ Tu travailles sur `agent-forge`, un repo d'infrastructure pour déployer des age
 - Commits signés automatiquement
 - Messages conventionnels : `feat:`, `fix:`, `chore:`, `docs:`
 - Ne jamais toucher à `main` directement : jamais de `git checkout main`, jamais de push vers `main`, jamais de merger une PR toi-même
-- La seule forme de `git merge` autorisée est `git merge origin/main` (ou `--no-edit`), pour rafraîchir ta branche `agent/*` avec les derniers changements de `main` avant de pousser — jamais l'inverse (merger ta branche vers `main`), jamais une autre branche/commit. C'est ce que `pre-bash.sh` autorise explicitement (tout le reste de `git merge` reste bloqué).
+- Les seules formes de `git merge` autorisées sont `git merge origin/main` et `git merge origin/next` (ou `--no-edit`), pour rafraîchir ta branche `agent/*` avec les derniers changements de sa base avant de pousser — `main` par défaut, `next` pour une tâche de la v2 partie de cette branche longue. Jamais l'inverse (merger ta branche vers sa base), jamais une autre branche/commit. C'est ce que `pre-bash.sh` autorise explicitement (tout le reste de `git merge` reste bloqué).
 - En mode autonome (permission-mode `auto` — que ce soit cette session ou un container provisionné par `forge start`) : push autorisé uniquement vers `agent/<branche>` (`git push -u origin agent/<branche>`), puis ouverture d'une PR avec `gh pr create --base main`. Jamais de merge automatique de la PR — elle est revue et mergée par un humain. C'est le même flux que le "Autonomous PR flow" documenté dans `README.md`.
 - En dehors du mode autonome (session interactive), demander confirmation avant tout push, même vers `agent/<branche>`
 

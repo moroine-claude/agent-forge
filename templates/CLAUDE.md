@@ -14,15 +14,16 @@ Tu es un agent Claude Code tournant dans un container LXD isolé sur un serveur 
 - Tu peux faire des commits — ils sont signés automatiquement (SSH signing configuré)
 - Tu dois rester sur ta branche `agent/<task-name>` en permanence — jamais de `git checkout main`, jamais de changement de branche
 - Les commits doivent avoir des messages clairs et conventionnels (`feat:`, `fix:`, `chore:`, etc.)
+- **Ta branche de base** (`<base>` ci-dessous) est la branche dont ta tâche est partie : `main` par défaut. Si le `CLAUDE.md` du projet en désigne une autre (par exemple `next`, la branche longue de la v2 d'agent-forge), c'est celle-là.
 - **Avant toute action de publication** (push, PR), lis `/home/aiuser/.claude/forge-mode` pour connaître ton mode :
-  - **`autonomous`** : Pousse ta branche avec `git push -u origin agent/<task-name>` — c'est la seule destination autorisée. **Ouvre la PR toi-même** avec `gh pr create --base main` dès que le travail est poussé — sans attendre qu'on te le demande. C'est une étape obligatoire du flux autonome, pas une action optionnelle. Ne merge **jamais** ta branche dans `main`, et ne merge jamais une PR toi-même (`gh pr merge` bloqué). Si ta PR a un conflit, tu peux faire `git merge origin/main` (seule forme autorisée) pour la rafraîchir avant de pousser — jamais l'inverse. Réponds aux retours de review en poussant de nouveaux commits sur la même branche (jamais de force push, jamais de rebase).
-  - **`supervised`** : Tu n'as **aucune** credential GitHub — ni pour push, ni pour `gh`. Ne tente **jamais** `git push` ni aucune commande `gh` (les deux sont bloqués de toute façon, mais ne les essaie même pas). Commite localement, signé, sur ta branche, et **arrête-toi là**. Quand la tâche est terminée, dis-le clairement dans ta dernière réponse et rappelle à l'humain comment récupérer le travail — remplace `<container>` par le nom de ce container (`hostname`) et `<task-name>` par le nom de ta branche courante :
+  - **`autonomous`** : Pousse ta branche avec `git push -u origin agent/<task-name>` — c'est la seule destination autorisée. **Ouvre la PR toi-même** avec `gh pr create --base <base>` dès que le travail est poussé — sans attendre qu'on te le demande. C'est une étape obligatoire du flux autonome, pas une action optionnelle. Ne merge **jamais** ta branche dans `<base>`, et ne merge jamais une PR toi-même (`gh pr merge` bloqué). Si ta PR a un conflit, tu peux faire `git merge origin/<base>` (seules formes autorisées : `git merge origin/main` et `git merge origin/next`) pour la rafraîchir avant de pousser — jamais l'inverse. Réponds aux retours de review en poussant de nouveaux commits sur la même branche (jamais de force push, jamais de rebase).
+  - **`supervised`** : Tu n'as **aucune** credential GitHub — ni pour push, ni pour `gh`. Ne tente **jamais** `git push` ni aucune commande `gh` (les deux sont bloqués de toute façon, mais ne les essaie même pas). Commite localement, signé, sur ta branche, et **arrête-toi là**. Quand la tâche est terminée, dis-le clairement dans ta dernière réponse et rappelle à l'humain comment récupérer le travail — remplace `<container>` par le nom de ce container (`hostname`), `<task-name>` par le nom de ta branche courante et `<base>` par ta branche de base :
     ```bash
     git remote add <container> ssh://moroine@<host>:2222/home/moroine/workspaces/<container>
     git fetch <container> agent/<task-name>:agent/<task-name>
-    git log -p main..agent/<task-name>          # review avant toute autre action
+    git log -p <base>..agent/<task-name>          # review avant toute autre action
     git checkout agent/<task-name>
-    git rebase --reset-author main
+    git rebase --reset-author <base>
     git push origin agent/<task-name>            # identité de l'humain, signé YubiKey
     ```
     `<host>` est l'adresse du serveur agent-forge — l'opérateur la connaît déjà, ne l'invente pas. La suite (review, rebase, push) est le rôle de l'humain, pas le tien.
