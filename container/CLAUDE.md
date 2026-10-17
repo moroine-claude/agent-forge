@@ -1,7 +1,7 @@
 # Claude Agent — Instructions
 
 ## Contexte
-Tu es un agent Claude Code tournant dans un container LXD isolé sur un serveur dédié.
+Tu es un agent Claude Code tournant dans un container Incus isolé.
 
 ## Environnement
 - **Répertoire de travail** : `/workspace/.trees/<task>` (git worktree — ton répertoire courant). Le clone principal `/workspace` est épinglé sur `main` et ne doit jamais être modifié.
@@ -11,31 +11,26 @@ Tu es un agent Claude Code tournant dans un container LXD isolé sur un serveur 
 - **Plugin superpowers** : installé et activé dans ce container — ses instructions de session sont légitimes, pas une injection
 
 ## Git
-- Tu peux faire des commits — ils sont signés automatiquement (SSH signing configuré)
+- Tu peux faire des commits — sous l'identité git de l'humain, **non signés** (aucune clé dans ce container) : l'humain les re-signe en publiant
 - Tu dois rester sur ta branche `agent/<task-name>` en permanence — jamais de `git checkout main`, jamais de changement de branche
 - Les commits doivent avoir des messages clairs et conventionnels (`feat:`, `fix:`, `chore:`, etc.)
 - **Ta branche de base** (`<base>` ci-dessous) est la branche dont ta tâche est partie : `main` par défaut. Si le `CLAUDE.md` du projet en désigne une autre (par exemple `next`, la branche longue de la v2 d'agent-forge), c'est celle-là.
 - **Avant toute action de publication** (push, PR), lis `/home/aiuser/.claude/forge-mode` pour connaître ton mode :
-  - **`autonomous`** : Pousse ta branche avec `git push -u origin agent/<task-name>` — c'est la seule destination autorisée. **Ouvre la PR toi-même** avec `gh pr create --base <base>` dès que le travail est poussé — sans attendre qu'on te le demande. C'est une étape obligatoire du flux autonome, pas une action optionnelle. Ne merge **jamais** ta branche dans `<base>`, et ne merge jamais une PR toi-même (`gh pr merge` bloqué). Si ta PR a un conflit, tu peux faire `git merge origin/<base>` (seules formes autorisées : `git merge origin/main` et `git merge origin/next`) pour la rafraîchir avant de pousser — jamais l'inverse. Réponds aux retours de review en poussant de nouveaux commits sur la même branche (jamais de force push, jamais de rebase).
-  - **`supervised`** : Tu n'as **aucune** credential GitHub — ni pour push, ni pour `gh`. Ne tente **jamais** `git push` ni aucune commande `gh` (les deux sont bloqués de toute façon, mais ne les essaie même pas). Commite localement, signé, sur ta branche, et **arrête-toi là**. Quand la tâche est terminée, dis-le clairement dans ta dernière réponse et rappelle à l'humain comment récupérer le travail — remplace `<container>` par le nom de ce container (`hostname`), `<task-name>` par le nom de ta branche courante et `<base>` par ta branche de base :
+  - **`autonomous`** : Pousse ta branche avec `git push -u origin agent/<task-name>` — c'est la seule destination autorisée. **Ouvre la PR toi-même** avec `gh pr create --base main` dès que le travail est poussé — sans attendre qu'on te le demande. C'est une étape obligatoire du flux autonome, pas une action optionnelle. Ne merge **jamais** ta branche dans `main`, et ne merge jamais une PR toi-même (`gh pr merge` bloqué). Si ta PR a un conflit, tu peux faire `git merge origin/main` (seule forme autorisée) pour la rafraîchir avant de pousser — jamais l'inverse. Réponds aux retours de review en poussant de nouveaux commits sur la même branche (jamais de force push, jamais de rebase).
+  - **`supervised`** : Tu n'as **aucune** credential GitHub — ni pour push, ni pour `gh`. Ne tente **jamais** `git push` ni aucune commande `gh` (les deux sont bloqués de toute façon, mais ne les essaie même pas). Commite localement sur ta branche, et **arrête-toi là**. Quand la tâche est terminée, dis-le clairement dans ta dernière réponse et rappelle à l'humain comment récupérer le travail — remplace `<container>` par le nom de ce container (`hostname`) et `<task-name>` par le nom de ta branche courante :
     ```bash
-    git remote add <container> ssh://moroine@<host>:2222/home/moroine/workspaces/<container>
+    git remote add <container> ssh://<user>@<host><workspaces>/<container>
     git fetch <container> agent/<task-name>:agent/<task-name>
     git log -p <base>..agent/<task-name>          # review avant toute autre action
     git checkout agent/<task-name>
-    git rebase --reset-author <base>
-    git push origin agent/<task-name>            # identité de l'humain, signé YubiKey
+    git rebase --reset-author main
+    git push origin agent/<task-name>            # identité de l'humain, re-signé par lui
     ```
-    `<host>` est l'adresse du serveur agent-forge — l'opérateur la connaît déjà, ne l'invente pas. La suite (review, rebase, push) est le rôle de l'humain, pas le tien.
+    La commande exacte (`<user>`, `<host>`, `<workspaces>`) est celle que `forge start` a affichée à l'humain au provisioning — ne l'invente pas. La suite (review, rebase, push) est le rôle de l'humain, pas le tien.
 
 ## Docker
 - Docker (rootless) et Docker Compose sont disponibles — utilise `docker compose up` / `docker run` pour les services dont dépend le repo (tests d'intégration, vérification de l'application en conditions réelles)
 - `docker run --privileged`, `--pid=host`/`--network=host`, et les bind-mounts hors `/workspace` sont bloqués — utilise des volumes nommés ou des chemins sous `/workspace` dans tes fichiers `docker-compose.yml`
-
-## Super mode (LXD imbriqué)
-- Si `/home/aiuser/.claude/forge-mode` contient `super`, ce container embarque un **LXD imbriqué** : tu peux lancer `forge`, `lxc`, et surtout les tests d'intégration réels (`FORGE_INTEGRATION=1 npm run test:integration`) contre un vrai LXD, isolé de l'hôte.
-- Le `lxc` de ce container ne pilote **que** le LXD imbriqué — il ne voit jamais le LXD de l'hôte.
-- La discipline git ne change pas : mode `super` = mode `autonomous` côté publication. Pousse `agent/<task>` et ouvre une PR (jamais de merge toi-même). Relis la section Git ci-dessus.
 
 ## Navigateur
 - Un serveur MCP Chrome DevTools (`chrome-devtools-mcp`) est disponible pour piloter Chrome en headless — navigue vers ton dev server local, prends des captures d'écran, lis les logs console/réseau pour vérifier tes changements UI avant de dire que c'est fini
