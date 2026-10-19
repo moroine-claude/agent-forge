@@ -433,7 +433,7 @@ _forge_provision_container() {
   lxc file push /home/<user>/.claude/.credentials.json "$container"/home/aiuser/.claude/.credentials.json --uid 1001 --gid 1001 --mode 600
 
   echo "Pre-accepting Claude Code onboarding..."
-  lxc file push /home/moroine/agent-forge/config/claude-onboarding-state.json "$container"/home/aiuser/.claude.json --uid 1001 --gid 1001 --mode 600
+  lxc file push /home/<user>/agent-forge/config/claude-onboarding-state.json "$container"/home/aiuser/.claude.json --uid 1001 --gid 1001 --mode 600
 
   echo "Updating Claude Code to latest..."
   lxc exec "$container" -- npm install -g @anthropic-ai/claude-code@latest
@@ -443,10 +443,10 @@ _forge_provision_container() {
 
   echo "Installing Claude security hooks..."
   lxc exec "$container" -- mkdir -p /home/aiuser/.claude/hooks
-  lxc file push /home/moroine/agent-forge/.claude/hooks/pre-bash.sh \
+  lxc file push /home/<user>/agent-forge/.claude/hooks/pre-bash.sh \
     "$container"/home/aiuser/.claude/hooks/pre-bash.sh \
     --uid 0 --gid 0 --mode 755
-  lxc file push /home/moroine/agent-forge/config/claude-container-settings.json \
+  lxc file push /home/<user>/agent-forge/config/claude-container-settings.json \
     "$container"/home/aiuser/.claude/settings.json \
     --uid 0 --gid 0 --mode 644
 
@@ -1142,7 +1142,7 @@ _forge_image_build() {
   lxc exec "$setup" -- bash -c "mkdir -p /workspace /home/aiuser/.ssh /home/aiuser/.claude /home/aiuser/.local/bin && chown aiuser:aiuser /workspace /home/aiuser/.ssh /home/aiuser/.claude /home/aiuser/.local/bin && chmod 750 /workspace && chmod 700 /home/aiuser/.ssh"
 
   echo "Installing next-task..."
-  lxc file push /home/moroine/agent-forge/config/next-task.sh \
+  lxc file push /home/<user>/agent-forge/config/next-task.sh \
     "$setup"/home/aiuser/.local/bin/next-task \
     --uid 1001 --gid 1001 --mode 755
 
@@ -1683,7 +1683,7 @@ EOF
 **Files:** none (verification only)
 
 **Interfaces:**
-- Consumes: everything from Tasks 1-9, deployed on the server (pull the branch into `/home/moroine/agent-forge`), plus an existing `agent-base` image and a host already authenticated with `claude auth login`.
+- Consumes: everything from Tasks 1-9, deployed on the server (pull the branch into `/home/<user>/agent-forge`), plus an existing `agent-base` image and a host already authenticated with `claude auth login`.
 
 This task cannot run from inside an agent container. It is the spec's verification checklist, to run after the PR from Tasks 1-9 is reviewed and merged:
 

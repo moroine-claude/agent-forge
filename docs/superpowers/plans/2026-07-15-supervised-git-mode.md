@@ -780,7 +780,7 @@ _forge_provision_container() {
   lxc file push /home/<user>/.claude/.credentials.json "$container"/home/aiuser/.claude/.credentials.json --uid 1001 --gid 1001 --mode 600
 
   echo "Pre-accepting Claude Code onboarding..."
-  lxc file push /home/moroine/agent-forge/config/claude-onboarding-state.json "$container"/home/aiuser/.claude.json --uid 1001 --gid 1001 --mode 600
+  lxc file push /home/<user>/agent-forge/config/claude-onboarding-state.json "$container"/home/aiuser/.claude.json --uid 1001 --gid 1001 --mode 600
 
   echo "Updating Claude Code to latest..."
   lxc exec "$container" -- npm install -g @anthropic-ai/claude-code@latest
@@ -789,16 +789,16 @@ _forge_provision_container() {
   lxc exec "$container" -- su - aiuser -c "claude plugin marketplace add anthropics/claude-plugins-official && claude plugin install superpowers@claude-plugins-official"
 
   echo "Installing Claude global instructions..."
-  lxc file push /home/moroine/agent-forge/templates/CLAUDE.md \
+  lxc file push /home/<user>/agent-forge/templates/CLAUDE.md \
     "$container"/home/aiuser/CLAUDE.md \
     --uid 1001 --gid 1001 --mode 644
 
   echo "Installing Claude security hooks..."
   lxc exec "$container" -- mkdir -p /home/aiuser/.claude/hooks
-  lxc file push /home/moroine/agent-forge/.claude/hooks/pre-bash.sh \
+  lxc file push /home/<user>/agent-forge/.claude/hooks/pre-bash.sh \
     "$container"/home/aiuser/.claude/hooks/pre-bash.sh \
     --uid 0 --gid 0 --mode 755
-  lxc file push /home/moroine/agent-forge/config/claude-container-settings.json \
+  lxc file push /home/<user>/agent-forge/config/claude-container-settings.json \
     "$container"/home/aiuser/.claude/settings.json \
     --uid 0 --gid 0 --mode 644
 

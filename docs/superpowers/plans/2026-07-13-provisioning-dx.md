@@ -280,7 +280,7 @@ lxc exec "$CONTAINER" -- mkdir -p /home/aiuser/.claude
 lxc file push /home/<user>/.claude/.credentials.json "$CONTAINER"/home/aiuser/.claude/.credentials.json --uid 1001 --gid 1001 --mode 600
 
 echo "Pre-accepting Claude Code onboarding..."
-lxc file push /home/moroine/agent-forge/config/claude-onboarding-state.json "$CONTAINER"/home/aiuser/.claude.json --uid 1001 --gid 1001 --mode 600
+lxc file push /home/<user>/agent-forge/config/claude-onboarding-state.json "$CONTAINER"/home/aiuser/.claude.json --uid 1001 --gid 1001 --mode 600
 ```
 
 This must land *before* the existing "Installing Claude plugins..." step (`scripts/new-agent-container.sh:68-69` today) so that step runs authenticated.
@@ -635,7 +635,7 @@ EOF
 **Files:** none (verification only)
 
 **Interfaces:**
-- Consumes: everything from Tasks 1-5, deployed on the server (pull the branch into `/home/moroine/agent-forge`), plus an existing `agent-base` image and a host already authenticated with `claude auth login`.
+- Consumes: everything from Tasks 1-5, deployed on the server (pull the branch into `/home/<user>/agent-forge`), plus an existing `agent-base` image and a host already authenticated with `claude auth login`.
 
 This task cannot run from inside an agent container. It is the spec's verification checklist, to run after the PR from Tasks 1-5 is reviewed and merged:
 

@@ -3216,7 +3216,7 @@ set -e
 # Ce script reste en bash (voir la spec, Non-goals) mais n'est plus sourcé par
 # un dispatcher bash : il s'exécute seul, appelé par commands/image.ts.
 # FORGE_REPO_DIR était sa seule dépendance à forge-common.sh.
-FORGE_REPO_DIR="${FORGE_REPO_DIR:-/home/moroine/agent-forge}"
+FORGE_REPO_DIR="${FORGE_REPO_DIR:-/home/<user>/agent-forge}"
 ```
 
 And at the very bottom of the file:

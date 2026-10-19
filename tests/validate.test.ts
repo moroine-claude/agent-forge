@@ -33,7 +33,7 @@ test("the error message names the offending value", () => {
 
 test("sanitizeContainerName lowercases and collapses non-charset runs", () => {
   assert.equal(sanitizeContainerName("alice/project"), "agent-alice-project");
-  assert.equal(sanitizeContainerName("Alice/Project"), "agent-alice-project");
+  assert.equal(sanitizeContainerName("Alice/My-Project"), "agent-alice-my-project");
   assert.equal(sanitizeContainerName("my.org/my.repo"), "agent-my-org-my-repo");
 });
 

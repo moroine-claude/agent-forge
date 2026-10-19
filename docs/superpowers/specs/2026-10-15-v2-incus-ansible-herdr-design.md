@@ -11,10 +11,10 @@ Ubuntu 24.04 host. It works, but it cannot be shared:
 
 - Host setup is a sequence of manual README steps (sshd, UFW, fail2ban, LXD
   snap, an LXD profile pasted by hand, keys).
-- It is hard-wired to one person: `/home/<user>` (`provision.ts`,
-  `forge-image.sh`), `AllowUsers <user>` (`config/sshd_config`), `uid 1000`
-  in the profile's `raw.idmap`, the bot's email, the v1 server / `192.0.2.10` in
-  the README.
+- It is hard-wired to one person: the maintainer's home path (`provision.ts`,
+  `forge-image.sh`), their login in `AllowUsers` (v1's `sshd_config`), `uid
+  1000` in the profile's `raw.idmap`, the bot's email, the v1 server's name and
+  LAN address in the README.
 - Session management is home-grown (tmux inside the container, attached by
   `forge`).
 - It only runs on a dedicated server.
@@ -112,7 +112,7 @@ container/   files pushed into containers: CLAUDE.md, pre-bash.sh, settings.json
 docs/
 ```
 
-`config/sshd_config` and `config/jail.local` become Ansible role templates.
+v1's `sshd_config` and `jail.local` become Ansible role templates.
 `scripts/lib/forge-image.sh` is replaced by `ansible/image.yml`. The repo's own
 `.claude/settings.json` points its hook at `container/pre-bash.sh`. The README
 becomes an installation guide per mode: remote, local Linux, local macOS.

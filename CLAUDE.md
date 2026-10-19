@@ -102,7 +102,7 @@ profil `agent-super`) n'existe que dans la v1, sur `main`.
 
 ### Sécurité
 - Ne jamais hardcoder de credentials, clés, tokens
-- Aucune valeur personnelle (nom, login, chemin, UID, identité, hôte, adresse) dans le repo — code, tests, docs — ni dans l'image : tout ce qui est personnel est injecté au `forge start` ou vit dans la config de l'utilisateur
+- Aucune valeur personnelle (nom, login, chemin, UID, identité, hôte, adresse) dans le repo — code, tests, docs — ni dans l'image : tout ce qui est personnel est injecté au `forge start` ou vit dans la config de l'utilisateur. Seule exception : l'adresse GitHub du projet et ses références de PR (`<owner>/agent-forge#N`), qui désignent le projet lui-même
 - Aucune clé SSH ni credential GitHub dans les containers ou dans l'image : l'hôte clone avec l'agent SSH de l'utilisateur
 - UID mapping : le `raw.idmap` du profil `agent-forge` est calculé par `forge setup` depuis l'UID/GID de l'utilisateur forge (`uid <uid> 1001`, `gid <gid> 1001`). Un fichier créé par `aiuser` dans `/workspace` appartient à l'utilisateur forge sur l'hôte. Aucun UID en dur ; `forge` refuse de tourner en root
 - Toute nouvelle règle nftables (rôle `firewall`, table `inet forge_host`) ou d'ACL Incus doit être justifiée en commentaire ; jamais de `flush ruleset`, qui effacerait les tables d'Incus

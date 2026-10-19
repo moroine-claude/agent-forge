@@ -183,7 +183,7 @@ agent-owner-repo   autonomous   Running   2 tasks
 - Equal → no flag.
 - Different → `⚠ older than latest build — recreate (delete + start)`.
 
-`FORGE_REPO_DIR` (default `/home/moroine/agent-forge`, already used by
+`FORGE_REPO_DIR` (default `/home/<user>/agent-forge`, already used by
 `forge-start.sh`) is needed only at **build** time, to read the commit to stamp.
 
 Edge cases: a container with no `user.forge.image_commit` (legacy /

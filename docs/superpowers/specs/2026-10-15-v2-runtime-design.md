@@ -90,7 +90,7 @@ The move happens first, as one mechanical commit with no behaviour change:
   `config/lxd-agent-profile.yaml`, `config/lxd-agent-super-profile.yaml`, and
   their tests (`test-forge-image*.sh`, `test-lxd-agent*-profile.sh`,
   `tests/integration/super-lxd.test.ts`).
-- `config/sshd_config` and `config/jail.local` belong to sub-project 1, which
+- v1's `sshd_config` and `jail.local` belong to sub-project 1, which
   turns them into role templates.
 - `ansible/image.yml` and `ansible/roles/forge_image/` are this sub-project's.
   Sub-project 1 owns `ansible/site.yml`, `ansible/requirements.yml`, its six
@@ -471,7 +471,7 @@ sub-project 4 moves the fetch to the host.
 | v1 | v2 |
 |---|---|
 | `FORGE_HOME` defaults to `/home/<user>` | `os.homedir()` (env override kept for tests) |
-| `FORGE_REPO_DIR` defaults to `/home/moroine/agent-forge` | Derived from the CLI's location (`cli/..`) (env override kept for tests) |
+| `FORGE_REPO_DIR` defaults to `/home/<user>/agent-forge` | Derived from the CLI's location (`cli/..`) (env override kept for tests) |
 | `raw.idmap` `uid 1000 1001` in a static profile | Computed by `forge setup` |
 | Bot email `<bot>@users.noreply.github.com` | Host user's identity |
 | `ssh://<user>@<host>:2222` in the retrieval hint | `os.userInfo().username`, no port |
