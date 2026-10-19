@@ -4,11 +4,11 @@ import { fakeContext } from "./lib/fake-context.ts";
 import { resolveRepo, resolveTask } from "../cli/lib/commands/resolve.ts";
 
 const LIST = JSON.stringify([
-  { name: "agent-moroine-agent-forge", status: "Running" },
+  { name: "agent-alice-project", status: "Running" },
   { name: "agent-acme-widgets", status: "Running" },
 ]);
 const RULES = [
-  { match: "agent-moroine-agent-forge user.forge.repo", stdout: "moroine/agent-forge" },
+  { match: "agent-alice-project user.forge.repo", stdout: "alice/project" },
   { match: "agent-acme-widgets user.forge.repo", stdout: "acme/widgets" },
   { match: "incus --project agent-forge list", stdout: LIST },
   { match: "git worktree list", stdout: "worktree /workspace\nworktree /workspace/.trees/cli\nworktree /workspace/.trees/docs\n" },
@@ -37,7 +37,7 @@ test("resolveRepo explains when no container exists at all", async () => {
 
 test("a missing task is picked from the existing worktrees", async () => {
   const c = fakeContext({ rules: RULES, answers: [1] });
-  assert.equal(await resolveTask(c, "agent-moroine-agent-forge", undefined, "usage"), "cli");
+  assert.equal(await resolveTask(c, "agent-alice-project", undefined, "usage"), "cli");
 });
 
 test("resolveTask refuses on a stopped container with a clear reason", async () => {

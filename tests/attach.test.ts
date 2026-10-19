@@ -6,7 +6,7 @@ import { cmdAttach } from "../cli/lib/commands/attach.ts";
 const RUNNING = JSON.stringify([{ name: "agent-x", status: "Running" }]);
 const STOPPED = JSON.stringify([{ name: "agent-x", status: "Stopped" }]);
 const BASE = [
-  { match: "agent-x user.forge.repo", stdout: "moroine/x" },
+  { match: "agent-x user.forge.repo", stdout: "alice/x" },
   { match: "incus --project agent-forge list", stdout: RUNNING },
 ];
 
@@ -47,13 +47,13 @@ test("a second agent for the task is refused, naming the stored repo", async () 
   ] });
   await assert.rejects(cmdAttach(c, "agent-x", "cli"), (e: Error) => e.message ===
     "the agent for cli already runs in agent-x (in a herdr tab, or another terminal): " +
-    "attach to it there, or stop it first with 'forge stop moroine/x'.");
+    "attach to it there, or stop it first with 'forge stop alice/x'.");
   assert.equal(c.attachCalls.length, 0);
 });
 
 test("a stopped container is started first", async () => {
   const c = fakeContext({
-    rules: [{ match: "agent-x user.forge.repo", stdout: "moroine/x" }, { match: "list", stdout: STOPPED }, { match: "test -e", code: 0 }],
+    rules: [{ match: "agent-x user.forge.repo", stdout: "alice/x" }, { match: "list", stdout: STOPPED }, { match: "test -e", code: 0 }],
   });
   await cmdAttach(c, "agent-x", "cli");
   const lines = c.calls.map((call) => call.join(" "));

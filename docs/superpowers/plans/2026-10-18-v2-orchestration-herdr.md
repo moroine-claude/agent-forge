@@ -110,7 +110,7 @@
 ### Git and delivery
 
 - **Commits:**
-  - unsigned, `git commit --no-gpg-sign`. Moroine authorised it in this session on 2026-10-18 ("Je valide, commits non signés OK"), for this sub-project's stack;
+  - unsigned, `git commit --no-gpg-sign`. The maintainer authorised it in this session on 2026-10-18 ("Je valide, commits non signés OK"), for this sub-project's stack;
   - conventional messages, in French like the recent history (`feat:`, `fix:`, `test:`, `docs:`, `chore:`);
   - each ends with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 - **Branches**, each created from the previous one:
@@ -120,7 +120,7 @@
   - `agent/v2-herdr` (Tasks 9–12).
 - **Pull requests:**
   - one per branch, each `--base` the previous branch, titled `… (pile v2 · sp4, N/4)`: 1 spec and plan, 2 host-side git, 3 attach, 4 herdr;
-  - the body says the commits are unsigned and that Moroine re-signs;
+  - the body says the commits are unsigned and that the maintainer re-signs;
   - never merged by the agent, never towards `main` or `next` directly.
 - **Commands on this Mac.** The repo's hook (`container/pre-bash.sh`) runs on this Mac too:
   - files are written with the editor tools, never with shell heredocs;
@@ -965,7 +965,7 @@ Then create the next branch from the current one.
 ### Task 13: Final verification and hand-over
 
 **Files:**
-- Modify: `/Users/moroinebentefrit/Library/Application Support/Claude/side-session-notes/local_8e87246d-c94b-493c-ba97-2d5766e74803/readme-needs-sp4.md` (outside the repo)
+- Modify: `/Users/<user>/Library/Application Support/Claude/side-session-notes/local_8e87246d-c94b-493c-ba97-2d5766e74803/readme-needs-sp4.md` (outside the repo)
 
 - [ ] **Step 1: Run the whole suite on the top branch**
 

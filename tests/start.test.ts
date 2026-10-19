@@ -12,13 +12,13 @@ import { cmdStart } from "../cli/lib/commands/start.ts";
 
 process.env.XDG_CONFIG_HOME = mkdtempSync(join(tmpdir(), "forge-start-xdg-"));
 
-const RUNNING = JSON.stringify([{ name: "agent-moroine-agent-forge", status: "Running" }]);
+const RUNNING = JSON.stringify([{ name: "agent-alice-project", status: "Running" }]);
 
 function rules(extra: ExecRule[] = []): ExecRule[] {
   return [
     ...extra,
     { match: "config device list", stdout: "origin\nworkspace\n" },
-    { match: "agent-moroine-agent-forge user.forge.repo", stdout: "moroine/agent-forge" },
+    { match: "agent-alice-project user.forge.repo", stdout: "alice/project" },
     { match: "user.forge.mode", stdout: "autonomous" },
     { match: "incus --project agent-forge list", stdout: RUNNING },
     { match: "incus --project agent-forge info", code: 0 },
@@ -32,7 +32,7 @@ const added = (c: ReturnType<typeof fakeContext>) =>
 
 test("an existing worktree is attached, not refused", async () => {
   const c = fakeContext({ rules: rules([{ match: "test -e /workspace/.trees/cli", code: 0 }]) });
-  assert.equal(await cmdStart(c, "moroine/agent-forge", "cli"), 0);
+  assert.equal(await cmdStart(c, "alice/project", "cli"), 0);
   assert.equal(added(c), "", "aucun worktree ne doit être créé");
   assert.ok(c.attachCalls.length > 0);
 });
@@ -40,18 +40,18 @@ test("an existing worktree is attached, not refused", async () => {
 test("an existing worktree whose agent already runs is refused outside herdr", async () => {
   const c = fakeContext({ rules: rules([
     { match: "test -e /workspace/.trees/cli", code: 0 },
-    { match: "ps -u 1001 -o args=", stdout: "claude --remote-control agent-moroine-agent-forge-cli\n" },
+    { match: "ps -u 1001 -o args=", stdout: "claude --remote-control agent-alice-project-cli\n" },
   ]) });
-  await assert.rejects(() => cmdStart(c, "moroine/agent-forge", "cli"), /the agent for cli already runs in agent-moroine-agent-forge/);
+  await assert.rejects(() => cmdStart(c, "alice/project", "cli"), /the agent for cli already runs in agent-alice-project/);
   assert.equal(c.attachCalls.length, 0);
 });
 
 test("the task's agent is attached in the foreground outside herdr", async () => {
   const c = fakeContext({ rules: rules([{ match: ".jsonl", code: 1 }]) });
-  await cmdStart(c, "moroine/agent-forge", "fresh");
+  await cmdStart(c, "alice/project", "fresh");
   const attach = c.attachCalls.at(-1)?.argv ?? [];
   assert.deepEqual(attach.slice(-3), [
-    "bash", "-lc", "exec claude --permission-mode auto --remote-control agent-moroine-agent-forge-fresh",
+    "bash", "-lc", "exec claude --permission-mode auto --remote-control agent-alice-project-fresh",
   ]);
   assert.ok(c.err_lines.includes("outside herdr: the agent stops when this terminal closes"), c.err_lines.join(" | "));
 });
@@ -61,7 +61,7 @@ test("a new task whose transcript folder would collide with an existing task is 
     rules: rules([{ match: "git worktree list", stdout: "worktree /workspace\nworktree /workspace/.trees/fix.v2\n" }]),
   });
   await assert.rejects(
-    () => cmdStart(c, "moroine/agent-forge", "fix-v2"),
+    () => cmdStart(c, "alice/project", "fix-v2"),
     /share Claude's transcript folder with 'fix.v2'/,
   );
   assert.ok(!c.calls.some((call) => call.join(" ").includes("worktree add")));
@@ -74,7 +74,7 @@ test("the transcript-folder guard stays quiet for an existing worktree", async (
     { match: "git worktree list", stdout: "worktree /workspace\nworktree /workspace/.trees/fix.v2\nworktree /workspace/.trees/fix-v2\n" },
     { match: "test -e /workspace/.trees/fix-v2", code: 0 },
   ]) });
-  assert.equal(await cmdStart(c, "moroine/agent-forge", "fix-v2"), 0);
+  assert.equal(await cmdStart(c, "alice/project", "fix-v2"), 0);
   assert.equal(added(c), "");
   assert.equal(c.attachCalls.length, 1);
 });
@@ -82,32 +82,32 @@ test("the transcript-folder guard stays quiet for an existing worktree", async (
 test("start names the stored repo, not the case typed", async () => {
   const c = fakeContext({ rules: rules([
     { match: "test -e /workspace/.trees/cli", code: 0 },
-    { match: "ps -u 1001 -o args=", stdout: "claude --remote-control agent-moroine-agent-forge-cli\n" },
+    { match: "ps -u 1001 -o args=", stdout: "claude --remote-control agent-alice-project-cli\n" },
   ]) });
-  await assert.rejects(() => cmdStart(c, "Moroine/Agent-Forge", "cli"), /'forge stop moroine\/agent-forge'\./);
+  await assert.rejects(() => cmdStart(c, "Alice/Project", "cli"), /'forge stop alice\/project'\./);
 });
 
 test("an existing local branch is resumed in a new worktree", async () => {
   const c = fakeContext({ rules: rules([{ match: "show-ref --verify --quiet refs/heads/agent/docs", code: 0 }]) });
-  await cmdStart(c, "moroine/agent-forge", "docs");
+  await cmdStart(c, "alice/project", "docs");
   assert.ok(added(c).includes("worktree add .trees/docs agent/docs"), added(c));
 });
 
 test("a branch that exists only on origin is picked up", async () => {
   const c = fakeContext({ rules: rules([{ match: "show-ref --verify --quiet refs/remotes/origin/agent/api", code: 0 }]) });
-  await cmdStart(c, "moroine/agent-forge", "api");
+  await cmdStart(c, "alice/project", "api");
   assert.ok(added(c).includes("worktree add .trees/api -b agent/api origin/agent/api"), added(c));
 });
 
 test("with nothing existing, the branch starts from origin/main", async () => {
   const c = fakeContext({ rules: rules() });
-  await cmdStart(c, "moroine/agent-forge", "fresh");
+  await cmdStart(c, "alice/project", "fresh");
   assert.ok(added(c).includes("worktree add .trees/fresh -b agent/fresh origin/main"), added(c));
 });
 
 test("main is refreshed before the worktree is created", async () => {
   const c = fakeContext({ rules: rules() });
-  await cmdStart(c, "moroine/agent-forge", "fresh");
+  await cmdStart(c, "alice/project", "fresh");
   const flat = c.calls.map((x) => x.join(" "));
   const fetch = flat.findIndex((l) => l.includes("fetch origin"));
   const add = flat.findIndex((l) => l.includes("worktree add"));
@@ -116,9 +116,9 @@ test("main is refreshed before the worktree is created", async () => {
 
 test("the host mirror is refreshed, then the container fetches from it", async () => {
   const c = fakeContext({ rules: rules() });
-  await cmdStart(c, "moroine/agent-forge", "fresh");
+  await cmdStart(c, "alice/project", "fresh");
   const flat = c.calls.map((x) => x.join(" "));
-  const host = flat.findIndex((l) => l.startsWith("git --git-dir=") && l.includes("agent-moroine-agent-forge.git") && l.includes("fetch --prune"));
+  const host = flat.findIndex((l) => l.startsWith("git --git-dir=") && l.includes("agent-alice-project.git") && l.includes("fetch --prune"));
   const inside = flat.findIndex((l) => l.includes("git -C /workspace fetch origin"));
   const add = flat.findIndex((l) => l.includes("worktree add"));
   assert.ok(host >= 0 && host < inside && inside < add, flat.join("\n"));
@@ -142,7 +142,7 @@ test("a failing mirror refresh only warns, and the container still fetches", asy
   const c = fakeContext({
     rules: rules([{ match: "fetch --prune", code: 128, stderr: "Error connecting to agent" }]),
   });
-  await cmdStart(c, "moroine/agent-forge", "fresh");
+  await cmdStart(c, "alice/project", "fresh");
   const errs = c.err_lines.join("\n");
   assert.match(errs, /WARNING: refreshing the mirror from GitHub failed: Error connecting to agent/);
   assert.match(errs, /ForwardAgent/);
@@ -153,17 +153,17 @@ test("a failing mirror refresh only warns, and the container still fetches", asy
 test("a container without the origin device is refused, with the way out", async () => {
   const c = fakeContext({ rules: rules([{ match: "config device list", stdout: "workspace\n" }]) });
   await assert.rejects(
-    () => cmdStart(c, "moroine/agent-forge", "fresh"),
+    () => cmdStart(c, "alice/project", "fresh"),
     (e: Error) => /no 'origin' device/.test(e.message)
-      && /forge delete moroine\/agent-forge/.test(e.message) && /aside/.test(e.message),
+      && /forge delete alice\/project/.test(e.message) && /aside/.test(e.message),
   );
   assert.equal(added(c), "");
 });
 
 test("no host git touches the workspace", async () => {
   const c = fakeContext({ rules: rules() });
-  await cmdStart(c, "moroine/agent-forge", "fresh");
-  assertNoHostGitIn(c.calls, join(workspacesDir(), "agent-moroine-agent-forge"));
+  await cmdStart(c, "alice/project", "fresh");
+  assertNoHostGitIn(c.calls, join(workspacesDir(), "agent-alice-project"));
 });
 
 test("right after a fresh mirror clone, start does not fetch GitHub again", async () => {
@@ -241,7 +241,7 @@ test("the task menu mixes worktrees, local branches and origin branches", async 
     ]),
     answers: [4],
   });
-  await cmdStart(c, "moroine/agent-forge", undefined);
+  await cmdStart(c, "alice/project", undefined);
   const menu = c.err_lines.join("\n");
   assert.ok(menu.includes("new task"), menu);
   assert.ok(menu.includes("cli (existing worktree — attach)"), menu);
@@ -253,7 +253,7 @@ test("the task menu mixes worktrees, local branches and origin branches", async 
 
 test("other branch… branches agent/<task> from the named ref", async () => {
   const c = fakeContext({ rules: rules(), answers: [3, "origin/feature/thing", "thing"] });
-  await cmdStart(c, "moroine/agent-forge", undefined);
+  await cmdStart(c, "alice/project", undefined);
   assert.ok(added(c).includes("worktree add .trees/thing -b agent/thing origin/feature/thing"), added(c));
 });
 
@@ -262,17 +262,17 @@ test("other branch… refuses to overwrite an existing agent branch", async () =
     rules: rules([{ match: "show-ref --verify --quiet refs/heads/agent/thing", code: 0 }]),
     answers: [3, "origin/feature/thing", "thing"],
   });
-  await assert.rejects(() => cmdStart(c, "moroine/agent-forge", undefined), /already exists/);
+  await assert.rejects(() => cmdStart(c, "alice/project", undefined), /already exists/);
 });
 
 test("with no TTY, a missing task is a usage error rather than a hang", async () => {
   const c = fakeContext({ rules: rules(), tty: false });
-  await assert.rejects(() => cmdStart(c, "moroine/agent-forge", undefined), /Usage: forge start/);
+  await assert.rejects(() => cmdStart(c, "alice/project", undefined), /Usage: forge start/);
 });
 
 test("an invalid ref from the menu is rejected before reaching su -c", async () => {
   const c = fakeContext({ rules: rules(), answers: [3, "--upload-pack=evil", "x"] });
-  await assert.rejects(() => cmdStart(c, "moroine/agent-forge", undefined), /must not start with/);
+  await assert.rejects(() => cmdStart(c, "alice/project", undefined), /must not start with/);
 });
 
 // Fail-fast : sans mustSucceed, `git worktree add` pouvait échouer et start
@@ -282,7 +282,7 @@ test("a failing worktree add aborts instead of attaching to a missing directory"
     rules: rules([{ match: "worktree add", code: 1, stderr: "fatal: invalid reference: origin/main\n" }]),
   });
   await assert.rejects(
-    () => cmdStart(c, "moroine/agent-forge", "fresh"),
+    () => cmdStart(c, "alice/project", "fresh"),
     /git worktree add failed: fatal: invalid reference: origin\/main/,
   );
   assert.equal(c.attachCalls.length, 0, "attaché malgré l'échec de la création");
@@ -294,12 +294,12 @@ test("start fails when the container refuses to start", async () => {
     rules: [
       { match: "incus --project agent-forge start", code: 1, stderr: "Error: Failed to start device\n" },
       ...rules().map((r) => (r.match === "incus --project agent-forge list"
-        ? { ...r, stdout: JSON.stringify([{ name: "agent-moroine-agent-forge", status: "Stopped" }]) }
+        ? { ...r, stdout: JSON.stringify([{ name: "agent-alice-project", status: "Stopped" }]) }
         : r)),
     ],
   });
   await assert.rejects(
-    () => cmdStart(c, "moroine/agent-forge", "fresh"),
+    () => cmdStart(c, "alice/project", "fresh"),
     /incus start failed: Error: Failed to start device/,
   );
   assert.ok(!c.calls.some((call) => call.join(" ").includes("worktree add")));
@@ -312,7 +312,7 @@ test("a failing fetch is surfaced on stderr instead of passing silently", async 
   const c = fakeContext({
     rules: rules([{ match: "-C /workspace fetch origin", code: 1, stderr: "fatal: unable to access 'https://github.com/': timed out\n" }]),
   });
-  await cmdStart(c, "moroine/agent-forge", "fresh");
+  await cmdStart(c, "alice/project", "fresh");
   const errs = c.err_lines.join("\n");
   assert.match(errs, /WARNING: refreshing main failed: fatal: unable to access/);
   assert.match(errs, /stale origin\/main/);
@@ -329,7 +329,7 @@ test("the main ref is advanced without merging into the checked-out branch", asy
   const c = fakeContext({
     rules: rules([{ match: "symbolic-ref --quiet HEAD", stdout: "refs/heads/agent/agent-forge\n" }]),
   });
-  await cmdStart(c, "moroine/agent-forge", "fresh");
+  await cmdStart(c, "alice/project", "fresh");
   const flat = c.calls.map((x) => x.join(" "));
   assert.ok(flat.some((l) => l.includes("fetch origin main:main")), flat.join("\n"));
   assert.ok(!flat.some((l) => l.includes("merge")), "aucun merge ne doit toucher la branche sortie");
@@ -339,7 +339,7 @@ test("when /workspace is on main, the checkout itself is fast-forwarded", async 
   const c = fakeContext({
     rules: rules([{ match: "symbolic-ref --quiet HEAD", stdout: "refs/heads/main\n" }]),
   });
-  await cmdStart(c, "moroine/agent-forge", "fresh");
+  await cmdStart(c, "alice/project", "fresh");
   const flat = c.calls.map((x) => x.join(" "));
   // Ici le ref ET le working tree doivent bouger ensemble : un
   // `fetch origin main:main` refuserait d'écrire dans une branche sortie.
@@ -357,7 +357,7 @@ test("a failed main update does not claim origin/main is stale", async () => {
       { match: "fetch origin main:main", code: 1, stderr: " ! [rejected] main -> main (non-fast-forward)\n" },
     ]),
   });
-  await cmdStart(c, "moroine/agent-forge", "fresh");
+  await cmdStart(c, "alice/project", "fresh");
   const errs = c.err_lines.join("\n");
   assert.match(errs, /non-fast-forward/);
   assert.doesNotMatch(errs, /stale origin\/main/);

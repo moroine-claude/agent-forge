@@ -153,10 +153,10 @@ test("agent running, no tab or a bare tab: refuses a second agent", async () => 
 
 test("a repo typed in another case reuses the existing workspace", async () => {
   const c = fakeContext({ rules: [
-    agent(false), ws(["w1", "Moroine/Agent-Forge"]), tabs(), panes(),
+    agent(false), ws(["w1", "Alice/Project"]), tabs(), panes(),
     { match: "/h/herdr tab create", stdout: j({ tab: { tab_id: "w1:t2" }, root_pane: { pane_id: "w1:p2" } }) },
   ] });
-  await openTask(c, h, { ...T, ownerRepo: "moroine/agent-forge" });
+  await openTask(c, h, { ...T, ownerRepo: "alice/project" });
   assert.ok(!has(c, "workspace create"));
   assert.ok(has(c, "tab create --workspace w1"));
 });

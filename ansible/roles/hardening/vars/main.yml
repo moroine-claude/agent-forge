@@ -8,7 +8,7 @@ hardening_sysctl_overwrite:
   # then not create a user namespace (Chrome's sandbox, rootless Docker).
   kernel.unprivileged_userns_clone: 1
   # Same breakage, from Ubuntu's AppArmor mediation (validation spike,
-  # point 6). v1 on omen runs with 0 too: the LXD snap sets it host-wide.
+  # point 6). The v1 server runs with 0 too: the LXD snap sets it host-wide.
   kernel.apparmor_restrict_unprivileged_userns: 0
   # Ubuntu's default. devsec's 2, with sys_ptrace dropped from containers,
   # leaves no strace or gdb at all inside containers.

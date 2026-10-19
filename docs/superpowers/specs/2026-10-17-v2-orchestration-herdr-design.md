@@ -17,9 +17,9 @@ write.
 
 ### What the user wants
 
-From the brainstorming of 2026-10-17 (Moroine):
+From the brainstorming of 2026-10-17 (the maintainer):
 
-- **The pain today (v1 on omen):** "SSH in by hand, list the sessions, no
+- **The pain today (the v1 server):** "SSH in by hand, list the sessions, no
   simple and transparent interface to the infrastructure. I want fluidity."
 - **The target:** "Open my herdr the way I open VSCode." One command, and
   every agent is there as a tab, with its state visible.
@@ -83,7 +83,7 @@ These would make the work a failure even if every test passed:
 | Where herdr runs | herdr client on the dev machine, herdr server on the Incus host; containers stay sealed (no sshd, no herdr inside) | Framing, decided |
 | Starting a task | Server-side `[[keys.command]]`, `type = "popup"`, on `prefix+f`; fires only with `--remote-keybindings server` | Framing + spike 8; key: `prefix+n` is `next_tab` |
 | Opening the agent tab | `tab create`, then `pane run <pane> "exec env HERDR_AGENT=claude <forge> attach <container> <task>"`; the hint sits on the wrapper process, never on the tab | Spike 1 and 2, decided |
-| Layout | One herdr workspace per repo, labelled `owner/repo`; one tab per task, labelled `<task>` | Moroine, 2026-10-17 |
+| Layout | One herdr workspace per repo, labelled `owner/repo`; one tab per task, labelled `<task>` | The maintainer, 2026-10-17 |
 | Pane working directory | `$HOME`, never the workspace | This spec (a git-aware shell prompt would run host git there) |
 | Persistence | tmux leaves the container; herdr keeps panes alive across detach; `claude --continue` recovers a conversation | Framing + spike 4, decided |
 | Resume after a herdr restart | Key `prefix+shift+f` runs `forge resume --all` in a popup | This spec, from the research below |
@@ -749,7 +749,7 @@ is approved:
     local remote. No SSH is needed.
   - The conversation probe and `--continue` on the image's Claude Code. This
     needs the user's credentials, so it is a manual step on the test VM.
-- **Manual acceptance on a real VM** (Moroine, after v2):
+- **Manual acceptance on a real VM** (the maintainer, after v2):
   - attach;
   - `prefix+f` on a new repo and on an existing task;
   - parallel tasks;
@@ -804,7 +804,7 @@ documents are not edited.
 Stacked pull requests, each based on the previous branch and titled
 "(pile v2 · sp4, N/n)", N counted within sub-project 4.
 
-- **Commits are unsigned** (`--no-gpg-sign`). Moroine authorised it for this
+- **Commits are unsigned** (`--no-gpg-sign`). The maintainer authorised it for this
   stack: "Tu peux gérer le tout sans Yubikey ? Et faire des stack PRs ? Je
   resignerais demain". Each PR body says so, and he re-signs.
 - Nothing is merged into `next`.

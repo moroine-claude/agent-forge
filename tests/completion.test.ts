@@ -10,14 +10,14 @@ import { shellQuote } from "../cli/lib/shell.ts";
 import { cmdCompletion, completionScript, FORGE_BIN } from "../cli/lib/commands/completion.ts";
 
 const LIST = JSON.stringify([
-  { name: "agent-moroine-agent-forge", status: "Running" },
+  { name: "agent-alice-project", status: "Running" },
   { name: "agent-acme-widgets", status: "Stopped" },
 ]);
 
 function ctx() {
   return fakeContext({
     rules: [
-      { match: "agent-moroine-agent-forge user.forge.repo", stdout: "moroine/agent-forge" },
+      { match: "agent-alice-project user.forge.repo", stdout: "alice/project" },
       { match: "agent-acme-widgets user.forge.repo", stdout: "acme/widgets" },
       { match: "incus --project agent-forge list", stdout: LIST },
       { match: "git worktree list", stdout: "worktree /workspace\nworktree /workspace/.trees/cli\nworktree /workspace/.trees/docs\n" },
@@ -28,7 +28,7 @@ function ctx() {
 test("repos prints one owner/repo per line", async () => {
   const c = ctx();
   await cmdCompletion(c, "repos", undefined);
-  assert.deepEqual(c.out_lines, ["moroine/agent-forge", "acme/widgets"]);
+  assert.deepEqual(c.out_lines, ["alice/project", "acme/widgets"]);
 });
 
 test("repos never shells into a container, so TAB stays fast", async () => {
@@ -39,7 +39,7 @@ test("repos never shells into a container, so TAB stays fast", async () => {
 
 test("tasks prints one task per line for a running container", async () => {
   const c = ctx();
-  await cmdCompletion(c, "tasks", "moroine/agent-forge");
+  await cmdCompletion(c, "tasks", "alice/project");
   assert.deepEqual(c.out_lines, ["cli", "docs"]);
 });
 

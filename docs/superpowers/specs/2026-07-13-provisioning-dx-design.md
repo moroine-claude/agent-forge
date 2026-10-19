@@ -57,11 +57,11 @@ silently). This is strictly additional defense-in-depth on top of
 Replace:
 
 ```bash
-sudo mkdir -p "/home/moroine/workspaces/$PROJECT"
-sudo chown 1001001:1001001 "/home/moroine/workspaces/$PROJECT"
-sudo chmod 750 "/home/moroine/workspaces/$PROJECT"
+sudo mkdir -p "/home/<user>/workspaces/$PROJECT"
+sudo chown 1001001:1001001 "/home/<user>/workspaces/$PROJECT"
+sudo chmod 750 "/home/<user>/workspaces/$PROJECT"
 lxc config device add "$CONTAINER" workspace disk \
-  source="/home/moroine/workspaces/$PROJECT" \
+  source="/home/<user>/workspaces/$PROJECT" \
   path=/workspace
 ```
 
@@ -69,9 +69,9 @@ with a plain `mkdir -p` (no `sudo`, owned by the invoking user) and
 `shift=true` on the device:
 
 ```bash
-mkdir -p "/home/moroine/workspaces/$PROJECT"
+mkdir -p "/home/<user>/workspaces/$PROJECT"
 lxc config device add "$CONTAINER" workspace disk \
-  source="/home/moroine/workspaces/$PROJECT" \
+  source="/home/<user>/workspaces/$PROJECT" \
   path=/workspace \
   shift=true
 ```
@@ -178,7 +178,7 @@ state even if `claude plugin install` itself rewrote `settings.json`.
 Run on the server against a scratch project:
 
 1. `new-agent-container.sh` completes with no `sudo` prompt.
-2. `/home/moroine/workspaces/<project>` is owned by `moroine` on the host;
+2. `/home/<user>/workspaces/<project>` is owned by `<user>` on the host;
    readable/writable without `sudo`.
 3. `start-agent.sh` launches `claude` with no onboarding questions (theme,
    trust dialog) and no Remote Control pairing prompt.

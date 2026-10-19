@@ -14,7 +14,7 @@ import { AGENT } from "../cli/lib/agent.ts";
 
 const P = ["incus", "--project", "agent-forge"];
 const LIST_JSON = JSON.stringify([
-  { name: "agent-moroine-agent-forge", status: "Running" },
+  { name: "agent-alice-project", status: "Running" },
   { name: "agent-acme-widgets", status: "Stopped" },
 ]);
 
@@ -47,7 +47,7 @@ test("FORGE_INCUS_PROJECT points every call at another project", async () => {
 test("listInstances parses incus list -f json without jq", async () => {
   const ctx = fakeContext({ rules: [{ match: "incus --project agent-forge list", stdout: LIST_JSON }] });
   assert.deepEqual(await listInstances(ctx), [
-    { name: "agent-moroine-agent-forge", status: "Running", config: {}, devices: {}, expandedDevices: {}, ipv4: [] },
+    { name: "agent-alice-project", status: "Running", config: {}, devices: {}, expandedDevices: {}, ipv4: [] },
     { name: "agent-acme-widgets", status: "Stopped", config: {}, devices: {}, expandedDevices: {}, ipv4: [] },
   ]);
   assert.ok(!ctx.calls.some((c) => c.includes("jq")), "must not shell out to jq");
@@ -73,8 +73,8 @@ test("instanceExists maps incus info's exit code to a boolean", async () => {
 });
 
 test("configGet trims and returns empty for an unset key", async () => {
-  const set = fakeContext({ rules: [{ match: "config get", stdout: "moroine/agent-forge\n" }] });
-  assert.equal(await configGet(set, "c", "user.forge.repo"), "moroine/agent-forge");
+  const set = fakeContext({ rules: [{ match: "config get", stdout: "alice/project\n" }] });
+  assert.equal(await configGet(set, "c", "user.forge.repo"), "alice/project");
   const unset = fakeContext({ rules: [{ match: "config get", stdout: "\n" }] });
   assert.equal(await configGet(unset, "c", "user.forge.repo"), "");
 });

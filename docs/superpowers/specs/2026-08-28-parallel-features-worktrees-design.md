@@ -47,7 +47,7 @@ The current model is **one container per repo, one working tree, one branch**:
 The host bind-mount is unchanged:
 
 ```
-host: /home/moroine/workspaces/agent-<owner>-<repo>  ──(lxc disk device)──▶  container: /workspace
+host: /home/<user>/workspaces/agent-<owner>-<repo>  ──(lxc disk device)──▶  container: /workspace
 ```
 
 Inside it:

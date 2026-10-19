@@ -2713,7 +2713,7 @@ import { ForgeError } from "../context.ts";
 import { configSet, execAsAgent } from "../lxd.ts";
 import { currentImageCommit } from "../containers.ts";
 
-const home = () => process.env.FORGE_HOME ?? "/home/moroine";
+const home = () => process.env.FORGE_HOME ?? "/home/<user>";
 const repoDir = () => process.env.FORGE_REPO_DIR ?? join(home(), "agent-forge");
 const workspaces = () => process.env.FORGE_WORKSPACES ?? join(home(), "workspaces");
 
@@ -2744,7 +2744,7 @@ export async function provisionContainer(ctx: Context, container: string, ownerR
   ctx.out("Mounting workspace...");
   const workspaceDir = join(workspaces(), container);
   mkdirSync(workspaceDir, { recursive: true });
-  // raw.idmap dans le profil mappe moroine (1000) vers aiuser (1001) et gère
+  // raw.idmap dans le profil mappe <user> (1000) vers aiuser (1001) et gère
   // aussi root : pas besoin d'idmap shifting sur ce device.
   await ctx.exec(["lxc", "config", "device", "add", container, "workspace", "disk",
     `source=${workspaceDir}`, "path=/workspace"]);
@@ -2756,7 +2756,7 @@ export async function provisionContainer(ctx: Context, container: string, ownerR
   ctx.out("Configuring git...");
   await execAsAgent(ctx, container, [
     "git config --global user.name 'Claude Agent'",
-    "git config --global user.email 'moroine-claude@users.noreply.github.com'",
+    "git config --global user.email '<bot>@users.noreply.github.com'",
     "git config --global gpg.format ssh",
     "git config --global user.signingkey /home/aiuser/.ssh/id_ed25519_signing",
     "git config --global commit.gpgsign true",
@@ -2836,7 +2836,7 @@ export async function provisionContainer(ctx: Context, container: string, ownerR
   if (mode === "supervised") {
     ctx.err("");
     ctx.err("Retrieve this container's work from your laptop with:");
-    ctx.err(`  git remote add ${container} ssh://moroine@<host>:2222${workspaceDir}`);
+    ctx.err(`  git remote add ${container} ssh://<user>@<host>:2222${workspaceDir}`);
   }
 
   ctx.out(`Container ${container} provisioned.`);

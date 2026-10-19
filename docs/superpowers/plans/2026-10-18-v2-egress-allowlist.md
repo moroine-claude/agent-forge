@@ -890,7 +890,7 @@ On a strict container created with `forge start --strict` and the default list: 
 - [ ] **Step 2: Full verification**
 
 Run: `npm test && npm run check`
-Expected: PASS, no type error. `grep -rn "moroine\|/home/moroine" cli container` returns nothing.
+Expected: PASS, no type error. `grep -rn "<user>\|/home/<user>" cli container` returns nothing.
 
 - [ ] **Step 3: Commit any acceptance change**
 

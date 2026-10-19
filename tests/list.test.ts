@@ -5,7 +5,7 @@ import { assertNoHostGitIn } from "./lib/host-git.ts";
 import { cmdList } from "../cli/lib/commands/list.ts";
 
 const LIST = JSON.stringify([
-  { name: "agent-moroine-agent-forge", status: "Running" },
+  { name: "agent-alice-project", status: "Running" },
   { name: "agent-acme-super-long-repository-name", status: "Stopped" },
 ]);
 
@@ -13,15 +13,15 @@ function ctx() {
   return fakeContext({
     rules: [
       { match: "image get-property", stdout: "bbbb2222" },
-      { match: "agent-moroine-agent-forge user.forge.image_commit", stdout: "aaaa1111" },
-      { match: "agent-moroine-agent-forge user.forge.repo", stdout: "moroine/agent-forge" },
-      { match: "agent-moroine-agent-forge user.forge.mode", stdout: "autonomous" },
+      { match: "agent-alice-project user.forge.image_commit", stdout: "aaaa1111" },
+      { match: "agent-alice-project user.forge.repo", stdout: "alice/project" },
+      { match: "agent-alice-project user.forge.mode", stdout: "autonomous" },
       { match: "agent-acme-super-long-repository-name user.forge.image_commit", stdout: "bbbb2222" },
       { match: "agent-acme-super-long-repository-name user.forge.repo", stdout: "acme/super-long-repository-name" },
       { match: "agent-acme-super-long-repository-name user.forge.mode", stdout: "supervised" },
       { match: "incus --project agent-forge list", stdout: LIST },
       { match: "git worktree list", stdout: "worktree /workspace\nworktree /workspace/.trees/cli\nworktree /workspace/.trees/docs\nworktree /workspace/.trees/api\n" },
-      { match: "ps -u 1001 -o args=", stdout: "claude --permission-mode auto --remote-control agent-moroine-agent-forge-cli\n" },
+      { match: "ps -u 1001 -o args=", stdout: "claude --permission-mode auto --remote-control agent-alice-project-cli\n" },
     ],
   });
 }
@@ -35,7 +35,7 @@ test("the header names the five columns, repo first", async () => {
 test("a behind container is reported without the two sha", async () => {
   const c = ctx();
   await cmdList(c);
-  assert.match(c.out_lines[1], /^moroine\/agent-forge\s+autonomous\s+\?\s+Running\s+behind$/);
+  assert.match(c.out_lines[1], /^alice\/project\s+autonomous\s+\?\s+Running\s+behind$/);
 });
 
 test("the two task states are distinguished", async () => {
@@ -63,7 +63,7 @@ test("a long repo name widens its column instead of shifting the others", async 
   // passe (démontré sur table.test.ts, d'où la même approche par tranches).
   const rows = [
     ["REPO", "MODE", "EGRESS", "STATE", "BUILD"],
-    ["moroine/agent-forge", "autonomous", "?", "Running", "behind"],
+    ["alice/project", "autonomous", "?", "Running", "behind"],
     ["acme/super-long-repository-name", "supervised", "?", "Stopped", "ok"],
   ];
   const widths = rows[0].map((_, col) => Math.max(...rows.map((r) => r[col].length)));

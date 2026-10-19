@@ -707,7 +707,7 @@ assert_contains "$LIB" 's|S) mode="supervised" ;;'
 assert_contains "$LIB" 'echo '"'"'$mode'"'"' > /home/aiuser/.claude/forge-mode'
 assert_contains "$LIB" 'git clone "git@github.com:$owner_repo.git" "$workspace_dir"'
 assert_contains "$LIB" 'git checkout -b "agent/$task_name"'
-assert_contains "$LIB" 'git remote add $container ssh://moroine@'
+assert_contains "$LIB" 'git remote add $container ssh://<user>@'
 assert_line_before "$LIB" 'Mode for this container?' 'lxc launch agent-base'
 assert_line_before "$LIB" "echo '\$mode' > /home/aiuser/.claude/forge-mode" 'git clone "git@github.com:$owner_repo.git"'
 assert_line_before "$LIB" 'git clone "git@github.com:$owner_repo.git" "$workspace_dir"' 'lxc config set "$container" user.forge.repo'
@@ -726,8 +726,8 @@ Replace the whole of `_forge_provision_container` in `scripts/lib/forge-start.sh
 _forge_provision_container() {
   local container="$1" owner_repo="$2" task_name="$3"
 
-  if [ ! -f "/home/moroine/.claude/.credentials.json" ]; then
-    echo "Error: /home/moroine/.claude/.credentials.json not found. Run 'claude auth login' on the host first." >&2
+  if [ ! -f "/home/<user>/.claude/.credentials.json" ]; then
+    echo "Error: /home/<user>/.claude/.credentials.json not found. Run 'claude auth login' on the host first." >&2
     return 1
   fi
   if ! lxc image info agent-base > /dev/null 2>&1; then
@@ -754,9 +754,9 @@ _forge_provision_container() {
   lxc exec "$container" -- rm -f /etc/sudoers.d/90-cloud-init-users
 
   echo "Mounting workspace..."
-  local workspace_dir="/home/moroine/workspaces/$container"
+  local workspace_dir="/home/<user>/workspaces/$container"
   mkdir -p "$workspace_dir"
-  # raw.idmap dans le profil mappe moroine (1000) → aiuser (1001) et gère aussi root :
+  # raw.idmap dans le profil mappe <user> (1000) → aiuser (1001) et gère aussi root :
   # les fichiers créés par root (UID 0 container) sont stockés UID 1000000 sur l'hôte,
   # re-mappés vers UID 0 à la lecture. Pas besoin d'idmap shifting sur ce device.
   lxc config device add "$container" workspace disk \
@@ -764,12 +764,12 @@ _forge_provision_container() {
     path=/workspace
 
   echo "Copying signing key..."
-  lxc file push /home/moroine/.ssh/github_agents_signing "$container"/home/aiuser/.ssh/id_ed25519_signing --uid 1001 --gid 1001 --mode 600
+  lxc file push /home/<user>/.ssh/github_agents_signing "$container"/home/aiuser/.ssh/id_ed25519_signing --uid 1001 --gid 1001 --mode 600
 
   echo "Configuring git..."
   lxc exec "$container" -- su - aiuser -c "
     git config --global user.name 'Claude Agent'
-    git config --global user.email 'moroine-claude@users.noreply.github.com'
+    git config --global user.email '<bot>@users.noreply.github.com'
     git config --global gpg.format ssh
     git config --global user.signingkey /home/aiuser/.ssh/id_ed25519_signing
     git config --global commit.gpgsign true
@@ -777,7 +777,7 @@ _forge_provision_container() {
 
   echo "Reusing Claude Code credentials from host..."
   lxc exec "$container" -- su - aiuser -c "mkdir -p /home/aiuser/.claude"
-  lxc file push /home/moroine/.claude/.credentials.json "$container"/home/aiuser/.claude/.credentials.json --uid 1001 --gid 1001 --mode 600
+  lxc file push /home/<user>/.claude/.credentials.json "$container"/home/aiuser/.claude/.credentials.json --uid 1001 --gid 1001 --mode 600
 
   echo "Pre-accepting Claude Code onboarding..."
   lxc file push /home/moroine/agent-forge/config/claude-onboarding-state.json "$container"/home/aiuser/.claude.json --uid 1001 --gid 1001 --mode 600
@@ -843,7 +843,7 @@ _forge_provision_container() {
   if [ "$mode" = "supervised" ]; then
     echo ""
     echo "Retrieve this container's work from your laptop with:"
-    echo "  git remote add $container ssh://moroine@<host>:2222$workspace_dir"
+    echo "  git remote add $container ssh://<user>@<host>:2222$workspace_dir"
   fi
 
   echo "Container $container provisioned."
@@ -1093,7 +1093,7 @@ Retrieving and publishing the work is a manual, laptop-side flow — every
 line the agent wrote gets reviewed before it's re-authored as your own:
 
 ```bash
-git remote add <container> ssh://moroine@<host>:2222/home/moroine/workspaces/<container>
+git remote add <container> ssh://<user>@<host>:2222/home/<user>/workspaces/<container>
 git fetch <container> agent/<task-name>:agent/<task-name>
 git log -p main..agent/<task-name>          # review before doing anything else
 git checkout agent/<task-name>

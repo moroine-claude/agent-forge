@@ -5,9 +5,9 @@ import { readFileSync } from "node:fs";
 import { FakeIncus } from "./fake-incus.ts";
 
 const fake = FakeIncus.withRuntime();
-fake.addInstance("agent-forge", "agent-moroine-agent-forge", {
+fake.addInstance("agent-forge", "agent-alice-project", {
   status: "Running",
-  config: { "user.forge.repo": "moroine/agent-forge", "user.forge.mode": "supervised" },
+  config: { "user.forge.repo": "alice/project", "user.forge.mode": "supervised" },
 });
 fake.addInstance("agent-forge", "agent-acme-widgets", {
   status: "Stopped",

@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** `ansible/site.yml` turns a fresh Ubuntu 26.04 machine, VM or bare metal, into a hardened agent-forge host. The host gets native nftables, fail2ban, Incus 7.0 LTS with a btrfs pool, and one forge user with Node 24, Claude Code, Ansible and `forge`. The playbook is backed by controller-only unit tests, a throwaway-VM test run on omen, and a light CI.
+**Goal:** `ansible/site.yml` turns a fresh Ubuntu 26.04 machine, VM or bare metal, into a hardened agent-forge host. The host gets native nftables, fail2ban, Incus 7.0 LTS with a btrfs pool, and one forge user with Node 24, Claude Code, Ansible and `forge`. The playbook is backed by controller-only unit tests, a throwaway-VM test run on the v1 server, and a light CI.
 
-**Architecture:** One preflight play validates the inventory, normalizes the optional `forge_*` variables into facts, resolves the SSH port and checks the target. Then one provisioning play runs six roles in order: `base`, `hardening`, `firewall`, `fail2ban`, `incus`, `forge_users`. The sshd restart and the nftables load are handlers, and `force_handlers` is on. Logic that can be checked without a machine (input checks, port fallback, computed variables, rendered templates) is covered by unit playbooks on the controller. Everything else is asserted by `ansible/tests/verify.yml`, which `ansible/tests/vm-test.sh` runs against a throwaway LXD VM on omen.
+**Architecture:** One preflight play validates the inventory, normalizes the optional `forge_*` variables into facts, resolves the SSH port and checks the target. Then one provisioning play runs six roles in order: `base`, `hardening`, `firewall`, `fail2ban`, `incus`, `forge_users`. The sshd restart and the nftables load are handlers, and `force_handlers` is on. Logic that can be checked without a machine (input checks, port fallback, computed variables, rendered templates) is covered by unit playbooks on the controller. Everything else is asserted by `ansible/tests/verify.yml`, which `ansible/tests/vm-test.sh` runs against a throwaway LXD VM on the v1 server.
 
 **Tech Stack:** Ansible (ansible-core ≥ 2.20), devsec.hardening 11.0.0, nftables, fail2ban, Incus 7.0 LTS (Zabbly), bash, GitHub Actions.
 
@@ -89,7 +89,7 @@ ansible/
   tests/unit-inventory.yml                      Task 1+ localhost test cases
   tests/unit/{preflight,base,hardening,firewall,fail2ban,incus}.yml
   tests/unit/tasks/*.yml                        per-case task files
-  tests/vm-test.sh                              Task 2  throwaway VM harness (omen)
+  tests/vm-test.sh                              Task 2  throwaway VM harness (the v1 server)
   tests/verify.yml                              Task 2+ assertions on the provisioned host
   tests/verify/{platform,base,hardening,ssh_client,firewall,fail2ban,incus,forge_users}.yml
   tests/files/incus-smoke.sh                    Task 9  container userns smoke test
@@ -740,7 +740,7 @@ Expected: `playbook: ansible/tests/verify.yml`
 #
 # Creates a VM on this LXD or Incus host, provisions it twice with site.yml
 # (the second run must change nothing), runs tests/verify.yml, reboots the VM,
-# verifies again, then deletes the VM. Runs on omen today, from a clone of
+# verifies again, then deletes the VM. Runs on the v1 server today, from a clone of
 # `next` kept apart from the v1 clone. A v1 agent container cannot run it: it
 # has no access to the host's LXD and cannot run a VM.
 #
@@ -928,9 +928,9 @@ Append:
 ## VM test
 
 `tests/vm-test.sh` creates a throwaway VM on an LXD or Incus host with KVM, and
-provisions it with this playbook. omen is that host today. The script checks
+provisions it with this playbook. The v1 server is that host today. The script checks
 that a second run changes nothing, runs `tests/verify.yml`, reboots the VM,
-verifies again, and deletes the VM. Run it on omen, from a clone of `next` kept
+verifies again, and deletes the VM. Run it on the v1 server, from a clone of `next` kept
 apart from the v1 clone:
 
 ```bash
@@ -1406,7 +1406,7 @@ hardening_sysctl_overwrite:
   # then not create a user namespace (Chrome's sandbox, rootless Docker).
   kernel.unprivileged_userns_clone: 1
   # Same breakage, from Ubuntu's AppArmor mediation (validation spike,
-  # point 6). v1 on omen runs with 0 too: the LXD snap sets it host-wide.
+  # point 6). The v1 server runs with 0 too: the LXD snap sets it host-wide.
   kernel.apparmor_restrict_unprivileged_userns: 0
   # Ubuntu's default. devsec's 2, with sys_ptrace dropped from containers,
   # leaves no strace or gdb at all inside containers.
@@ -2055,7 +2055,7 @@ git commit -m "feat: rôle firewall (nftables, table inet forge_host)"
 
 ---
 
-### Task 6: VM checkpoint A, on omen (the user runs it)
+### Task 6: VM checkpoint A, on the v1 server (the user runs it)
 
 This checkpoint covers what can lock a host out: the port move, devsec on 26.04 with sudo-rs and uutils, and the firewall. It runs before the remaining roles are built on top.
 
@@ -2067,7 +2067,7 @@ This checkpoint covers what can lock a host out: the port move, devsec on 26.04 
 git push -u origin agent/v2-host
 ```
 
-- [ ] **Step 2: Ask the user to run, on omen** (the `pipx` line only once):
+- [ ] **Step 2: Ask the user to run, on the v1 server** (the `pipx` line only once):
 
 ```bash
 pipx install ansible-core
@@ -3345,7 +3345,7 @@ The workflow first runs on the pull request opened in Task 11. If a job fails be
 git push origin agent/v2-host
 ```
 
-- [ ] **Step 2: Ask the user to run, on omen:**
+- [ ] **Step 2: Ask the user to run, on the v1 server:**
 
 ```bash
 git -C ~/src/agent-forge-next fetch origin
@@ -3371,7 +3371,7 @@ gh pr create --base next --head agent/v2-host \
 - Controller-only unit tests (`npm run test:ansible`), throwaway-VM test (`ansible/tests/vm-test.sh`), light CI.
 - Spec: `docs/superpowers/specs/2026-10-15-v2-host-ansible-design.md`; plan: `docs/superpowers/plans/2026-10-15-v2-host-ansible.md`.
 
-## VM test (omen, amd64)
+## VM test (the v1 server, amd64)
 <paste the last lines of both vm-test.sh runs here>
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)

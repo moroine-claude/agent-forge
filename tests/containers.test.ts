@@ -8,7 +8,7 @@ import {
 } from "../cli/lib/containers.ts";
 
 const LIST = JSON.stringify([
-  { name: "agent-moroine-agent-forge", status: "Running" },
+  { name: "agent-alice-project", status: "Running" },
   { name: "agent-acme-widgets", status: "Stopped" },
   { name: "unrelated-container", status: "Running" },
 ]);
@@ -28,28 +28,28 @@ function ctxWith(repos: Record<string, string>) {
 test("listForgeContainers keeps only agent-* names", async () => {
   const ctx = fakeContext({ rules: [{ match: "incus --project agent-forge list", stdout: LIST }] });
   assert.deepEqual(await listForgeContainers(ctx), [
-    "agent-moroine-agent-forge",
+    "agent-alice-project",
     "agent-acme-widgets",
   ]);
 });
 
 test("forgeRepos reads config keys only, never incus exec", async () => {
   const ctx = ctxWith({
-    "agent-moroine-agent-forge": "moroine/agent-forge",
+    "agent-alice-project": "alice/project",
     "agent-acme-widgets": "acme/widgets",
   });
-  assert.deepEqual(await forgeRepos(ctx), ["moroine/agent-forge", "acme/widgets"]);
+  assert.deepEqual(await forgeRepos(ctx), ["alice/project", "acme/widgets"]);
   assert.ok(!ctx.calls.some((c) => c[1] === "exec"), "un TAB doit rester rapide");
 });
 
 test("forgeRepos skips a container with no repo metadata", async () => {
-  const ctx = ctxWith({ "agent-moroine-agent-forge": "moroine/agent-forge" });
-  assert.deepEqual(await forgeRepos(ctx), ["moroine/agent-forge"]);
+  const ctx = ctxWith({ "agent-alice-project": "alice/project" });
+  assert.deepEqual(await forgeRepos(ctx), ["alice/project"]);
 });
 
 test("containerForRepo matches case-insensitively", async () => {
-  const ctx = ctxWith({ "agent-moroine-agent-forge": "moroine/agent-forge" });
-  assert.equal(await containerForRepo(ctx, "Moroine/Agent-Forge"), "agent-moroine-agent-forge");
+  const ctx = ctxWith({ "agent-alice-project": "alice/project" });
+  assert.equal(await containerForRepo(ctx, "Alice/Project"), "agent-alice-project");
 });
 
 test("requireContainerForRepo throws a ForgeError naming the repo", async () => {
@@ -79,7 +79,7 @@ test("checkNameCollision accepts a not-yet-existing container", async () => {
 
 test("isRunning is true only for Running", async () => {
   const ctx = fakeContext({ rules: [{ match: "incus --project agent-forge list", stdout: LIST }] });
-  assert.equal(await isRunning(ctx, "agent-moroine-agent-forge"), true);
+  assert.equal(await isRunning(ctx, "agent-alice-project"), true);
   assert.equal(await isRunning(ctx, "agent-acme-widgets"), false);
   assert.equal(await isRunning(ctx, "absent"), false);
 });

@@ -5,7 +5,6 @@ profile: production
 exclude_paths:
   - .github/
   - .claude/
-  - config/
   - docs/
   - node_modules/
 # Files outside the usual roles/ layout: tell ansible-lint what they are.

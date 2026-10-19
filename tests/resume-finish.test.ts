@@ -10,14 +10,14 @@ import { assertNoHostGitIn } from "./lib/host-git.ts";
 import { cmdFinish } from "../cli/lib/commands/finish.ts";
 
 const BASE = [
-  { match: "agent-moroine-agent-forge user.forge.repo", stdout: "moroine/agent-forge" },
-  { match: "incus --project agent-forge list", stdout: JSON.stringify([{ name: "agent-moroine-agent-forge", status: "Running" }]) },
+  { match: "agent-alice-project user.forge.repo", stdout: "alice/project" },
+  { match: "incus --project agent-forge list", stdout: JSON.stringify([{ name: "agent-alice-project", status: "Running" }]) },
   { match: "git worktree list", stdout: "worktree /workspace\nworktree /workspace/.trees/cli\nworktree /workspace/.trees/docs\n" },
 ];
 
 test("resume attaches the task's agent", async () => {
   const c = fakeContext({ rules: [...BASE, { match: "test -e", code: 0 }] });
-  assert.equal(await cmdResume(c, "moroine/agent-forge", "cli"), 0);
+  assert.equal(await cmdResume(c, "alice/project", "cli"), 0);
   const attach = c.attachCalls[0]?.argv;
   assert.ok(attach, "no attach happened");
   const cwd = attach.indexOf("--cwd");
@@ -27,21 +27,21 @@ test("resume attaches the task's agent", async () => {
 
 test("resume outside herdr refuses while the task's agent already runs", async () => {
   const c = fakeContext({ rules: [
-    { match: "ps -u 1001 -o args=", stdout: "claude --remote-control agent-moroine-agent-forge-cli\n" },
+    { match: "ps -u 1001 -o args=", stdout: "claude --remote-control agent-alice-project-cli\n" },
     ...BASE, { match: "test -e", code: 0 },
   ] });
-  await assert.rejects(() => cmdResume(c, "moroine/agent-forge", "cli"),
-    /the agent for cli already runs in agent-moroine-agent-forge .*'forge stop moroine\/agent-forge'\./);
+  await assert.rejects(() => cmdResume(c, "alice/project", "cli"),
+    /the agent for cli already runs in agent-alice-project .*'forge stop alice\/project'\./);
   assert.equal(c.attachCalls.length, 0);
 });
 
 // runTask reçoit le user.forge.repo enregistré : c'est lui que nomme la sortie.
 test("resume names the stored repo, not the case typed", async () => {
   const c = fakeContext({ rules: [
-    { match: "ps -u 1001 -o args=", stdout: "claude --remote-control agent-moroine-agent-forge-cli\n" },
+    { match: "ps -u 1001 -o args=", stdout: "claude --remote-control agent-alice-project-cli\n" },
     ...BASE, { match: "test -e", code: 0 },
   ] });
-  await assert.rejects(() => cmdResume(c, "Moroine/Agent-Forge", "cli"), /'forge stop moroine\/agent-forge'\./);
+  await assert.rejects(() => cmdResume(c, "Alice/Project", "cli"), /'forge stop alice\/project'\./);
 });
 
 test("resume outside herdr fails closed when the agent probe fails", async () => {
@@ -49,26 +49,26 @@ test("resume outside herdr fails closed when the agent probe fails", async () =>
     { match: "ps -u 1001 -o args=", code: 1, stderr: "Error: Instance is not running" },
     ...BASE, { match: "test -e", code: 0 },
   ] });
-  await assert.rejects(() => cmdResume(c, "moroine/agent-forge", "cli"),
-    /cannot check whether the agent for cli already runs in agent-moroine-agent-forge: ps failed: Error: Instance is not running/);
+  await assert.rejects(() => cmdResume(c, "alice/project", "cli"),
+    /cannot check whether the agent for cli already runs in agent-alice-project: ps failed: Error: Instance is not running/);
   assert.equal(c.attachCalls.length, 0);
 });
 
 test("resume never creates a worktree", async () => {
   const c = fakeContext({ rules: [...BASE, { match: "test -e", code: 0 }] });
-  await cmdResume(c, "moroine/agent-forge", "cli");
+  await cmdResume(c, "alice/project", "cli");
   assert.ok(!c.calls.some((call) => call.join(" ").includes("worktree add")));
 });
 
 test("resume runs no host git", async () => {
   const c = fakeContext({ rules: [...BASE, { match: "test -e", code: 0 }] });
-  await cmdResume(c, "moroine/agent-forge", "cli");
+  await cmdResume(c, "alice/project", "cli");
   assert.ok(!c.calls.some((call) => call[0] === "git"));
 });
 
 test("resume errors when the worktree is absent, pointing at start", async () => {
   const c = fakeContext({ rules: [...BASE, { match: "test -e", code: 1 }] });
-  await assert.rejects(() => cmdResume(c, "moroine/agent-forge", "nope"), /forge start/);
+  await assert.rejects(() => cmdResume(c, "alice/project", "nope"), /forge start/);
 });
 
 test("resume asks for repo then task when both are missing", async () => {
@@ -87,7 +87,7 @@ test("finish removes the worktree after the pre-flight", async () => {
       { match: "user.forge.mode", stdout: "supervised" },
     ],
   });
-  assert.equal(await cmdFinish(c, "moroine/agent-forge", "cli", false), 0);
+  assert.equal(await cmdFinish(c, "alice/project", "cli", false), 0);
   assert.ok(c.calls.some((call) => call.join(" ").includes("worktree remove .trees/cli")));
 });
 
@@ -95,7 +95,7 @@ test("finish --force skips the pre-flight and forces the removal", async () => {
   const c = fakeContext({
     rules: [...BASE, { match: "test -e", code: 0 }, { match: "status --porcelain", stdout: " M x\n" }],
   });
-  assert.equal(await cmdFinish(c, "moroine/agent-forge", "cli", true), 0);
+  assert.equal(await cmdFinish(c, "alice/project", "cli", true), 0);
   assert.ok(c.calls.some((call) => call.join(" ").includes("worktree remove --force .trees/cli")));
 });
 
@@ -105,19 +105,19 @@ const FINISH_RULES = [
   { match: "status --porcelain", stdout: "" },
   { match: "user.forge.mode", stdout: "supervised" },
 ];
-const CONTAINER_PREFIX = ["incus", "--project", "agent-forge", "exec", "agent-moroine-agent-forge",
+const CONTAINER_PREFIX = ["incus", "--project", "agent-forge", "exec", "agent-alice-project",
   "--user", "1001", "--group", "1001", "--env", "HOME=/home/aiuser", "--"];
 
 test("finish keeps the branch, stops the agent, removes the worktree, then moves the transcripts aside", async () => {
   const c = fakeContext({ rules: FINISH_RULES });
-  await cmdFinish(c, "moroine/agent-forge", "cli", false);
+  await cmdFinish(c, "alice/project", "cli", false);
   assert.ok(!c.calls.some((call) => call.join(" ").includes("branch -D")));
   const pkill = c.calls.findIndex((call) => call.includes("pkill"));
   const remove = c.calls.findIndex((call) => call.join(" ").includes("worktree remove"));
   const aside = c.calls.findIndex((call) => call.includes("sh") && call.join(" ").includes(".finished-"));
   assert.ok(pkill >= 0 && pkill < remove && remove < aside, `order: ${pkill} ${remove} ${aside}`);
   assert.deepEqual(c.calls[pkill], [
-    ...CONTAINER_PREFIX, "pkill", "-f", "--", "--remote-control agent-moroine-agent-forge-cli( |$)",
+    ...CONTAINER_PREFIX, "pkill", "-f", "--", "--remote-control agent-alice-project-cli( |$)",
   ]);
   const move = c.calls[aside];
   assert.equal(move.at(-2), "/home/aiuser/.claude/projects/-workspace--trees-cli");
@@ -129,19 +129,19 @@ test("finish keeps the branch, stops the agent, removes the worktree, then moves
 
 test("finish succeeds when no agent process was running (pkill exit 1)", async () => {
   const c = fakeContext({ rules: [{ match: "pkill", code: 1 }, ...FINISH_RULES] });
-  assert.equal(await cmdFinish(c, "moroine/agent-forge", "cli", false), 0);
+  assert.equal(await cmdFinish(c, "alice/project", "cli", false), 0);
 });
 
 // Comme attach et resume : un container arrêté (après 'forge stop') démarre
 // avant qu'on y cherche le worktree, au lieu d'un faux « no worktree ».
 test("finish starts a stopped container before looking for the worktree", async () => {
   const c = fakeContext({ rules: [
-    { match: "incus --project agent-forge list", stdout: JSON.stringify([{ name: "agent-moroine-agent-forge", status: "Stopped" }]) },
+    { match: "incus --project agent-forge list", stdout: JSON.stringify([{ name: "agent-alice-project", status: "Stopped" }]) },
     ...FINISH_RULES,
   ] });
-  assert.equal(await cmdFinish(c, "moroine/agent-forge", "cli", false), 0);
+  assert.equal(await cmdFinish(c, "alice/project", "cli", false), 0);
   const flat = c.calls.map((call) => call.join(" "));
-  const start = flat.indexOf("incus --project agent-forge start agent-moroine-agent-forge");
+  const start = flat.indexOf("incus --project agent-forge start agent-alice-project");
   const probe = flat.findIndex((l) => l.includes("test -e /workspace/.trees/cli"));
   assert.ok(start >= 0 && start < probe, flat.join("\n"));
 });
@@ -150,13 +150,13 @@ test("finish starts a stopped container before looking for the worktree", async 
 // pas pu arrêter.
 test("finish keeps the worktree when stopping the agent fails", async () => {
   const c = fakeContext({ rules: [{ match: "pkill", code: 3, stderr: "pkill: fatal error\n" }, ...FINISH_RULES] });
-  await assert.rejects(() => cmdFinish(c, "moroine/agent-forge", "cli", false), /stopping the agent for cli failed/);
+  await assert.rejects(() => cmdFinish(c, "alice/project", "cli", false), /stopping the agent for cli failed/);
   assert.ok(!c.calls.some((call) => call.join(" ").includes("worktree remove")));
 });
 
 test("finish only warns when moving the transcripts aside fails", async () => {
   const c = fakeContext({ rules: [{ match: ".finished-", code: 1, stderr: "mv: denied" }, ...FINISH_RULES] });
-  assert.equal(await cmdFinish(c, "moroine/agent-forge", "cli", false), 0);
+  assert.equal(await cmdFinish(c, "alice/project", "cli", false), 0);
   assert.ok(c.err_lines.some((l) => /^WARNING: moving the transcripts of cli aside failed: mv: denied/.test(l)),
     `no warning: ${c.err_lines.join(" | ")}`);
   assert.ok(c.out_lines.some((l) => l.includes("Finished task cli")));
@@ -175,7 +175,7 @@ test("finish fails when the worktree removal fails, and claims nothing", async (
     ],
   });
   await assert.rejects(
-    () => cmdFinish(c, "moroine/agent-forge", "cli", false),
+    () => cmdFinish(c, "alice/project", "cli", false),
     /git worktree remove failed: fatal: '\.trees\/cli' contains modified files/,
   );
   assert.ok(
@@ -188,13 +188,13 @@ test("resume fails when the container refuses to start", async () => {
   const c = fakeContext({
     rules: [
       { match: "incus --project agent-forge start", code: 1, stderr: "Error: Failed to start device\n" },
-      { match: "agent-moroine-agent-forge user.forge.repo", stdout: "moroine/agent-forge" },
-      { match: "incus --project agent-forge list", stdout: JSON.stringify([{ name: "agent-moroine-agent-forge", status: "Stopped" }]) },
+      { match: "agent-alice-project user.forge.repo", stdout: "alice/project" },
+      { match: "incus --project agent-forge list", stdout: JSON.stringify([{ name: "agent-alice-project", status: "Stopped" }]) },
       { match: "test -e", code: 0 },
     ],
   });
   await assert.rejects(
-    () => cmdResume(c, "moroine/agent-forge", "cli"),
+    () => cmdResume(c, "alice/project", "cli"),
     /incus start failed: Error: Failed to start device/,
   );
   assert.equal(c.attachCalls.length, 0, "attaché malgré l'échec du démarrage");
@@ -259,7 +259,7 @@ test("resume --all with a repo or a task is a usage error", async () => {
   process.env.HERDR_BIN_PATH = "/h/herdr";
   try {
     const c = fakeContext();
-    await assert.rejects(() => cmdResume(c, "moroine/agent-forge", undefined, true), /Usage: forge resume/);
+    await assert.rejects(() => cmdResume(c, "alice/project", undefined, true), /Usage: forge resume/);
     await assert.rejects(() => cmdResume(c, undefined, "cli", true), /Usage: forge resume/);
   } finally {
     delete process.env.HERDR_ENV;
@@ -269,7 +269,7 @@ test("resume --all with a repo or a task is a usage error", async () => {
 
 const j = (result: unknown) => JSON.stringify({ id: "x", result });
 const HERDR_RULES = (fgArgv: string[]) => [
-  { match: "/h/herdr workspace list", stdout: j({ workspaces: [{ workspace_id: "w1", label: "moroine/agent-forge" }] }) },
+  { match: "/h/herdr workspace list", stdout: j({ workspaces: [{ workspace_id: "w1", label: "alice/project" }] }) },
   { match: "/h/herdr tab list", stdout: j({ tabs: [{ tab_id: "w1:t1", label: "cli", workspace_id: "w1" }] }) },
   { match: "/h/herdr pane list", stdout: j({ panes: [{ pane_id: "w1:p1", tab_id: "w1:t1" }] }) },
   { match: "/h/herdr pane process-info", stdout: j({ process_info: { foreground_processes: [{ argv: fgArgv }] } }) },
@@ -280,7 +280,7 @@ async function finishInHerdr(fgArgv: string[]) {
   process.env.HERDR_BIN_PATH = "/h/herdr";
   try {
     const c = fakeContext({ rules: [...HERDR_RULES(fgArgv), ...FINISH_RULES] });
-    await cmdFinish(c, "moroine/agent-forge", "cli", false);
+    await cmdFinish(c, "alice/project", "cli", false);
     return c;
   } finally {
     delete process.env.HERDR_ENV;
@@ -296,7 +296,7 @@ test("finish closes the task's tab when it is a bare shell, inside herdr", async
 });
 
 test("finish leaves a live tab open", async () => {
-  const c = await finishInHerdr(["forge", "attach", "agent-moroine-agent-forge", "cli"]);
+  const c = await finishInHerdr(["forge", "attach", "agent-alice-project", "cli"]);
   assert.ok(!c.calls.some((call) => call.join(" ").includes("tab close")));
 });
 
@@ -308,7 +308,7 @@ test("finish only warns when the herdr cleanup fails", async () => {
       { match: "/h/herdr workspace list", code: 1, stderr: "server down" },
       ...FINISH_RULES,
     ] });
-    assert.equal(await cmdFinish(c, "moroine/agent-forge", "cli", false), 0);
+    assert.equal(await cmdFinish(c, "alice/project", "cli", false), 0);
     assert.ok(c.err_lines.some((l) => l.startsWith("WARNING: closing the herdr tab of cli failed:")), c.err_lines.join(" | "));
     assert.ok(c.out_lines.some((l) => l.includes("Finished task cli")));
   } finally {
@@ -319,6 +319,6 @@ test("finish only warns when the herdr cleanup fails", async () => {
 
 test("finish makes no herdr call outside herdr", async () => {
   const c = fakeContext({ rules: [...HERDR_RULES(["-zsh"]), ...FINISH_RULES] });
-  await cmdFinish(c, "moroine/agent-forge", "cli", false);
+  await cmdFinish(c, "alice/project", "cli", false);
   assert.ok(!c.calls.some((call) => call.join(" ").includes("herdr")));
 });

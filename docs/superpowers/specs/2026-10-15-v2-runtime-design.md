@@ -58,7 +58,7 @@ it, along with the bridge address, the ACL's limits, the image contents, the
 
 | Topic | Decision | Why |
 |---|---|---|
-| User namespaces in containers | **Host requirement.** The host sets `kernel.apparmor_restrict_unprivileged_userns=0` and keeps `kernel.unprivileged_userns_clone=1`. Ansible does it on a VM (sub-project 1); a README step does it in local Linux mode. `forge setup` only reads the values and stops with the exact fix | Rootless Docker inherently gives `aiuser` user namespaces: once `rootlesskit` may create one, `rootlesskit bash` gives a full one for any command. Per-binary AppArmor profiles in the container therefore expose the same kernel surface to the agent, while costing `mac_admin` and an untested setup. The LXD snap has always set this sysctl on omen, so v1 already runs this way |
+| User namespaces in containers | **Host requirement.** The host sets `kernel.apparmor_restrict_unprivileged_userns=0` and keeps `kernel.unprivileged_userns_clone=1`. Ansible does it on a VM (sub-project 1); a README step does it in local Linux mode. `forge setup` only reads the values and stops with the exact fix | Rootless Docker inherently gives `aiuser` user namespaces: once `rootlesskit` may create one, `rootlesskit bash` gives a full one for any command. Per-binary AppArmor profiles in the container therefore expose the same kernel surface to the agent, while costing `mac_admin` and an untested setup. The LXD snap has always set this sysctl on the v1 server, so v1 already runs this way |
 | Chrome sandbox | Kept. No `--no-sandbox` | Works once the host requirement holds (spike point 6) |
 | Degraded mode when the sysctl is 1 | None. `forge setup` refuses | One supported configuration to test |
 | Agent's git identity | The host user's `git config --global user.name` / `user.email`; commits unsigned (`commit.gpgsign=false`); Claude Code's `Co-Authored-By` trailer kept. The user re-signs when publishing | No signing key in containers (framing non-goal) and no bot account. The trailer still marks the agent's commits |
@@ -470,11 +470,11 @@ sub-project 4 moves the fetch to the host.
 
 | v1 | v2 |
 |---|---|
-| `FORGE_HOME` defaults to `/home/moroine` | `os.homedir()` (env override kept for tests) |
+| `FORGE_HOME` defaults to `/home/<user>` | `os.homedir()` (env override kept for tests) |
 | `FORGE_REPO_DIR` defaults to `/home/moroine/agent-forge` | Derived from the CLI's location (`cli/..`) (env override kept for tests) |
 | `raw.idmap` `uid 1000 1001` in a static profile | Computed by `forge setup` |
-| Bot email `moroine-claude@users.noreply.github.com` | Host user's identity |
-| `ssh://moroine@<host>:2222` in the retrieval hint | `os.userInfo().username`, no port |
+| Bot email `<bot>@users.noreply.github.com` | Host user's identity |
+| `ssh://<user>@<host>:2222` in the retrieval hint | `os.userInfo().username`, no port |
 | `lxdbr0`, pool `default` in the profile | Config, with defaults |
 
 ## Error handling

@@ -14,14 +14,14 @@ let herdr: string;
 let failingAgentBin: string;
 const ENTRY = resolve("cli/forge.ts");
 
-// Canned herdr 0.9.5 answers: workspace moroine/agent-forge holds a tab cli
+// Canned herdr 0.9.5 answers: workspace alice/project holds a tab cli
 // whose pane runs the task's attach. Not named `herdr`, so it is never on PATH.
 const FAKE_HERDR = `#!/bin/sh
 case "$1 $2" in
-  "workspace list") echo '{"id":"1","result":{"workspaces":[{"workspace_id":"w1","label":"moroine/agent-forge"}]}}' ;;
+  "workspace list") echo '{"id":"1","result":{"workspaces":[{"workspace_id":"w1","label":"alice/project"}]}}' ;;
   "tab list") echo '{"id":"1","result":{"tabs":[{"tab_id":"w1:t1","label":"cli","workspace_id":"w1"}]}}' ;;
   "pane list") echo '{"id":"1","result":{"panes":[{"pane_id":"w1:p1","tab_id":"w1:t1"}]}}' ;;
-  "pane process-info") echo '{"id":"1","result":{"process_info":{"foreground_processes":[{"argv":["forge","attach","agent-moroine-agent-forge","cli"]}]}}}' ;;
+  "pane process-info") echo '{"id":"1","result":{"process_info":{"foreground_processes":[{"argv":["forge","attach","agent-alice-project","cli"]}]}}}' ;;
   "tab focus") ;;
   *) echo "fake herdr: unexpected $*" >&2; exit 1 ;;
 esac
@@ -98,15 +98,15 @@ test("the popup waits after resume --all, whose lines are the result", () => {
 
 test("the popup waits after a success that printed a WARNING", () => {
   // /bin/false as herdr: finish's tab cleanup fails, which only warns.
-  const r = forge(["finish", "moroine/agent-forge", "cli"], "\n", popup("/bin/false"));
+  const r = forge(["finish", "alice/project", "cli"], "\n", popup("/bin/false"));
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stderr, /WARNING: closing the herdr tab of cli failed[\s\S]*Press Enter to close/);
 });
 
 test("focusing a live tab from the popup closes it at once", () => {
-  const r = forge(["resume", "moroine/agent-forge", "cli"], "\n", popup(herdr));
+  const r = forge(["resume", "alice/project", "cli"], "\n", popup(herdr));
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /Focused moroine\/agent-forge cli in herdr\./);
+  assert.match(r.stdout, /Focused alice\/project cli in herdr\./);
   assert.doesNotMatch(r.stderr, /Press Enter/);
 });
 
@@ -114,7 +114,7 @@ test("outside the popup a success never waits", () => {
   const all = forge(["resume", "--all"], "\n", pane(herdr));
   assert.equal(all.status, 0, all.stderr);
   assert.doesNotMatch(all.stderr, /Press Enter/);
-  const warned = forge(["finish", "moroine/agent-forge", "cli"], "\n", pane("/bin/false"));
+  const warned = forge(["finish", "alice/project", "cli"], "\n", pane("/bin/false"));
   assert.equal(warned.status, 0, warned.stderr);
   assert.match(warned.stderr, /WARNING/);
   assert.doesNotMatch(warned.stderr, /Press Enter/);
@@ -122,7 +122,7 @@ test("outside the popup a success never waits", () => {
 
 // A herdr tab runs `exec forge attach …`: the pane closes with forge.
 test("an agent exiting non-zero in a herdr pane leaves its exit code to read", () => {
-  const r = forge(["attach", "agent-moroine-agent-forge", "cli"], "\n",
+  const r = forge(["attach", "agent-alice-project", "cli"], "\n",
     { ...pane(herdr), PATH: `${failingAgentBin}:${process.env.PATH}` });
   assert.equal(r.status, 3, r.stderr);
   assert.match(r.stderr, /the agent exited with code 3\nPress Enter to close/);
@@ -135,13 +135,13 @@ test("a failing attach in a herdr pane leaves its error to read", () => {
 });
 
 test("an agent exiting 0 in a herdr pane closes it at once", () => {
-  const r = forge(["attach", "agent-moroine-agent-forge", "cli"], "\n", pane(herdr));
+  const r = forge(["attach", "agent-alice-project", "cli"], "\n", pane(herdr));
   assert.equal(r.status, 0, r.stderr);
   assert.doesNotMatch(r.stderr, /Press Enter|exited with code/);
 });
 
 test("outside herdr a failing agent does not wait", () => {
-  const r = forge(["attach", "agent-moroine-agent-forge", "cli"], "\n", { PATH: `${failingAgentBin}:${process.env.PATH}` });
+  const r = forge(["attach", "agent-alice-project", "cli"], "\n", { PATH: `${failingAgentBin}:${process.env.PATH}` });
   assert.equal(r.status, 3);
   assert.doesNotMatch(r.stderr, /Press Enter/);
 });
@@ -157,18 +157,18 @@ test("list renders the table on stdout", () => {
   const r = forge(["list"]);
   assert.equal(r.status, 0);
   assert.match(r.stdout, /^REPO\s+MODE\s+EGRESS\s+STATE\s+BUILD$/m);
-  assert.match(r.stdout, /moroine\/agent-forge/);
+  assert.match(r.stdout, /alice\/project/);
 });
 
 test("completion repos is machine-readable, one per line", () => {
   const r = forge(["completion", "repos"]);
   assert.equal(r.status, 0);
-  assert.deepEqual(r.stdout.trim().split("\n"), ["moroine/agent-forge", "acme/widgets"]);
+  assert.deepEqual(r.stdout.trim().split("\n"), ["alice/project", "acme/widgets"]);
 });
 
 test("--force is accepted in any position", () => {
-  const first = forge(["stop", "--force", "moroine/agent-forge"]);
-  const last = forge(["stop", "moroine/agent-forge", "--force"]);
+  const first = forge(["stop", "--force", "alice/project"]);
+  const last = forge(["stop", "alice/project", "--force"]);
   assert.equal(first.status, 0);
   assert.equal(last.status, 0);
 });

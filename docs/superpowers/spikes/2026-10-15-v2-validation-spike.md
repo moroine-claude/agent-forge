@@ -30,8 +30,8 @@ Beyond the 9 points, the spike found two **blockers**:
 - **Unprivileged user namespaces are refused in containers on an Ubuntu 26.04
   host** (point 6). This breaks Chrome's sandbox and rootless Docker
   (`rootlesskit`). Rootless Docker is in the v2 image, so sub-project 2 must
-  settle this first. v1 on omen is not affected: its LXD snap turns the
-  restriction off host-wide (point 6, "Constat sur omen (v1)").
+  settle this first. The v1 server is not affected: its LXD snap turns the
+  restriction off host-wide (point 6, "Constat sur le serveur v1").
 - **Incus cannot auto-pick a bridge subnet under Lima** (additional finding A).
   This breaks `incus admin init --minimal` and any `ipv4.address=auto` in
   macOS local mode.
@@ -384,10 +384,10 @@ host sysctl = 0:  uid=0(root) gid=0(root) groups=0(root)
 Full `dockerd-rootless-setuptool.sh` was not run; `rootlesskit` is the step
 that fails.
 
-**Constat sur omen (v1): not affected, because the LXD snap turns the
+**Constat sur le serveur v1: not affected, because the LXD snap turns the
 restriction off for the whole host.** This was a read-only check on
-2026-10-15. omen runs Ubuntu 24.04.5, kernel `7.0.0-28-generic` and the LXD
-snap `5.21.8`. The container was `agent-moroine-biking`, on profile `agent`
+2026-10-15. The v1 server runs Ubuntu 24.04.5, kernel `7.0.0-28-generic` and the LXD
+snap `5.21.8`. The container was `agent-<user>-<repo>`, on profile `agent`
 like the two other running agents:
 
 ```
@@ -398,7 +398,7 @@ kernel.apparmor_restrict_unprivileged_userns = 1          # Ubuntu default
 -kernel.apparmor_restrict_unprivileged_userns = 0         # written by LXD
 -kernel.apparmor_restrict_unprivileged_unconfined = 0
 host$ journalctl -u snap.lxd.daemon | grep 'Apparmor unprivileged'   # once per LXD start
-août 24 08:18:08 Omen lxd.daemon[1652]: ==> Disabling Apparmor unprivileged userns mediation
+août 24 08:18:08 v1-server lxd.daemon[1652]: ==> Disabling Apparmor unprivileged userns mediation
 
 # in the container, each command run as: lxc exec <ctr> -- su - aiuser -c '…'
 $ unshare -Ur id
@@ -723,4 +723,4 @@ Ubuntu.** After installing, herdr warned:
 - The full rootless Docker setup (only `rootlesskit`).
 - Lima `vzNAT`.
 - Behaviour on an amd64 host.
-- v1's Chrome/rootless Docker on omen.
+- v1's Chrome/rootless Docker on the v1 server.

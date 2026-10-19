@@ -4,7 +4,7 @@ import { ForgeError } from "../cli/lib/context.ts";
 import { validateRepo, validateTaskName, validateGitRef, validateContainerName, sanitizeContainerName } from "../cli/lib/validate.ts";
 
 test("validateRepo accepts owner/repo and rejects anything else", () => {
-  validateRepo("moroine/agent-forge");
+  validateRepo("alice/project");
   validateRepo("my.org/my_repo-2");
   for (const bad of ["noslash", "a/b/c", "a b/c", "owner/", "/repo", "a;id/b"]) {
     assert.throws(() => validateRepo(bad), ForgeError, `should reject: ${bad}`);
@@ -32,8 +32,8 @@ test("the error message names the offending value", () => {
 });
 
 test("sanitizeContainerName lowercases and collapses non-charset runs", () => {
-  assert.equal(sanitizeContainerName("moroine/agent-forge"), "agent-moroine-agent-forge");
-  assert.equal(sanitizeContainerName("Moroine/Agent-Forge"), "agent-moroine-agent-forge");
+  assert.equal(sanitizeContainerName("alice/project"), "agent-alice-project");
+  assert.equal(sanitizeContainerName("Alice/Project"), "agent-alice-project");
   assert.equal(sanitizeContainerName("my.org/my.repo"), "agent-my-org-my-repo");
 });
 

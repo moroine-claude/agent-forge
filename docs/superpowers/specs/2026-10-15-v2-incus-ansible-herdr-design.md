@@ -11,9 +11,9 @@ Ubuntu 24.04 host. It works, but it cannot be shared:
 
 - Host setup is a sequence of manual README steps (sshd, UFW, fail2ban, LXD
   snap, an LXD profile pasted by hand, keys).
-- It is hard-wired to one person: `/home/moroine` (`provision.ts`,
-  `forge-image.sh`), `AllowUsers moroine` (`config/sshd_config`), `uid 1000`
-  in the profile's `raw.idmap`, the bot's email, `omen` / `192.168.1.177` in
+- It is hard-wired to one person: `/home/<user>` (`provision.ts`,
+  `forge-image.sh`), `AllowUsers <user>` (`config/sshd_config`), `uid 1000`
+  in the profile's `raw.idmap`, the bot's email, the v1 server / `192.0.2.10` in
   the README.
 - Session management is home-grown (tmux inside the container, attached by
   `forge`).
@@ -69,7 +69,7 @@ can and lists the ones it cannot avoid.
 | Exposure | One playbook, `forge_exposure: public \| lan \| local` | Cloud VM, homelab, and local Lima VM share one recipe |
 | Container egress | Open by default with private ranges blocked; per-container opt-in domain allowlist | The default must stay usable (WebFetch, package installs); sensitive repos get a strict mode |
 | Local mode | Linux: directly on the dev machine. macOS: a local Lima VM provisioned by the same playbook | Linux is "better than nothing"; macOS becomes remote mode with a local VM |
-| Branching | v2 lives on a long-lived `next` branch; `main` stays v1 until release | omen keeps running v1, super mode included, to develop v2 |
+| Branching | v2 lives on a long-lived `next` branch; `main` stays v1 until release | The v1 server keeps running v1, super mode included, to develop v2 |
 
 ## Architecture
 
@@ -400,7 +400,7 @@ Sub-projects 1 and 2 can run in parallel.
 
 - `next` is branched from `main`; this spec is its first commit. v2 pull
   requests go from `agent/*` to `next`.
-- `main` stays v1 (LXD). omen keeps running it, super mode included, to
+- `main` stays v1 (LXD). The v1 server keeps running it, super mode included, to
   develop v2. v1 fixes keep landing on `main`, and `main` is merged into
   `next` regularly (agents may already `git merge origin/main`).
 - **Prerequisite pull request on `main`**, because v1 assumes `main`
@@ -413,9 +413,9 @@ Sub-projects 1 and 2 can run in parallel.
     `origin/next`. No code change.
 - v2 tests cannot run inside a v1 super container: it embeds a nested LXD, not
   Incus, and a VM cannot run inside a container. Playbook tests run on a
-  throwaway VM (Lima on the Mac, or an LXD VM on omen); runtime tests run on a
+  throwaway VM (Lima on the Mac, or an LXD VM on the v1 server); runtime tests run on a
   test Incus.
-- Release: a pull request from `next` to `main`, merged by the user. Then omen
+- Release: a pull request from `next` to `main`, merged by the user. Then the v1 server
   migrates: first retrieve every unpushed supervised branch from
   `~/workspaces` (the only copy), then reinstall on 26.04 (or provision a new
   VM) and apply the playbook.

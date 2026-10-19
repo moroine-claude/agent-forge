@@ -29,7 +29,7 @@ belongs to `forge setup` (sub-project 2). The only place this playbook touches
 Incus internals is a smoke test in `verify.yml`, which creates and deletes a
 throwaway project.
 
-**Target.** A fresh Ubuntu 26.04 machine, **VM or bare metal**. omen, today a
+**Target.** A fresh Ubuntu 26.04 machine, **VM or bare metal**. The v1 server, today a
 hand-configured v1 host, is meant to be reinstalled and provisioned by this
 playbook when v2 ships. So the playbook assumes nothing from cloud-init, and it
 detects the external interface, WiFi included, unless it is given one.
@@ -52,7 +52,7 @@ README setup steps stay as they are until sub-project 5 rewrites the README.
 | sudo-rs and uutils | Tested as shipped: the verification asserts they are active, then the full run, idempotence and reboot checks pass on the stock image | A test that silently ran on GNU coreutils or C sudo would prove nothing |
 | Claude Code on the host | Anthropic's signed apt repository, `stable` channel | System-wide, signature-checked, updated by unattended-upgrades; no `curl \| bash` per user |
 | Ansible on the host | Ubuntu's `ansible` package | It bundles community.general 12.1, whose `incus` connection plugin `forge image build` needs (≥ 8.2). No `ansible-galaxy` at runtime |
-| Throwaway test VM | `ansible/tests/vm-test.sh`, in one of two modes: `--host`, against an existing fresh VM (a cloud VM) from the developer's machine; or, by default, a VM it creates on an LXD/Incus host with KVM (omen) | omen stopped being reachable during implementation, and most cloud VMs have no nested KVM, so `--host` makes the cloud VM itself the throwaway target. On omen, Ansible runs on omen itself: its sshd forbids TCP forwarding |
+| Throwaway test VM | `ansible/tests/vm-test.sh`, in one of two modes: `--host`, against an existing fresh VM (a cloud VM) from the developer's machine; or, by default, a VM it creates on an LXD/Incus host with KVM (the v1 server) | The v1 server stopped being reachable during implementation, and most cloud VMs have no nested KVM, so `--host` makes the cloud VM itself the throwaway target. On the v1 server, Ansible runs on the v1 server itself: its sshd forbids TCP forwarding |
 | CI | GitHub Actions on `ubuntu-26.04`: `npm test`, `npm run check`, `ansible-lint` (profile `production`), and the playbook's controller-only unit tests. No VM in CI | Light, fast, no secrets |
 
 ## Repository layout
@@ -66,7 +66,7 @@ ansible/
   roles/
     base/  hardening/  firewall/  fail2ban/  incus/  forge_users/
   tests/
-    vm-test.sh             # throwaway VM on an LXD/Incus host (omen)
+    vm-test.sh             # throwaway VM on an LXD/Incus host (the v1 server)
     verify.yml             # assertions run against the provisioned host
 .ansible-lint              # profile: production; lints all of ansible/
 .github/workflows/ci.yml
@@ -83,7 +83,7 @@ play itself.
 ## Running the playbook
 
 From a git checkout of the repository, on the controller (the developer's
-machine, or omen for the VM test):
+machine, or the v1 server for the VM test):
 
 ```bash
 ansible-galaxy collection install -r ansible/requirements.yml
@@ -218,7 +218,7 @@ comment in the role's vars stating why.
 |---|---|---|---|
 | `net.ipv4.ip_forward` | 0 | **1** | Incus's NAT bridge routes container traffic |
 | `kernel.unprivileged_userns_clone` | 0 (Ubuntu vars) | **1** | With 0, an unprivileged user inside a container cannot create a nested user namespace: Chrome's sandbox and rootless Docker break |
-| `kernel.apparmor_restrict_unprivileged_userns` | not set (Ubuntu: 1) | **0** | Same breakage, from Ubuntu's AppArmor mediation (spike, point 6). v1 already runs with 0 on omen: the LXD snap sets it host-wide at each start. Incus does not |
+| `kernel.apparmor_restrict_unprivileged_userns` | not set (Ubuntu: 1) | **0** | Same breakage, from Ubuntu's AppArmor mediation (spike, point 6). v1 already runs with 0 on the v1 server: the LXD snap sets it host-wide at each start. Incus does not |
 | `kernel.yama.ptrace_scope` | 2 (since 10.6.0) | **1** | 1 is Ubuntu's default. With 2, and with `sys_ptrace` dropped from containers, `strace` and `gdb` stop working inside containers, even on the agent's own processes |
 
 Also `ufw_manage_defaults: false`, since UFW is not used.
@@ -474,8 +474,8 @@ conventions), run by the user. Two targets:
   already provisioned (sshd on 2222, or `/opt/agent-forge` present). The user
   rebuilds the VM before each run and destroys it afterwards.
 - **By default**: a VM that the script creates and deletes on the LXD or Incus
-  host with KVM it runs on (omen), from a dedicated clone of `next` kept apart
-  from the v1 clone. A v1 agent container can neither reach omen's LXD nor run
+  host with KVM it runs on (the v1 server), from a dedicated clone of `next` kept apart
+  from the v1 clone. A v1 agent container can neither reach the v1 server's LXD nor run
   a VM.
 
 Options: `--exposure public|lan|local` (default `public`), `--keep`.
@@ -485,7 +485,7 @@ existing machine (its admin key copied into the temporary directory), and the
 reboot in step 8 goes through `sudo systemctl reboot` over SSH.
 
 1. **Preconditions.** `lxc` or `incus` is present and `/dev/kvm` exists.
-   `ansible-playbook` ≥ 2.20 is on PATH; on omen's Ubuntu 24.04 that means
+   `ansible-playbook` ≥ 2.20 is on PATH; on the v1 server's Ubuntu 24.04 that means
    `pipx install ansible-core`, and the script prints that hint when the version
    is too old. Collections from `requirements.yml` go into a temporary
    `ANSIBLE_COLLECTIONS_PATH`.
@@ -575,7 +575,7 @@ reboot in step 8 goes through `sudo systemctl reboot` over SSH.
 
 A passing `vm-test.sh` run (`--exposure public`) is required before a
 sub-project 1 pull request is merged into `next`; its summary goes in the PR
-description. The architecture covered is the test VM's: amd64 on omen or an
+description. The architecture covered is the test VM's: amd64 on the v1 server or an
 amd64 cloud VM. arm64 is covered by an arm64 cloud VM, or when sub-project 5
 provisions a Lima VM on the Mac with the same playbook.
 
@@ -607,7 +607,7 @@ Deltas to the framing spec's security model, all approved in brainstorming:
   `kernel.unprivileged_userns_clone=1` loosen Ubuntu host mitigations. On a
   single-user VM where the forge user is already root-equivalent
   (`incus-admin`), the marginal cost is low, and the container stays the
-  boundary. v1 on omen has run with the first one at 0 all along, through the
+  boundary. The v1 server has run with the first one at 0 all along, through the
   LXD snap.
 - **ptrace.** `kernel.yama.ptrace_scope=1` (Ubuntu's default) instead of devsec's
   2.
@@ -625,7 +625,7 @@ Deltas to the framing spec's security model, all approved in brainstorming:
 2. **devsec issue #941** (`ssh.socket` masked): worked around by a pre-task only
    if `vm-test.sh` hits it on 26.04.
 3. **become with a sudo password** is documented (`sudo.ws`) but not covered by
-   `vm-test.sh`, which uses the cloud image's passwordless `ubuntu`. omen's
+   `vm-test.sh`, which uses the cloud image's passwordless `ubuntu`. The v1 server's
    bare-metal migration will exercise it. It disappears with ansible-core 2.22.
 4. **arm64** is not covered by the VM test until sub-project 5 (Lima on the Mac).
 
@@ -644,4 +644,4 @@ Recorded here; the framing document is not edited.
   applies whenever set, not only with `public`.
 - "Host → Roles → `firewall`": essential ICMP accepted; forwarding from the
   external interface to the bridge limited to return traffic.
-- "Host → Tests": the throwaway VM is a fresh cloud VM tested with `--host`, or an LXD VM on omen.
+- "Host → Tests": the throwaway VM is a fresh cloud VM tested with `--host`, or an LXD VM on the v1 server.

@@ -360,22 +360,22 @@ echo "Creating container $CONTAINER..."
 lxc launch agent-base "$CONTAINER" --profile agent
 
 echo "Mounting workspace..."
-if [ ! -d "/home/moroine/workspaces/$PROJECT" ]; then
-  mkdir -p "/home/moroine/workspaces/$PROJECT"
-  sudo chown 1001001:1001001 "/home/moroine/workspaces/$PROJECT"
-  chmod 750 "/home/moroine/workspaces/$PROJECT"
+if [ ! -d "/home/<user>/workspaces/$PROJECT" ]; then
+  mkdir -p "/home/<user>/workspaces/$PROJECT"
+  sudo chown 1001001:1001001 "/home/<user>/workspaces/$PROJECT"
+  chmod 750 "/home/<user>/workspaces/$PROJECT"
 fi
 lxc config device add "$CONTAINER" workspace disk \
-  source="/home/moroine/workspaces/$PROJECT" \
+  source="/home/<user>/workspaces/$PROJECT" \
   path=/workspace
 
 echo "Copying signing key..."
-lxc file push /home/moroine/.ssh/github_agents_signing "$CONTAINER"/home/aiuser/.ssh/id_ed25519_signing --uid 1001 --gid 1001 --mode 600
+lxc file push /home/<user>/.ssh/github_agents_signing "$CONTAINER"/home/aiuser/.ssh/id_ed25519_signing --uid 1001 --gid 1001 --mode 600
 
 echo "Configuring git..."
 lxc exec "$CONTAINER" -- su - aiuser -c "
 git config --global user.name 'Claude Agent'
-git config --global user.email 'moroine-claude@users.noreply.github.com'
+git config --global user.email '<bot>@users.noreply.github.com'
 git config --global gpg.format ssh
 git config --global user.signingkey /home/aiuser/.ssh/id_ed25519_signing
 git config --global commit.gpgsign true
@@ -644,7 +644,7 @@ git commit -m "docs: document autonomous git mode setup and workflow"
 
 ---
 
-### Task 6: Server verification (manual — run by Moroine on the LXD host, not by an agent)
+### Task 6: Server verification (manual — run by the maintainer on the LXD host, not by an agent)
 
 **Files:** none (verification only)
 
