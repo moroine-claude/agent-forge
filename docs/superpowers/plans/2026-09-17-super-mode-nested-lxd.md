@@ -741,7 +741,7 @@ Insert a section after the `## Docker` block (after line 32):
 
 - [ ] **Step 6: Explain super mode in the repo `CLAUDE.md`**
 
-Add to `/home/moroine/agent-forge/CLAUDE.md`, in the Conventions/Git area (after the autonomous-mode paragraph), a short block:
+Add to `/home/<user>/agent-forge/CLAUDE.md`, in the Conventions/Git area (after the autonomous-mode paragraph), a short block:
 
 ```markdown
 ### Mode super (self-hosting)

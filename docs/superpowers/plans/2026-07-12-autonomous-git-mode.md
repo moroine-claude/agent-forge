@@ -311,7 +311,7 @@ git commit -m "feat: block gh pr merge, gh api and gh repo in pre-bash hook"
 - Test: `bash -n scripts/new-agent-container.sh` (syntax only — `lxc` does not exist on the laptop; behavior is verified on the server in Task 6)
 
 **Interfaces:**
-- Consumes: `.claude/hooks/pre-bash.sh` and `config/claude-container-settings.json` (pushed into the container unchanged, from the repo checked out at `/home/moroine/agent-forge` on the server); `gh` CLI present in the `agent-base` image (README Task 5 adds it to the base-image build).
+- Consumes: `.claude/hooks/pre-bash.sh` and `config/claude-container-settings.json` (pushed into the container unchanged, from the repo checked out at `/home/<user>/agent-forge` on the server); `gh` CLI present in the `agent-base` image (README Task 5 adds it to the base-image build).
 - Produces: usage `new-agent-container.sh <project-name> <owner/repo>`; a container named `agent-<project-name>` with `/workspace` cloned from `https://github.com/<owner/repo>.git` on branch `agent/<project-name>`, `gh` authenticated with the bot PAT and `gh auth setup-git` done. README (Task 5) documents this exact usage.
 
 Changes vs the current script, for review orientation:
@@ -360,22 +360,22 @@ echo "Creating container $CONTAINER..."
 lxc launch agent-base "$CONTAINER" --profile agent
 
 echo "Mounting workspace..."
-if [ ! -d "/home/moroine/workspaces/$PROJECT" ]; then
-  mkdir -p "/home/moroine/workspaces/$PROJECT"
-  sudo chown 1001001:1001001 "/home/moroine/workspaces/$PROJECT"
-  chmod 750 "/home/moroine/workspaces/$PROJECT"
+if [ ! -d "/home/<user>/workspaces/$PROJECT" ]; then
+  mkdir -p "/home/<user>/workspaces/$PROJECT"
+  sudo chown 1001001:1001001 "/home/<user>/workspaces/$PROJECT"
+  chmod 750 "/home/<user>/workspaces/$PROJECT"
 fi
 lxc config device add "$CONTAINER" workspace disk \
-  source="/home/moroine/workspaces/$PROJECT" \
+  source="/home/<user>/workspaces/$PROJECT" \
   path=/workspace
 
 echo "Copying signing key..."
-lxc file push /home/moroine/.ssh/github_agents_signing "$CONTAINER"/home/aiuser/.ssh/id_ed25519_signing --uid 1001 --gid 1001 --mode 600
+lxc file push /home/<user>/.ssh/github_agents_signing "$CONTAINER"/home/aiuser/.ssh/id_ed25519_signing --uid 1001 --gid 1001 --mode 600
 
 echo "Configuring git..."
 lxc exec "$CONTAINER" -- su - aiuser -c "
 git config --global user.name 'Claude Agent'
-git config --global user.email 'moroine-claude@users.noreply.github.com'
+git config --global user.email '<bot>@users.noreply.github.com'
 git config --global gpg.format ssh
 git config --global user.signingkey /home/aiuser/.ssh/id_ed25519_signing
 git config --global commit.gpgsign true
@@ -383,10 +383,10 @@ git config --global commit.gpgsign true
 
 echo "Installing Claude security hooks..."
 lxc exec "$CONTAINER" -- su - aiuser -c "mkdir -p /home/aiuser/.claude/hooks"
-lxc file push /home/moroine/agent-forge/.claude/hooks/pre-bash.sh \
+lxc file push /home/<user>/agent-forge/.claude/hooks/pre-bash.sh \
   "$CONTAINER"/home/aiuser/.claude/hooks/pre-bash.sh \
   --uid 1001 --gid 1001 --mode 755
-lxc file push /home/moroine/agent-forge/config/claude-container-settings.json \
+lxc file push /home/<user>/agent-forge/config/claude-container-settings.json \
   "$CONTAINER"/home/aiuser/.claude/settings.json \
   --uid 1001 --gid 1001 --mode 644
 
@@ -644,12 +644,12 @@ git commit -m "docs: document autonomous git mode setup and workflow"
 
 ---
 
-### Task 6: Server verification (manual — run by Moroine on the LXD host, not by an agent)
+### Task 6: Server verification (manual — run by the maintainer on the LXD host, not by an agent)
 
 **Files:** none (verification only)
 
 **Interfaces:**
-- Consumes: everything from Tasks 1-5, deployed on the server (pull the branch into `/home/moroine/agent-forge`), plus a scratch repo on GitHub with the bot invited as write collaborator, branch protection on `main`, and a fine-grained PAT per setup §6.
+- Consumes: everything from Tasks 1-5, deployed on the server (pull the branch into `/home/<user>/agent-forge`), plus a scratch repo on GitHub with the bot invited as write collaborator, branch protection on `main`, and a fine-grained PAT per setup §6.
 
 This task cannot run on the laptop. It is the spec's verification checklist, to run after the PR from Tasks 1-5 is reviewed:
 

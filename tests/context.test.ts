@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createContext, ForgeError } from "../scripts/lib/context.ts";
+import { createContext, ForgeError } from "../cli/lib/context.ts";
 
 test("exec captures stdout and the exit code", async () => {
   const r = await createContext().exec(["printf", "hello"]);
@@ -32,4 +32,38 @@ test("ForgeError carries only the message, without an Error: prefix", () => {
   const e = new ForgeError("no container found for x/y");
   assert.equal(e.message, "no container found for x/y");
   assert.ok(e instanceof Error);
+});
+
+test("exec passes extra environment variables", async () => {
+  const r = await createContext().exec(["sh", "-c", "printf %s \"$FORGE_T\""], { env: { FORGE_T: "ok" } });
+  assert.equal(r.stdout, "ok");
+});
+
+// Convention du shell : 128 + le numéro du signal. Un code 0 ferait croire à
+// git (upload-pack) qu'un processus tué a réussi.
+test("exec reports a child killed by a signal as 128 + the signal number", async () => {
+  const r = await createContext().exec(["sh", "-c", "kill -KILL $$"]);
+  assert.equal(r.code, 137);
+});
+
+test("attach reports a child killed by a signal as 128 + the signal number", async () => {
+  assert.equal(await createContext().attach(["sh", "-c", "kill -TERM $$"]), 143);
+});
+
+test("exec runs in the given working directory", async () => {
+  const r = await createContext().exec(["pwd"], { cwd: "/" });
+  assert.equal(r.stdout, "/\n");
+});
+
+test("exec merges extra variables into the inherited environment", async () => {
+  const before = process.env.FORGE_INHERITED;
+  process.env.FORGE_INHERITED = "yes";
+  try {
+    const r = await createContext().exec(
+      ["sh", "-c", "printf %s \"$FORGE_INHERITED/$FORGE_T\""], { env: { FORGE_T: "ok" } });
+    assert.equal(r.stdout, "yes/ok");
+  } finally {
+    if (before === undefined) delete process.env.FORGE_INHERITED;
+    else process.env.FORGE_INHERITED = before;
+  }
 });

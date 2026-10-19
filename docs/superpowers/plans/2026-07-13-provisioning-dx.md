@@ -16,7 +16,7 @@
 - Variables always quoted: `"$VAR"`, never `$VAR`.
 - Precondition checks at the top of scripts (verify a file/container/image exists before using it).
 - Never hardcode credentials, keys, or tokens. The Claude credential is pushed at container-creation time via `lxc file push`, **never written into the `agent-base` image**, never committed to this repo — same rule as the SSH signing key and the GitHub PAT.
-- File-path style: this script already hardcodes `/home/moroine/...` paths throughout (workspace dir, signing key, `agent-forge` checkout) rather than `$HOME` — new paths added in this plan follow the same convention for consistency.
+- File-path style: this script already hardcodes `/home/<user>/...` paths throughout (workspace dir, signing key, `agent-forge` checkout) rather than `$HOME` — new paths added in this plan follow the same convention for consistency.
 - This repo is edited from inside an agent container that has no `lxc` binary and no LXD host to talk to. Nothing involving `lxc` can be executed while implementing this plan. Locally testable: `bash -n` syntax checks, JSON structural checks (`python3 -m json.tool` / reading specific keys), and grep-based structural/ordering assertions on the scripts' *text*. Everything else is verified on the real server (Task 6, manual, not run by the implementing agent).
 - **This container's own `pre-bash.sh` hook blocks the standalone word `sudo`** (bounded by whitespace or line start/end) in any command passed to the Bash tool — including inside a `git commit -m` message, which is how the previous session's design-doc commit got blocked. Avoid the bare word `sudo` in any command you actually *run* (commit messages, unquoted greps); it's fine to write the word inside file *content* via Edit/Write (e.g., in README prose), since that never goes through the hook as a command.
 - Commit messages: conventional (`feat:`, `fix:`, `chore:`, `docs:`), auto-signed, one commit per task.
@@ -117,13 +117,13 @@ In `scripts/new-agent-container.sh`, replace lines 43-51:
 
 ```bash
 echo "Mounting workspace..."
-if [ ! -d "/home/moroine/workspaces/$PROJECT" ]; then
-  sudo mkdir -p "/home/moroine/workspaces/$PROJECT"
-  sudo chown 1001001:1001001 "/home/moroine/workspaces/$PROJECT"
-  sudo chmod 750 "/home/moroine/workspaces/$PROJECT"
+if [ ! -d "/home/<user>/workspaces/$PROJECT" ]; then
+  sudo mkdir -p "/home/<user>/workspaces/$PROJECT"
+  sudo chown 1001001:1001001 "/home/<user>/workspaces/$PROJECT"
+  sudo chmod 750 "/home/<user>/workspaces/$PROJECT"
 fi
 lxc config device add "$CONTAINER" workspace disk \
-  source="/home/moroine/workspaces/$PROJECT" \
+  source="/home/<user>/workspaces/$PROJECT" \
   path=/workspace
 ```
 
@@ -131,12 +131,12 @@ with:
 
 ```bash
 echo "Mounting workspace..."
-mkdir -p "/home/moroine/workspaces/$PROJECT"
+mkdir -p "/home/<user>/workspaces/$PROJECT"
 # shift=true : idmap shifting LXD — le dossier reste possédé par l'utilisateur
 # hôte courant, pas besoin de chown vers l'UID mappé du container (1001001).
 # Scopé à ce seul point de montage, n'ouvre aucun accès host plus large.
 lxc config device add "$CONTAINER" workspace disk \
-  source="/home/moroine/workspaces/$PROJECT" \
+  source="/home/<user>/workspaces/$PROJECT" \
   path=/workspace \
   shift=true
 ```
@@ -272,15 +272,15 @@ In `scripts/new-agent-container.sh`, insert this block right after the git-confi
 
 ```bash
 echo "Reusing Claude Code credentials from host..."
-if [ ! -f "/home/moroine/.claude/.credentials.json" ]; then
-  echo "Error: /home/moroine/.claude/.credentials.json not found. Run 'claude auth login' on the host first."
+if [ ! -f "/home/<user>/.claude/.credentials.json" ]; then
+  echo "Error: /home/<user>/.claude/.credentials.json not found. Run 'claude auth login' on the host first."
   exit 1
 fi
 lxc exec "$CONTAINER" -- mkdir -p /home/aiuser/.claude
-lxc file push /home/moroine/.claude/.credentials.json "$CONTAINER"/home/aiuser/.claude/.credentials.json --uid 1001 --gid 1001 --mode 600
+lxc file push /home/<user>/.claude/.credentials.json "$CONTAINER"/home/aiuser/.claude/.credentials.json --uid 1001 --gid 1001 --mode 600
 
 echo "Pre-accepting Claude Code onboarding..."
-lxc file push /home/moroine/agent-forge/config/claude-onboarding-state.json "$CONTAINER"/home/aiuser/.claude.json --uid 1001 --gid 1001 --mode 600
+lxc file push /home/<user>/agent-forge/config/claude-onboarding-state.json "$CONTAINER"/home/aiuser/.claude.json --uid 1001 --gid 1001 --mode 600
 ```
 
 This must land *before* the existing "Installing Claude plugins..." step (`scripts/new-agent-container.sh:68-69` today) so that step runs authenticated.
@@ -630,18 +630,18 @@ EOF
 
 ---
 
-### Task 6: Server verification (manual — run by Moroine on the LXD host, not by an agent)
+### Task 6: Server verification (manual — run by the maintainer on the LXD host, not by an agent)
 
 **Files:** none (verification only)
 
 **Interfaces:**
-- Consumes: everything from Tasks 1-5, deployed on the server (pull the branch into `/home/moroine/agent-forge`), plus an existing `agent-base` image and a host already authenticated with `claude auth login`.
+- Consumes: everything from Tasks 1-5, deployed on the server (pull the branch into `/home/<user>/agent-forge`), plus an existing `agent-base` image and a host already authenticated with `claude auth login`.
 
 This task cannot run from inside an agent container. It is the spec's verification checklist, to run after the PR from Tasks 1-5 is reviewed and merged:
 
-- [ ] **1. No elevated privileges needed:** run `./scripts/new-agent-container.sh test-project <owner>/<scratch-repo>` end to end. Confirm no privilege-escalation prompt appears during the workspace-mount step, and that `/home/moroine/workspaces/test-project` is owned by `moroine` on the host (readable/editable directly, no privilege escalation needed).
+- [ ] **1. No elevated privileges needed:** run `./scripts/new-agent-container.sh test-project <owner>/<scratch-repo>` end to end. Confirm no privilege-escalation prompt appears during the workspace-mount step, and that `/home/<user>/workspaces/test-project` is owned by `<user>` on the host (readable/editable directly, no privilege escalation needed).
 - [ ] **2. No onboarding questions:** run `./scripts/start-agent.sh test-project`. Confirm `claude` launches straight into a session — no theme selection, no "trust this folder" prompt, no Remote Control pairing QR/URL.
 - [ ] **3. Plugin already active:** inside that session, confirm `superpowers` is available (e.g. a `superpowers:*` skill can be invoked) without running `/plugin install` manually.
 - [ ] **4. Auto mode is in effect:** inside that session, ask Claude to print the contents of `~/.claude/.credentials.json`. Confirm the auto-mode classifier stops the action (a block message referencing credential exposure), proving `--permission-mode auto` is active and not `--dangerously-skip-permissions`.
 - [ ] **5. Existing behavior unchanged:** confirm the rest of the provisioning flow still works — signing key present, git configured, `gh` PAT prompt appears, repo clones, branch `agent/test-project` is created, and `pre-bash.sh`'s existing git-push/`gh` blocks still fire (spot-check one, e.g. `git push origin main` → `BLOCKED`).
-- [ ] **6. Cleanup:** `lxc delete agent-test-project --force` and remove `/home/moroine/workspaces/test-project` once satisfied.
+- [ ] **6. Cleanup:** `lxc delete agent-test-project --force` and remove `/home/<user>/workspaces/test-project` once satisfied.

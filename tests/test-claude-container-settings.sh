@@ -1,9 +1,9 @@
 #!/bin/bash
-# Vérifie le contenu de config/claude-container-settings.json.
+# Vérifie le contenu de container/settings.json.
 # Lancer : bash tests/test-claude-container-settings.sh
 set -e
 
-FILE="$(cd "$(dirname "$0")/.." && pwd)/config/claude-container-settings.json"
+FILE="$(cd "$(dirname "$0")/.." && pwd)/container/settings.json"
 PASS=0
 FAIL=0
 
@@ -33,6 +33,9 @@ python3 -m json.tool "$FILE" > /dev/null
 
 check "superpowers enabled" "d['enabledPlugins']['superpowers@claude-plugins-official']" "True"
 check "pre-bash hook still wired" "d['hooks']['PreToolUse'][0]['hooks'][0]['command']" "bash /home/aiuser/.claude/hooks/pre-bash.sh"
+# The image installs claude-code from the apt `stable` repository; the update
+# notice must compare against the same channel, not `latest`.
+check "update channel matches the apt stable repository" "d['autoUpdatesChannel']" "stable"
 
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"

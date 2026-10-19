@@ -1,16 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fakeContext } from "./lib/fake-context.ts";
-import { resolveRepo, resolveTask } from "../scripts/lib/commands/resolve.ts";
+import { resolveRepo, resolveTask } from "../cli/lib/commands/resolve.ts";
 
 const LIST = JSON.stringify([
-  { name: "agent-moroine-agent-forge", status: "Running" },
+  { name: "agent-alice-project", status: "Running" },
   { name: "agent-acme-widgets", status: "Running" },
 ]);
 const RULES = [
-  { match: "agent-moroine-agent-forge user.forge.repo", stdout: "moroine/agent-forge" },
+  { match: "agent-alice-project user.forge.repo", stdout: "alice/project" },
   { match: "agent-acme-widgets user.forge.repo", stdout: "acme/widgets" },
-  { match: "lxc list", stdout: LIST },
+  { match: "incus --project agent-forge list", stdout: LIST },
   { match: "git worktree list", stdout: "worktree /workspace\nworktree /workspace/.trees/cli\nworktree /workspace/.trees/docs\n" },
 ];
 
@@ -31,18 +31,18 @@ test("resolveRepo throws the usage when it cannot ask", async () => {
 });
 
 test("resolveRepo explains when no container exists at all", async () => {
-  const c = fakeContext({ rules: [{ match: "lxc list", stdout: "[]" }] });
+  const c = fakeContext({ rules: [{ match: "incus --project agent-forge list", stdout: "[]" }] });
   await assert.rejects(() => resolveRepo(c, undefined, "usage"), /no forge container yet/);
 });
 
 test("a missing task is picked from the existing worktrees", async () => {
   const c = fakeContext({ rules: RULES, answers: [1] });
-  assert.equal(await resolveTask(c, "agent-moroine-agent-forge", undefined, "usage"), "cli");
+  assert.equal(await resolveTask(c, "agent-alice-project", undefined, "usage"), "cli");
 });
 
 test("resolveTask refuses on a stopped container with a clear reason", async () => {
   const c = fakeContext({
-    rules: [{ match: "lxc list", stdout: JSON.stringify([{ name: "agent-x", status: "Stopped" }]) }],
+    rules: [{ match: "incus --project agent-forge list", stdout: JSON.stringify([{ name: "agent-x", status: "Stopped" }]) }],
   });
   await assert.rejects(() => resolveTask(c, "agent-x", undefined, "usage"), /stopped/);
 });
@@ -50,7 +50,7 @@ test("resolveTask refuses on a stopped container with a clear reason", async () 
 test("resolveTask explains when the container has no worktree", async () => {
   const c = fakeContext({
     rules: [
-      { match: "lxc list", stdout: JSON.stringify([{ name: "agent-x", status: "Running" }]) },
+      { match: "incus --project agent-forge list", stdout: JSON.stringify([{ name: "agent-x", status: "Running" }]) },
       { match: "git worktree list", stdout: "worktree /workspace\n" },
     ],
   });

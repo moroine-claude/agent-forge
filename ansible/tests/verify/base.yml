@@ -1,0 +1,58 @@
+---
+- name: Read apt's configuration
+  ansible.builtin.command:
+    cmd: apt-config dump
+  register: verify_apt_config
+  changed_when: false
+
+- name: Check unattended-upgrades runs and covers the added repositories
+  ansible.builtin.assert:
+    that:
+      - verify_apt_config.stdout is search('APT::Periodic::Unattended-Upgrade "1";')
+      - verify_apt_config.stdout is search('site=pkgs.zabbly.com')
+      - verify_apt_config.stdout is search('site=deb.nodesource.com')
+      - verify_apt_config.stdout is search('site=downloads.claude.ai')
+      - verify_apt_config.stdout is search('Unattended-Upgrade::Automatic-Reboot "false";')
+
+# systemd_service cannot report a unit's masked state.
+- name: Read the sleep targets' state  # noqa: command-instead-of-module
+  ansible.builtin.command:
+    cmd: systemctl is-enabled sleep.target suspend.target hibernate.target hybrid-sleep.target
+  register: verify_sleep
+  changed_when: false
+  failed_when: false
+
+- name: Read the default boot target
+  ansible.builtin.command:
+    cmd: systemctl get-default
+  register: verify_default_target
+  changed_when: false
+
+- name: Read whether time synchronisation is on
+  ansible.builtin.command:
+    cmd: timedatectl show --property=NTP --value
+  register: verify_ntp
+  changed_when: false
+
+- name: Look for the persistent journal
+  ansible.builtin.stat:
+    path: /var/log/journal
+  register: verify_journal_dir
+
+- name: Read the cloud-init drop-in that keeps the host keys
+  ansible.builtin.slurp:
+    src: /etc/cloud/cloud.cfg.d/99-agent-forge-keep-host-keys.cfg
+  register: verify_keep_keys
+
+- name: Check cloud-init keeps the host keys
+  ansible.builtin.assert:
+    that:
+      - "(verify_keep_keys.content | b64decode | from_yaml) == {'ssh_deletekeys': false}"
+
+- name: Check the host is headless, keeps its journal and syncs its clock
+  ansible.builtin.assert:
+    that:
+      - verify_sleep.stdout_lines == ['masked', 'masked', 'masked', 'masked']
+      - verify_default_target.stdout == 'multi-user.target'
+      - verify_ntp.stdout == 'yes'
+      - verify_journal_dir.stat.isdir | default(false)

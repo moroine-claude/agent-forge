@@ -1,0 +1,18 @@
+#!/bin/bash
+# Le type-stripping de Node se déclenche sur l'extension .ts : un fichier nommé
+# `forge` ne serait pas traité. Ce shim garde donc la commande inchangée.
+#
+# Le type-stripping n'existe qu'à partir de Node 24 : sans ce garde-fou,
+# l'opérateur sur une version plus ancienne reçoit une SyntaxError brute sur
+# les annotations de type, au lieu d'un message qui dit quoi faire.
+version="$(node -v 2>/dev/null)" || { echo "forge requires Node 24+ (node not found)" >&2; exit 1; }
+major="${version#v}"
+major="${major%%.*}"
+if ! [ "$major" -ge 24 ] 2>/dev/null; then
+  echo "forge requires Node 24+ (found $version)" >&2
+  exit 1
+fi
+# Chemin d'invocation stable pour herdr (il le tape dans ses onglets), contrairement
+# au chemin résolu par readlink, qui change à chaque release.
+export FORGE_INVOKED_AS="${BASH_SOURCE[0]}"
+exec node "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/forge.ts" "$@"

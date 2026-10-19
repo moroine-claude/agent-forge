@@ -1,10 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fakeContext } from "./lib/fake-context.ts";
-import { cmdList } from "../scripts/lib/commands/list.ts";
+import { assertNoHostGitIn } from "./lib/host-git.ts";
+import { cmdList } from "../cli/lib/commands/list.ts";
 
 const LIST = JSON.stringify([
-  { name: "agent-moroine-agent-forge", status: "Running" },
+  { name: "agent-alice-project", status: "Running" },
   { name: "agent-acme-super-long-repository-name", status: "Stopped" },
 ]);
 
@@ -12,43 +13,43 @@ function ctx() {
   return fakeContext({
     rules: [
       { match: "image get-property", stdout: "bbbb2222" },
-      { match: "agent-moroine-agent-forge user.forge.image_commit", stdout: "aaaa1111" },
-      { match: "agent-moroine-agent-forge user.forge.repo", stdout: "moroine/agent-forge" },
-      { match: "agent-moroine-agent-forge user.forge.mode", stdout: "autonomous" },
+      { match: "agent-alice-project user.forge.image_commit", stdout: "aaaa1111" },
+      { match: "agent-alice-project user.forge.repo", stdout: "alice/project" },
+      { match: "agent-alice-project user.forge.mode", stdout: "autonomous" },
       { match: "agent-acme-super-long-repository-name user.forge.image_commit", stdout: "bbbb2222" },
       { match: "agent-acme-super-long-repository-name user.forge.repo", stdout: "acme/super-long-repository-name" },
       { match: "agent-acme-super-long-repository-name user.forge.mode", stdout: "supervised" },
-      { match: "lxc list", stdout: LIST },
+      { match: "incus --project agent-forge list", stdout: LIST },
       { match: "git worktree list", stdout: "worktree /workspace\nworktree /workspace/.trees/cli\nworktree /workspace/.trees/docs\nworktree /workspace/.trees/api\n" },
-      { match: "list-sessions", stdout: "cli 1\ndocs 0\n" },
+      { match: "ps -u 1001 -o args=", stdout: "claude --permission-mode auto --remote-control agent-alice-project-cli\n" },
     ],
   });
 }
 
-test("the header names the four columns, repo first", async () => {
+test("the header names the five columns, repo first", async () => {
   const c = ctx();
   await cmdList(c);
-  assert.match(c.out_lines[0], /^REPO\s+MODE\s+STATE\s+BUILD$/);
+  assert.match(c.out_lines[0], /^REPO\s+MODE\s+EGRESS\s+STATE\s+BUILD$/);
 });
 
 test("a behind container is reported without the two sha", async () => {
   const c = ctx();
   await cmdList(c);
-  assert.match(c.out_lines[1], /^moroine\/agent-forge\s+autonomous\s+Running\s+behind$/);
+  assert.match(c.out_lines[1], /^alice\/project\s+autonomous\s+\?\s+Running\s+behind$/);
 });
 
-test("the three session states are distinguished", async () => {
+test("the two task states are distinguished", async () => {
   const c = ctx();
   await cmdList(c);
-  assert.match(c.out_lines[2], /^ {2}cli\s+attached$/);
-  assert.match(c.out_lines[3], /^ {2}docs\s+detached$/);
-  assert.match(c.out_lines[4], /^ {2}api\s+no session$/);
+  assert.match(c.out_lines[2], /^ {2}cli\s+running$/);
+  assert.match(c.out_lines[3], /^ {2}docs\s+stopped$/);
+  assert.match(c.out_lines[4], /^ {2}api\s+stopped$/);
 });
 
 test("a stopped container yields no task rows and is not inspected", async () => {
   const c = ctx();
   await cmdList(c);
-  assert.match(c.out_lines[5], /^acme\/super-long-repository-name\s+supervised\s+Stopped\s+ok$/);
+  assert.match(c.out_lines[5], /^acme\/super-long-repository-name\s+supervised\s+\?\s+Stopped\s+ok$/);
   assert.equal(c.out_lines.length, 6);
 });
 
@@ -61,9 +62,9 @@ test("a long repo name widens its column instead of shifting the others", async 
   // ne prouvait rien : un formatRow complétant un caractère de trop court le
   // passe (démontré sur table.test.ts, d'où la même approche par tranches).
   const rows = [
-    ["REPO", "MODE", "STATE", "BUILD"],
-    ["moroine/agent-forge", "autonomous", "Running", "behind"],
-    ["acme/super-long-repository-name", "supervised", "Stopped", "ok"],
+    ["REPO", "MODE", "EGRESS", "STATE", "BUILD"],
+    ["alice/project", "autonomous", "?", "Running", "behind"],
+    ["acme/super-long-repository-name", "supervised", "?", "Stopped", "ok"],
   ];
   const widths = rows[0].map((_, col) => Math.max(...rows.map((r) => r[col].length)));
   const lines = c.out_lines.filter((l) => !l.startsWith(" "));
@@ -79,10 +80,10 @@ test("a long repo name widens its column instead of shifting the others", async 
   }
 });
 
-test("forge list runs a single lxc list for the whole command", async () => {
+test("forge list runs a single incus list for the whole command", async () => {
   const c = ctx();
   await cmdList(c);
-  const listings = c.calls.filter((call) => call.join(" ") === "lxc list -f json");
+  const listings = c.calls.filter((call) => call.join(" ") === "incus --project agent-forge list -f json");
   assert.equal(listings.length, 1, `${listings.length} full listings instead of 1`);
 });
 
@@ -95,32 +96,42 @@ test("no line wraps an 80-column terminal", async () => {
 test("a container with no repo metadata falls back to its name", async () => {
   const c = fakeContext({
     rules: [
-      { match: "lxc list", stdout: JSON.stringify([{ name: "agent-orphan", status: "Stopped" }]) },
+      { match: "incus --project agent-forge list", stdout: JSON.stringify([{ name: "agent-orphan", status: "Stopped" }]) },
       { match: "image get-property", stdout: "" },
     ],
   });
   await cmdList(c);
-  assert.match(c.out_lines[1], /^agent-orphan\s+-\s+Stopped\s+unknown$/);
+  assert.match(c.out_lines[1], /^agent-orphan\s+-\s+\?\s+Stopped\s+unknown$/);
 });
 
-test("forge list compares a super container against agent-base-super", async () => {
-  const LIST_SUPER = JSON.stringify([{ name: "agent-o-r", status: "Running" }]);
+test("every container is compared against agent-base, read once", async () => {
+  const c = ctx();
+  await cmdList(c);
+  const reads = c.calls.filter((call) => call.join(" ").includes("image get-property"));
+  assert.deepEqual(reads.map((call) => call.slice(-2)), [["agent-base", "user.forge.commit"]]);
+});
+
+test("the EGRESS column comes from the effective NIC", async () => {
+  const nic = (acl: string, egress: string) => ({ eth0: { type: "nic", "security.acls": acl, "security.acls.default.egress.action": egress } });
   const c = fakeContext({
     rules: [
-      { match: "lxc list", stdout: LIST_SUPER },
-      // agent-base-super avant agent-base : "agent-base" est sous-chaîne de
-      // "agent-base-super", donc la règle la plus spécifique doit gagner.
-      { match: "image get-property agent-base-super", stdout: "SUPERSHA" },
-      { match: "image get-property agent-base", stdout: "BASESHA" },
-      { match: "agent-o-r user.forge.repo", stdout: "o/r" },
-      { match: "agent-o-r user.forge.mode", stdout: "super" },
-      { match: "agent-o-r user.forge.image_commit", stdout: "SUPERSHA" },
-      { match: "sessions", stdout: "" },
+      { match: "incus --project agent-forge list", stdout: JSON.stringify([
+        { name: "agent-a", status: "Stopped", expanded_devices: nic("forge-egress-strict", "reject") },
+        { name: "agent-b", status: "Stopped", expanded_devices: nic("forge-egress", "allow") },
+        { name: "agent-c", status: "Stopped", expanded_devices: nic("mine", "allow") },
+      ]) },
+      { match: "image get-property", stdout: "" },
     ],
   });
   await cmdList(c);
-  const row = c.out_lines.find((l) => l.includes("o/r"));
-  assert.ok(row, "super container row present");
-  assert.ok(row.includes("super"), "MODE column shows super");
-  assert.ok(row.includes("ok"), "BUILD is ok when stamp matches agent-base-super");
+  assert.match(c.out_lines[1], /^agent-a\s+-\s+strict\s+Stopped/);
+  assert.match(c.out_lines[2], /^agent-b\s+-\s+open\s+Stopped/);
+  assert.match(c.out_lines[3], /^agent-c\s+-\s+\?\s+Stopped/);
+});
+
+test("forge list runs no host git", async () => {
+  const c = ctx();
+  await cmdList(c);
+  assertNoHostGitIn(c.calls, "/workspace");
+  assert.ok(!c.calls.some((call) => call[0] === "git"));
 });

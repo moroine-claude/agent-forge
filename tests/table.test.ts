@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { columnWidths, formatRow } from "../scripts/lib/table.ts";
+import { columnWidths, formatRow } from "../cli/lib/table.ts";
 
 test("columnWidths takes the longest cell of each column", () => {
   assert.deepEqual(columnWidths([["a", "bbb"], ["cccc", "d"]]), [4, 3]);
@@ -23,7 +23,7 @@ test("formatRow applies an indent for nested rows", () => {
 test("a long value widens its own column instead of shifting the others", () => {
   const rows = [
     ["REPO", "MODE", "STATE", "BUILD"],
-    ["moroine/agent-forge", "autonomous", "Running", "behind"],
+    ["alice/project", "autonomous", "Running", "behind"],
     ["acme/super-long-repository-name", "supervised", "Stopped", "ok"],
   ];
   const w = columnWidths(rows);

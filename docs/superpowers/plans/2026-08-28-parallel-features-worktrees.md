@@ -16,7 +16,7 @@
 - **Only `git merge origin/main` is an allowed merge** anywhere the agent could run it — plan code never merges the other direction.
 - **All `git worktree` commands run inside the container** (`lxc exec "$container" -- su - aiuser -c "git -C /workspace worktree …"`), for path correctness. Never run `git worktree add` on the host mount directory.
 - **No hardcoded credentials.** Supervised containers have no `gh`/push credential inside them; anything requiring `origin` fetch is skipped there with a `[operator]`/note message, matching the retired `next-task` policy.
-- **`FORGE_REPO_DIR`** default: `/home/moroine/agent-forge` (the agent-forge checkout on the host, already used by `forge-start.sh` to push files). Overridable via env for tests.
+- **`FORGE_REPO_DIR`** default: `/home/<user>/agent-forge` (the agent-forge checkout on the host, already used by `forge-start.sh` to push files). Overridable via env for tests.
 - **Tests don't have `lxc`/`git`-against-a-real-repo available.** Follow the existing convention: pure-bash functions are tested by real execution (with `lxc()`/`git()` shell-function mocks where they shell out); everything else is verified structurally with `grep -qF` + `bash -n`.
 - **Worktree task names** reuse `validate_task_name` (already restricts to `[A-Za-z0-9._-]`), so they're safe to interpolate into `su -c` strings and into `.trees/<task>` paths.
 
@@ -54,7 +54,7 @@
 
 **Interfaces:**
 - Produces:
-  - `FORGE_REPO_DIR` — env-overridable constant, default `/home/moroine/agent-forge`.
+  - `FORGE_REPO_DIR` — env-overridable constant, default `/home/<user>/agent-forge`.
   - `worktree_relpath <task>` → prints `.trees/<task>` (pure).
   - `worktree_abspath <task>` → prints `/workspace/.trees/<task>` (pure).
   - `current_image_commit` → prints the `user.forge.commit` property of the `agent-base` image, empty if unset (calls `lxc`).
@@ -94,7 +94,7 @@ Append to `scripts/lib/forge-common.sh`:
 ```bash
 # Path of the agent-forge checkout on the host (used to read the commit an
 # image was built from). Overridable for tests.
-FORGE_REPO_DIR="${FORGE_REPO_DIR:-/home/moroine/agent-forge}"
+FORGE_REPO_DIR="${FORGE_REPO_DIR:-/home/<user>/agent-forge}"
 
 # Worktree paths for a task. Container-side: the main clone is /workspace and
 # every feature is a worktree under .trees/. worktree_relpath is what we pass

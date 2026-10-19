@@ -1,42 +1,98 @@
 # agent-forge — Instructions pour Claude
 
 ## Contexte
-Tu travailles sur `agent-forge`, un repo d'infrastructure pour déployer des agents Claude Code dans des containers LXD isolés sur un serveur Ubuntu dédié.
+Tu travailles sur `agent-forge`, un repo d'infrastructure pour faire tourner des agents Claude Code dans des containers Incus isolés, sur un hôte provisionné par Ansible : une VM distante (cloud ou LAN), ou une VM Lima locale sur la machine de dev (mode local, macOS ou Ubuntu).
+
+Ce fichier décrit la v2, portée par la branche `next` (voir « Branche `next` » plus bas) ; `main` reste la v1 (LXD) jusqu'à la sortie. Les cinq sous-projets de la v2 sont livrés : hôte Ansible, runtime Incus, mode strict (liste blanche de sortie), orchestration herdr, mode local et docs. Le `README.md` est le guide d'installation par mode (local Lima, distant).
 
 ## Stack
-- **Hôte** : Ubuntu 24.04, LXD, UFW, Fail2ban
-- **Containers** : Ubuntu 24.04, Node.js LTS, pnpm, Claude Code, Google Chrome headless
-- **User agent** : `aiuser` (no sudo, scoped to `/workspace`)
-- **Auth** : SSH Ed25519, YubiKey signing, GitHub Deploy Keys
+- **Hôte** : Ubuntu 26.04 LTS, Incus 7.0 LTS (dépôt Zabbly), nftables (table `inet forge_host`), fail2ban (sauf en `forge_exposure: local`) — provisionné par `ansible/site.yml`. En local, la VM vient du template Lima `ansible/lima/forge.yaml`
+- **Runtime Incus** : projet `agent-forge`, bridge `forgebr0`, ACL `forge-egress`, profil `agent-forge` ; pour le mode strict, le container `forge-proxy`, son profil, les ACL `forge-proxy` et `forge-egress-strict` — tous créés par `forge setup`
+- **Image** `agent-base` : `images:ubuntu/26.04`, Node.js 24, pnpm, Claude Code, Google Chrome headless + `chrome-devtools-mcp`, Docker rootless — construite par `forge image build`
+- **Orchestration** : herdr, client sur la machine de dev (`herdr --remote <hôte> --remote-keybindings server`), serveur sur l'hôte ; chaque tâche tourne dans un onglet herdr via `forge attach`
+- **CLI** : `forge`, en TypeScript exécuté par Node (`cli/`)
+- **User agent** : `aiuser` (UID/GID 1001, no sudo, scoped to `/workspace`)
+- **Auth** : une clé SSH (une clé matérielle par exemple), transmise à l'hôte par l'agent SSH ; aucune credential GitHub dans les containers (l'hôte clone et fetch avec l'agent SSH transmis)
 
 ## Périmètre
-- Scripts dans `scripts/`
-- Templates dans `templates/`
-- Config files dans `config/`
-- Documentation dans `README.md`
+- CLI dans `cli/` (`cli/forge`, `cli/forge.ts`, `cli/lib/`)
+- Fichiers poussés dans les containers dans `container/`
+- Playbooks, rôles et tests Ansible dans `ansible/`, template Lima dans `ansible/lima/`
+- Specs, plans et spikes dans `docs/superpowers/`
+- Documentation utilisateur dans `README.md` et `ansible/README.md`
 
 ## Conventions
 
 ### Git
-- Branche de travail : `agent/agent-forge`
-- Commits signés automatiquement
-- Messages conventionnels : `feat:`, `fix:`, `chore:`, `docs:`
-- Ne jamais toucher à `main` directement : jamais de `git checkout main`, jamais de push vers `main`, jamais de merger une PR toi-même
-- Les seules formes de `git merge` autorisées sont `git merge origin/main` et `git merge origin/next` (ou `--no-edit`), pour rafraîchir ta branche `agent/*` avec les derniers changements de sa base avant de pousser — `main` par défaut, `next` pour une tâche de la v2 partie de cette branche longue. Jamais l'inverse (merger ta branche vers sa base), jamais une autre branche/commit. C'est ce que `pre-bash.sh` autorise explicitement (tout le reste de `git merge` reste bloqué).
-- En mode autonome (permission-mode `auto` — que ce soit cette session ou un container provisionné par `forge start`) : push autorisé uniquement vers `agent/<branche>` (`git push -u origin agent/<branche>`), puis ouverture d'une PR avec `gh pr create --base main`. Jamais de merge automatique de la PR — elle est revue et mergée par un humain. C'est le même flux que le "Autonomous PR flow" documenté dans `README.md`.
-- En dehors du mode autonome (session interactive), demander confirmation avant tout push, même vers `agent/<branche>`
+- Branche de travail : `agent/<tâche>`, une par tâche.
+- Messages conventionnels : `feat:`, `fix:`, `chore:`, `docs:`, `test:`.
+- **Dans un container forge v2** (mode `supervised`, le seul de la v2) :
+  - tu commites sur `agent/<tâche>`. Les commits sont non signés et portent l'identité git de l'hôte ;
+  - tu ne pousses jamais et tu n'utilises jamais `gh` : `container/pre-bash.sh` les bloque. `origin` est un miroir en lecture seule (`/forge/origin.git`, rafraîchi par l'hôte à chaque `forge start`) : `git fetch origin` marche, `git push` non ;
+  - le mainteneur récupère ton travail depuis sa machine avec `forge upload-pack`, le relit, le re-signe, le pousse et ouvre la PR.
+- **Sur la machine de dev** (une session Claude Code dans ce repo, dont `.claude/settings.json` applique `container/pre-bash.sh`) :
+  - push uniquement vers `agent/<tâche>` : `git push -u origin agent/<tâche>` ;
+  - puis une PR vers la branche de base : `gh pr create --base next` pendant la v2, `--base main` après la sortie ;
+  - en mode `auto`, sans demander ; en session interactive, après confirmation, même vers `agent/<tâche>`.
+- Jamais : merger une PR toi-même, pousser vers `main` ou `next`, faire `git checkout main`.
+- La seule forme de `git merge` autorisée est `git merge origin/<base>` (ou `--no-edit`), pour rafraîchir ta branche `agent/*` depuis sa base avant de pousser — jamais l'inverse, jamais une autre branche. Sur `next`, `pre-bash.sh` n'accepte encore que `origin/main` : la règle `origin/next` est sur `main` (moroine/agent-forge#27) et arrivera quand un humain fusionnera `main` dans `next`.
+- Les règles du mode autonome des containers v1 (compte bot, PR ouverte depuis un container) restent sur `main`.
 
-### Mode super (self-hosting)
-`super` est un troisième mode container (à côté d'`autonomous`/`supervised`),
-sélectionnable au `forge start` via `[u]`. Il embarque un LXD imbriqué pour
-développer agent-forge depuis un container : `forge`, `lxc`, et les tests
-d'intégration réels tournent contre un LXD interne isolé de l'hôte. Côté git,
-`super` se comporte exactement comme `autonomous` (push `agent/*`, flux PR,
-jamais de merge par l'agent). Il s'appuie sur l'image `agent-base-super`
-(`forge image build super`) et le profil `agent-super`, qui restaure
-volontairement trois capabilities (`mac_admin`, `mac_override`, `sys_ptrace`)
-dont le LXD imbriqué a besoin — `security.privileged` reste `false`. Voir
-`docs/superpowers/specs/2026-09-17-super-mode-nested-lxd-design.md`.
+### Branche `next` (v2 en cours)
+Cette branche porte la v2 d'agent-forge (Incus, hôte Ansible, herdr — spec
+cadre `docs/superpowers/specs/2026-10-15-v2-incus-ansible-herdr-design.md`).
+`main` reste la v1 jusqu'à la sortie de la v2 ; la PR `next` → `main` de la
+sortie retire cette section.
+- Les tâches v2 partent de `next` (`forge start` → « other branch… » →
+  `origin/next`) : ta branche de base est `next`.
+- Les PR visent `next` : `gh pr create --base next`, jamais `--base main`.
+- `main` est fusionnée dans `next` régulièrement, par un humain.
+
+### Runtime v2
+Specs : `docs/superpowers/specs/2026-10-15-v2-runtime-design.md` (runtime),
+`docs/superpowers/specs/2026-10-15-v2-host-ansible-design.md` (hôte),
+`docs/superpowers/specs/2026-10-17-v2-egress-allowlist-design.md` (mode
+strict), `docs/superpowers/specs/2026-10-17-v2-orchestration-herdr-design.md`
+(herdr) et `docs/superpowers/specs/2026-10-18-v2-local-mode-docs-design.md`
+(mode local et docs).
+- Règle de frontière : Ansible ne configure jamais l'intérieur d'Incus, et
+  `forge` ne touche jamais l'OS hôte.
+- Le CLI appelle `incus --project agent-forge` ; le bridge et les ACL vivent
+  dans le projet `default`.
+- `forge setup` est idempotent : une fois par hôte, et de nouveau après un
+  changement de `~/.config/agent-forge/config.json` ou de
+  `~/.config/agent-forge/egress-allowlist`. Il avertit d'abord s'il tourne sur
+  une machine physique hors installation Ansible (aucune VM ne protège la
+  machine). Il vérifie en lecture seule le contrat hôte (pas root, firewall
+  nftables, sysctls userns, pool de stockage, `ip_forward`), converge les
+  objets Incus (ceux du mode strict seulement avec un Incus assez récent), puis
+  écrit son bloc de raccourcis dans la config herdr de l'utilisateur.
+- `forge image build` pilote le cycle de vie de l'image : instance
+  `forge-image-build`, publication sous `agent-base`, marquage
+  `user.forge.commit`. La configuration de l'instance est faite par Ansible,
+  `ansible/image.yml` (rôle `forge_image`), via la connexion
+  `community.general.incus`.
+- Containers `supervised` uniquement : pas de PAT, pas de `gh`, pas de clé de
+  signature, pas de compte bot. Les modes `autonomous` et `super` sont des
+  non-objectifs de la v2.0. Le concept de mode reste (marqueur
+  `~/.claude/forge-mode`, règles autonomous de `container/pre-bash.sh`).
+- Sortie réseau : ouverte par défaut (plages privées bloquées par
+  `forge-egress`) ; mode strict par container (`forge start --strict`,
+  `forge egress`), à travers `forge-proxy` et la liste blanche.
+- Les commits de l'agent portent l'identité git de l'hôte (`user.name` et
+  `user.email` du `git config --global` de l'utilisateur forge) et sont non
+  signés (`commit.gpgsign=false`). L'utilisateur les re-signe en publiant.
+- herdr remplace tmux : `forge start` ouvre ou montre l'onglet de la tâche,
+  `forge resume --all` relance les agents après un redémarrage du serveur
+  herdr. Hors herdr, l'agent tourne au premier plan, sans persistance.
+- Les tests unitaires tournent avec un faux `incus` et un faux herdr. Les tests
+  d'intégration réels (`FORGE_INTEGRATION=1`) demandent un Incus de test
+  jetable (une VM Lima ou une VM cloud) ; le playbook se teste avec
+  `ansible/tests/vm-test.sh` (`--host`, `--lima`, ou une VM sur un hôte
+  LXD/Incus avec KVM).
+
+Le mode super (LXD imbriqué, `[u]` au `forge start`, image `agent-base-super`,
+profil `agent-super`) n'existe que dans la v1, sur `main`.
 
 ### Scripts
 - Bash strict mode : `set -e` obligatoire
@@ -46,18 +102,19 @@ dont le LXD imbriqué a besoin — `security.privileged` reste `false`. Voir
 
 ### Sécurité
 - Ne jamais hardcoder de credentials, clés, tokens
-- Les clés SSH sont montées depuis l'hôte, jamais stockées dans l'image
-- UID mapping LXD : `aiuser` (1001 dans le container) = `1001001` sur l'hôte
-- Toute nouvelle règle UFW doit être justifiée en commentaire
+- Aucune valeur personnelle (nom, login, chemin, UID, identité, hôte, adresse) dans le repo — code, tests, docs — ni dans l'image : tout ce qui est personnel est injecté au `forge start` ou vit dans la config de l'utilisateur. Seule exception : l'adresse GitHub du projet et ses références de PR (`<owner>/agent-forge#N`), qui désignent le projet lui-même
+- Aucune clé SSH ni credential GitHub dans les containers ou dans l'image : l'hôte clone avec l'agent SSH de l'utilisateur
+- UID mapping : le `raw.idmap` du profil `agent-forge` est calculé par `forge setup` depuis l'UID/GID de l'utilisateur forge (`uid <uid> 1001`, `gid <gid> 1001`). Un fichier créé par `aiuser` dans `/workspace` appartient à l'utilisateur forge sur l'hôte. Aucun UID en dur ; `forge` refuse de tourner en root
+- Toute nouvelle règle nftables (rôle `firewall`, table `inet forge_host`) ou d'ACL Incus doit être justifiée en commentaire ; jamais de `flush ruleset`, qui effacerait les tables d'Incus
 
 ## Ce que tu peux faire
-- Modifier `scripts/forge` et `scripts/lib/forge-*.sh`
-- Mettre à jour le template `CLAUDE.md`
-- Mettre à jour `README.md`
-- Mettre à jour les config files
+- Modifier `cli/forge`, `cli/forge.ts` et `cli/lib/`
+- Mettre à jour le template `container/CLAUDE.md` et les fichiers de `container/`
+- Modifier les playbooks, rôles, tests et le template Lima de `ansible/`
+- Mettre à jour `README.md`, `ansible/README.md` et `docs/`
 
 ## Ce que tu ne dois pas faire
 - Modifier les clés SSH ou credentials
 - Changer l'architecture de sécurité sans validation explicite
-- Push sur `main`, ou merger une PR toi-même (même en mode autonome)
+- Push sur `main` ou `next`, ou merger une PR toi-même (même en mode autonome)
 - Exécuter des commandes sur le système hôte en dehors de `/workspace`

@@ -1,10 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ForgeError } from "../scripts/lib/context.ts";
-import { validateRepo, validateTaskName, validateGitRef, sanitizeContainerName } from "../scripts/lib/validate.ts";
+import { ForgeError } from "../cli/lib/context.ts";
+import { validateRepo, validateTaskName, validateGitRef, validateContainerName, sanitizeContainerName } from "../cli/lib/validate.ts";
 
 test("validateRepo accepts owner/repo and rejects anything else", () => {
-  validateRepo("moroine/agent-forge");
+  validateRepo("alice/project");
   validateRepo("my.org/my_repo-2");
   for (const bad of ["noslash", "a/b/c", "a b/c", "owner/", "/repo", "a;id/b"]) {
     assert.throws(() => validateRepo(bad), ForgeError, `should reject: ${bad}`);
@@ -32,7 +32,15 @@ test("the error message names the offending value", () => {
 });
 
 test("sanitizeContainerName lowercases and collapses non-charset runs", () => {
-  assert.equal(sanitizeContainerName("moroine/agent-forge"), "agent-moroine-agent-forge");
-  assert.equal(sanitizeContainerName("Moroine/Agent-Forge"), "agent-moroine-agent-forge");
+  assert.equal(sanitizeContainerName("alice/project"), "agent-alice-project");
+  assert.equal(sanitizeContainerName("Alice/My-Project"), "agent-alice-my-project");
   assert.equal(sanitizeContainerName("my.org/my.repo"), "agent-my-org-my-repo");
+});
+
+test("validateContainerName accepts agent-<name> and rejects anything else", () => {
+  validateContainerName("agent-o-r");
+  for (const bad of ["agent-x;id", "x", "agent-X", "agent-", ""]) {
+    assert.throws(() => validateContainerName(bad), ForgeError, `should reject: ${bad}`);
+  }
+  assert.throws(() => validateContainerName("agent-x;id"), /container must be agent-<name> with \[a-z0-9-\], got: agent-x;id/);
 });

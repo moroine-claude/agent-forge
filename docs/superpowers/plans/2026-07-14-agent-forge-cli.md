@@ -16,7 +16,7 @@
 - Variables always quoted: `"$VAR"`, never `$VAR`.
 - Precondition checks at the top of each subcommand function (container exists, image exists, credential file exists, etc.) before mutating anything.
 - Never hardcode credentials, keys, or tokens. The GitHub PAT is piped in and never written to host disk; the Claude credential is pushed from the host at provisioning time, never stored in the `agent-base` image or this repo.
-- File-path style: hardcoded `/home/moroine/...` paths (workspace dir, signing key, `agent-forge` checkout), matching the existing scripts — no `$HOME`.
+- File-path style: hardcoded `/home/<user>/...` paths (workspace dir, signing key, `agent-forge` checkout), matching the existing scripts — no `$HOME`.
 - No separate registry file. Container discovery and repo/mode lookup go through `lxc list -f json` + `lxc config get user.forge.*` exclusively (design spec §1) — do not introduce a JSON/YAML state file as a shortcut.
 - This repo is edited from inside an agent container with no `lxc` binary and no LXD host to talk to. Nothing involving `lxc` can be executed while implementing this plan. Locally testable: `bash -n` syntax checks, direct execution of pure-bash functions (`sanitize_container_name`, `validate_owner_repo` — no `lxc` call inside them), and grep-based structural/ordering assertions on script *text* for everything that does call `lxc`. Real end-to-end behavior is verified on the real server (Task 10, manual, not run by the implementing agent).
 - **This container's own `pre-bash.sh` hook blocks the standalone word `sudo`** (bounded by whitespace or line start/end) in any command passed to the Bash tool — including inside a `git commit -m` message. Avoid the bare word `sudo` in any command you actually *run*; it's fine inside file *content* written via Edit/Write.
@@ -388,8 +388,8 @@ cmd_forge_start() {
 _forge_provision_container() {
   local container="$1" owner_repo="$2" task_name="$3"
 
-  if [ ! -f "/home/moroine/.claude/.credentials.json" ]; then
-    echo "Error: /home/moroine/.claude/.credentials.json not found. Run 'claude auth login' on the host first." >&2
+  if [ ! -f "/home/<user>/.claude/.credentials.json" ]; then
+    echo "Error: /home/<user>/.claude/.credentials.json not found. Run 'claude auth login' on the host first." >&2
     return 1
   fi
   if ! lxc image info agent-base > /dev/null 2>&1; then
@@ -406,7 +406,7 @@ _forge_provision_container() {
   lxc exec "$container" -- rm -f /etc/sudoers.d/90-cloud-init-users
 
   echo "Mounting workspace..."
-  local workspace_dir="/home/moroine/workspaces/$container"
+  local workspace_dir="/home/<user>/workspaces/$container"
   mkdir -p "$workspace_dir"
   chmod 750 "$workspace_dir"
   # shift=true : idmap shifting LXD — le dossier reste possédé par l'utilisateur
@@ -417,12 +417,12 @@ _forge_provision_container() {
     shift=true
 
   echo "Copying signing key..."
-  lxc file push /home/moroine/.ssh/github_agents_signing "$container"/home/aiuser/.ssh/id_ed25519_signing --uid 1001 --gid 1001 --mode 600
+  lxc file push /home/<user>/.ssh/github_agents_signing "$container"/home/aiuser/.ssh/id_ed25519_signing --uid 1001 --gid 1001 --mode 600
 
   echo "Configuring git..."
   lxc exec "$container" -- su - aiuser -c "
     git config --global user.name 'Claude Agent'
-    git config --global user.email 'moroine-claude@users.noreply.github.com'
+    git config --global user.email '<bot>@users.noreply.github.com'
     git config --global gpg.format ssh
     git config --global user.signingkey /home/aiuser/.ssh/id_ed25519_signing
     git config --global commit.gpgsign true
@@ -430,10 +430,10 @@ _forge_provision_container() {
 
   echo "Reusing Claude Code credentials from host..."
   lxc exec "$container" -- su - aiuser -c "mkdir -p /home/aiuser/.claude"
-  lxc file push /home/moroine/.claude/.credentials.json "$container"/home/aiuser/.claude/.credentials.json --uid 1001 --gid 1001 --mode 600
+  lxc file push /home/<user>/.claude/.credentials.json "$container"/home/aiuser/.claude/.credentials.json --uid 1001 --gid 1001 --mode 600
 
   echo "Pre-accepting Claude Code onboarding..."
-  lxc file push /home/moroine/agent-forge/config/claude-onboarding-state.json "$container"/home/aiuser/.claude.json --uid 1001 --gid 1001 --mode 600
+  lxc file push /home/<user>/agent-forge/config/claude-onboarding-state.json "$container"/home/aiuser/.claude.json --uid 1001 --gid 1001 --mode 600
 
   echo "Updating Claude Code to latest..."
   lxc exec "$container" -- npm install -g @anthropic-ai/claude-code@latest
@@ -443,10 +443,10 @@ _forge_provision_container() {
 
   echo "Installing Claude security hooks..."
   lxc exec "$container" -- mkdir -p /home/aiuser/.claude/hooks
-  lxc file push /home/moroine/agent-forge/.claude/hooks/pre-bash.sh \
+  lxc file push /home/<user>/agent-forge/.claude/hooks/pre-bash.sh \
     "$container"/home/aiuser/.claude/hooks/pre-bash.sh \
     --uid 0 --gid 0 --mode 755
-  lxc file push /home/moroine/agent-forge/config/claude-container-settings.json \
+  lxc file push /home/<user>/agent-forge/config/claude-container-settings.json \
     "$container"/home/aiuser/.claude/settings.json \
     --uid 0 --gid 0 --mode 644
 
@@ -1142,7 +1142,7 @@ _forge_image_build() {
   lxc exec "$setup" -- bash -c "mkdir -p /workspace /home/aiuser/.ssh /home/aiuser/.claude /home/aiuser/.local/bin && chown aiuser:aiuser /workspace /home/aiuser/.ssh /home/aiuser/.claude /home/aiuser/.local/bin && chmod 750 /workspace && chmod 700 /home/aiuser/.ssh"
 
   echo "Installing next-task..."
-  lxc file push /home/moroine/agent-forge/config/next-task.sh \
+  lxc file push /home/<user>/agent-forge/config/next-task.sh \
     "$setup"/home/aiuser/.local/bin/next-task \
     --uid 1001 --gid 1001 --mode 755
 
@@ -1678,12 +1678,12 @@ EOF
 
 ---
 
-### Task 10: Server verification (manual — run by Moroine on the LXD host, not by an agent)
+### Task 10: Server verification (manual — run by the maintainer on the LXD host, not by an agent)
 
 **Files:** none (verification only)
 
 **Interfaces:**
-- Consumes: everything from Tasks 1-9, deployed on the server (pull the branch into `/home/moroine/agent-forge`), plus an existing `agent-base` image and a host already authenticated with `claude auth login`.
+- Consumes: everything from Tasks 1-9, deployed on the server (pull the branch into `/home/<user>/agent-forge`), plus an existing `agent-base` image and a host already authenticated with `claude auth login`.
 
 This task cannot run from inside an agent container. It is the spec's verification checklist, to run after the PR from Tasks 1-9 is reviewed and merged:
 
@@ -1697,4 +1697,4 @@ This task cannot run from inside an agent container. It is the spec's verificati
 - [ ] **8. Bash completion:** `eval "$(forge completion bash)"` in `~/.bashrc`; tab-completing `forge start <TAB>` lists known repos.
 - [ ] **9. Collision handling:** attempt `forge start` with a fabricated `owner/repo` that sanitizes to an already-used container name (e.g. two repos differing only in characters that collapse to the same dashes) and confirm it's refused with a clear error rather than silently reusing the wrong container.
 - [ ] **10. Existing guardrails unchanged:** confirm `pre-bash.sh`'s branch/push restrictions and `gh` restrictions still fire unchanged (e.g. `git push origin main` → `BLOCKED`) — this plan doesn't touch that file.
-- [ ] **11. Cleanup:** `forge delete <owner>/<scratch-repo> --force` and remove `/home/moroine/workspaces/agent-<owner>-<scratch-repo>` once satisfied.
+- [ ] **11. Cleanup:** `forge delete <owner>/<scratch-repo> --force` and remove `/home/<user>/workspaces/agent-<owner>-<scratch-repo>` once satisfied.
