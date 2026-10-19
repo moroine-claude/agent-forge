@@ -102,6 +102,12 @@ test("an Incus below the version gate skips the strict objects with a notice, an
   assert.equal(await cmdSetup(c, opts()), 0);
   assert.equal(c.out_lines.length, 5, c.out_lines.join("\n"));
   assert.ok(c.err_lines.some((l) => /NOTICE: .*7\.0\.1.*strict mode/.test(l)), c.err_lines.join("\n"));
+  // The notice says it is expected, what it changes and what to do later.
+  const notice = c.err_lines.find((l) => /NOTICE: .*strict mode/.test(l)) ?? "";
+  assert.match(notice, /Nothing to fix now/);
+  assert.match(notice, /open egress/);
+  assert.match(notice, /forge start --strict/);
+  assert.match(notice, /re-run the host playbook/);
   assert.equal(fake.acls.has("forge-proxy"), false);
   assert.equal(fake.acls.has("forge-egress-strict"), false);
   assert.equal(fake.profiles.get("agent-forge")!.has("forge-proxy"), false);

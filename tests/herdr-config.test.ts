@@ -182,7 +182,11 @@ test("ensureHerdrConfig keeps a symlinked config a symlink and updates the file 
 test("ensureHerdrConfig says when herdr is not installed, and does not check", async () => {
   const c = fakeContext({ rules: [noHerdr] });
   await ensureHerdrConfig(c);
-  assert.deepEqual(c.err_lines, ["NOTICE: herdr is not installed on this host yet: the bindings apply once `herdr --remote` installs it."]);
+  assert.deepEqual(c.err_lines, [
+    "NOTICE: herdr is not installed on this host yet, which is expected before your first attach. From your " +
+    "machine, `herdr --remote <this host> --remote-keybindings server` installs it here, and forge's keys " +
+    "(prefix+f) then work.",
+  ]);
   assert.ok(!c.calls.some((a) => a.includes("check")));
 });
 

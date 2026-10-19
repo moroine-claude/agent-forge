@@ -77,9 +77,12 @@ repositories with it, through agent forwarding.
 ```bash
 git clone -b next https://github.com/moroine/agent-forge.git
 cd agent-forge
-limactl create --name forge-local ansible/lima/forge.yaml
+limactl create --tty=false --name forge-local ansible/lima/forge.yaml
 limactl start forge-local
 ```
+
+`--tty=false` skips `limactl create`'s question (proceed, edit the configuration, or pick another
+template): the template is meant to be used as is.
 
 Until v2 is released, it lives on the `next` branch; the default branch still
 holds v1.
@@ -91,7 +94,7 @@ use that port as `ansible_port` in the inventory and as `Port` in the SSH
 block below:
 
 ```bash
-limactl create --name forge-local --set '.ssh.localPort = 60122' ansible/lima/forge.yaml
+limactl create --tty=false --name forge-local --set '.ssh.localPort = 60122' ansible/lima/forge.yaml
 ```
 
 ### 3. Provision it
@@ -153,7 +156,16 @@ exit
 - `forge setup` creates forge's Incus objects, the egress proxy and its
   allowlist when Incus is recent enough (see
   [Strict egress mode](#strict-egress-mode)), and forge's herdr key bindings.
-  Run it again after changing forge's configuration.
+  Run it again after changing forge's configuration. On a fresh host, two
+  notices are expected:
+
+  ```
+  NOTICE: Incus 7.0.1 is too old for strict mode, which needs 7.0.2 or later on the 7.0 LTS line ...
+  NOTICE: herdr is not installed on this host yet, which is expected before your first attach ...
+  ```
+
+  The first goes away once Zabbly publishes Incus 7.0.2 and you re-run the
+  playbook; the second at your first `herdr --remote` (step 6).
 - `forge image build` builds `agent-base`, the image every container starts
   from.
 

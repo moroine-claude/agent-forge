@@ -132,7 +132,7 @@ ssh:
 The README's commands:
 
 ```bash
-limactl create --name forge-local ansible/lima/forge.yaml
+limactl create --tty=false --name forge-local ansible/lima/forge.yaml
 limactl start forge-local
 ```
 

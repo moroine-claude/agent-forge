@@ -90,8 +90,12 @@ export async function cmdSetup(ctx: Context, opts: SetupOptions = {}): Promise<n
   const lifted = !strictModeSupported(version) && strictGateOverridden();
   if (lifted) ctx.err(gateOverrideWarning(version));
   if (!strictModeSupported(version) && !lifted) {
-    ctx.err(`NOTICE: Incus ${version} is too old for strict mode (needs 7.0.2 or later on the 7.0 LTS line, or ` +
-      "7.5.0 or later): the strict egress objects and forge-proxy are not created. Open mode is unaffected.");
+    // Said as expected, with its effect and the way out: on a fresh host this
+    // is the normal outcome until Zabbly's lts-7.0 channel ships 7.0.2.
+    ctx.err(`NOTICE: Incus ${version} is too old for strict mode, which needs 7.0.2 or later on the 7.0 LTS line ` +
+      "(or 7.5.0 or later). Nothing to fix now: containers get the default open egress (private ranges stay " +
+      "blocked), forge-proxy is not created and `forge start --strict` is refused. Once a newer Incus is " +
+      "published, re-run the host playbook (ansible/site.yml) from your machine, then `forge setup`.");
   } else {
     const names = egressNames(project);
     const plan = proxyPlan(config.network.ipv4Address, names.slot);

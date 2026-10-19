@@ -169,7 +169,10 @@ export async function ensureHerdrConfig(ctx: Context): Promise<void> {
 
   const bin = await findHerdr(ctx);
   if (!bin) {
-    ctx.err("NOTICE: herdr is not installed on this host yet: the bindings apply once `herdr --remote` installs it.");
+    // Normal on a fresh host: herdr installs itself on the first remote attach.
+    ctx.err("NOTICE: herdr is not installed on this host yet, which is expected before your first attach. From your " +
+      "machine, `herdr --remote <this host> --remote-keybindings server` installs it here, and forge's keys " +
+      "(prefix+f) then work.");
     return;
   }
 

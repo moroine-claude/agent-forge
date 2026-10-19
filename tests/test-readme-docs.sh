@@ -28,7 +28,9 @@ assert_not_contains() {
 }
 
 # Mode local : VM Lima, inventaire d'exemple, playbook, alias SSH.
-assert_contains 'limactl create --name forge-local ansible/lima/forge.yaml'
+# --tty=false : limactl create poserait sinon une question interactive.
+assert_contains 'limactl create --tty=false --name forge-local ansible/lima/forge.yaml'
+assert_not_contains 'limactl create --name'
 assert_contains 'limactl start forge-local'
 assert_contains 'ansible/inventory.lima.example.yml'
 assert_contains 'ansible-galaxy collection install -r ansible/requirements.yml'
@@ -49,6 +51,9 @@ assert_contains 'not yet validated'
 assert_contains 'claude auth login'
 assert_contains 'forge setup'
 assert_contains 'forge image build'
+# La sortie attendue de forge setup sur un hôte neuf, notices comprises.
+assert_contains 'is too old for strict mode'
+assert_contains 'herdr is not installed on this host yet'
 assert_contains 'herdr --remote forge-local --remote-keybindings server'
 assert_contains 'prefix+f'
 assert_contains 'prefix+shift+f'

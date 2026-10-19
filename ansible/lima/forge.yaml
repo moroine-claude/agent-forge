@@ -3,7 +3,7 @@
 # ansible/site.yml provisions with forge_exposure: local, then used like a
 # remote host (herdr --remote forge-local). See the README, "Quick start: local".
 #
-#   limactl create --name forge-local ansible/lima/forge.yaml
+#   limactl create --tty=false --name forge-local ansible/lima/forge.yaml
 #   limactl start forge-local
 #
 # Lima picks vz on macOS and QEMU on Linux, and the VM's architecture follows
