@@ -1,5 +1,7 @@
 #!/bin/bash
-# Vérifie que README.md documente le forge CLI (post-cutover).
+# Vérifie que README.md documente la v2 par mode (local Lima, distant) et ne
+# garde rien de la v1. Les valeurs personnelles ne sont pas vérifiées ici :
+# un test permanent devrait les contenir (voir la spec du sous-projet 5).
 # Lancer : bash tests/test-readme-docs.sh
 set -e
 
@@ -25,36 +27,60 @@ assert_not_contains() {
   fi
 }
 
-assert_contains 'forge start'
-assert_contains 'forge stop'
-assert_contains 'forge delete'
-assert_contains 'forge list'
+# Mode local : VM Lima, inventaire d'exemple, playbook, alias SSH.
+assert_contains 'limactl create --name forge-local ansible/lima/forge.yaml'
+assert_contains 'limactl start forge-local'
+assert_contains 'ansible/inventory.lima.example.yml'
+assert_contains 'ansible-galaxy collection install -r ansible/requirements.yml'
+assert_contains 'ansible-playbook -i'
+assert_contains 'Host forge-local'
+assert_contains 'Port 60022'
+assert_contains 'User forge'
+assert_contains 'HostKeyAlias forge-local'
+assert_contains 'ForwardAgent yes'
+assert_contains 'IdentityAgent'
+assert_contains 'brew install lima'
+assert_contains 'pipx install ansible-core'
+assert_contains '/dev/kvm'
+# Le parcours Ubuntu reste à valider sur une vraie machine.
+assert_contains 'not yet validated'
+
+# Sur l'hôte, puis herdr.
+assert_contains 'claude auth login'
+assert_contains 'forge setup'
 assert_contains 'forge image build'
-assert_contains 'forge completion bash'
-assert_not_contains 'next-task'
+assert_contains 'herdr --remote forge-local --remote-keybindings server'
+assert_contains 'prefix+f'
+assert_contains 'prefix+shift+f'
+
+# Récupération du travail.
+assert_contains 'forge upload-pack'
+assert_contains 'uploadpack'
+
+# Commandes du quotidien et mode strict.
 assert_contains 'forge resume'
 assert_contains 'forge finish'
-assert_contains 'worktree'
-assert_contains 'git-lfs'
-assert_contains 'older than latest build'
-assert_contains 'alias forge='
-assert_contains 'idmap'
-assert_contains 'Claude Code credentials'
-assert_contains 'onboarding'
-assert_contains 'permission mode'
-assert_contains 'Docker/Compose'
-assert_contains 'rootless'
-assert_contains '--privileged'
-assert_contains 'chrome-devtools-mcp'
-assert_not_contains 'new-agent-container.sh'
-assert_not_contains 'start-agent.sh'
-assert_contains 'Supervised mode'
-assert_contains 'git remote add'
-assert_contains 'rebase --reset-author'
-assert_not_contains 'fetch-only credential'
-assert_contains 'forge image build super'
-assert_contains 'agent-super'
-assert_contains 'nested LXD'
+assert_contains 'forge list'
+assert_contains 'forge egress'
+assert_contains '--strict'
+assert_contains 'egress-allowlist'
+assert_contains 'forge completion bash'
+assert_contains 'incus --project agent-forge delete --force'
+
+# Mode distant : alias SSH, port 22 par défaut.
+assert_contains 'Host forge-vm'
+assert_not_contains 'Port 2222'
+
+# Rien de la v1 ni du mode Linux direct.
+assert_not_contains 'lxc '
+assert_not_contains 'LXD'
+assert_not_contains 'scripts/forge'
+assert_not_contains 'tmux'
+assert_not_contains 'Ctrl+b d'
+assert_not_contains 'ufw'
+assert_not_contains 'forge image build super'
+assert_not_contains 'agent-super'
+assert_not_contains 'incus admin init'
 
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"
