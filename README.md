@@ -75,15 +75,24 @@ repositories with it, through agent forwarding.
 ### 2. Create the VM
 
 ```bash
-git clone https://github.com/moroine/agent-forge.git
+git clone -b next https://github.com/moroine/agent-forge.git
 cd agent-forge
 limactl create --name forge-local ansible/lima/forge.yaml
 limactl start forge-local
 ```
 
+Until v2 is released, it lives on the `next` branch; the default branch still
+holds v1.
+
 The template (`ansible/lima/forge.yaml`) runs Lima in plain mode: no shared
 folder, no port forwarding besides SSH on `127.0.0.1:60022`. Workspaces live
-inside the VM.
+inside the VM. If port 60022 is taken, create the VM with another one, then
+use that port as `ansible_port` in the inventory and as `Port` in the SSH
+block below:
+
+```bash
+limactl create --name forge-local --set '.ssh.localPort = 60122' ansible/lima/forge.yaml
+```
 
 ### 3. Provision it
 
@@ -142,8 +151,9 @@ exit
   reuses those credentials.
 - The git identity is the one the agents' commits carry.
 - `forge setup` creates forge's Incus objects, the egress proxy and its
-  allowlist, and forge's herdr key bindings. Run it again after changing
-  forge's configuration.
+  allowlist when Incus is recent enough (see
+  [Strict egress mode](#strict-egress-mode)), and forge's herdr key bindings.
+  Run it again after changing forge's configuration.
 - `forge image build` builds `agent-base`, the image every container starts
   from.
 
@@ -234,7 +244,8 @@ Then follow steps [5](#5-log-in-and-build-the-image) to
 | `prefix+f` | `forge start` in a popup: pick a repository and a task; opens or focuses the task's tab. One herdr workspace per repository, one tab per task |
 | `prefix+shift+f` | `forge resume --all`: after a herdr server restart or a VM reboot, relaunches the agent in every forge tab left as a bare shell, with its conversation |
 
-Agents keep running when you detach or your laptop sleeps.
+Agents keep running when you detach. In remote mode they also run while
+your laptop sleeps; in local mode they pause with the VM.
 
 ### Commands
 
@@ -244,12 +255,13 @@ Run on the host (in a herdr pane, or over `ssh`):
 |---|---|
 | `forge start [--strict] [<owner/repo>] [<task>]` | Create the container if needed, then open the task. `--strict` creates a new container in strict egress mode |
 | `forge resume [<owner/repo>] [<task>]` | Re-attach a task's agent, with no fetch; `--all` for every forge tab (inside herdr) |
-| `forge finish [<owner/repo>] [<task>]` | Stop the task's agent and remove its worktree; a task name reused later starts a fresh conversation |
+| `forge finish [<owner/repo>] [<task>]` | Stop the task's agent and remove its worktree, refused on uncommitted changes unless `--force`. The branch `agent/<task>` stays; a task name reused later starts a fresh conversation |
 | `forge list` | Every container: repository, mode, egress, state, image build |
 | `forge stop [<owner/repo>] [--force]` | Stop a container; refused while a task has uncommitted changes, unless `--force`. Commits are not checked: fetch them first |
 | `forge delete [<owner/repo>] [--force]` | Delete a container, with the same guard. Its workspace and the host's mirror stay, and `forge start` reuses them |
 | `forge egress [<owner/repo>] [strict\|open]` | Show or switch a stopped container's egress |
 | `forge egress log [<owner/repo>]` | The egress proxy's recent requests |
+| `forge attach <container> <task>` | Run a task's agent in this terminal: what herdr tabs run |
 | `forge image build` | Rebuild `agent-base` |
 | `forge completion bash` | Bash completion (already installed on the host by Ansible) |
 
@@ -296,8 +308,11 @@ reaches nothing.
   domain to add.
 - Docker in a strict container pulls through the proxy; builds and containers
   get no proxy unless you pass `HTTPS_PROXY` to them.
-- Strict mode needs Incus 7.0.2 or newer on the 7.0 line, which the playbook
-  installs. Older releases skip the strict objects, with a notice.
+- Strict mode needs Incus 7.0.2 or newer on the 7.0 LTS line, or 7.5.0 or
+  newer. 7.0.2 is not published yet on Zabbly's lts-7.0 channel, which the
+  playbook installs from (October 2026): until it is, `forge setup` prints a
+  notice and skips the strict objects, and `forge start --strict` is refused.
+  Re-running the playbook upgrades Incus once 7.0.2 is out.
 
 ### Docker, Compose and the browser
 
@@ -398,6 +413,16 @@ Known limits:
   attached: with no client attached, the host has no agent.
 - **`herdr --remote` fails the first time:** run it in a real terminal; it
   asks before installing herdr on the host.
+- **The first clone of a repository stops on GitHub's host key:** the popup
+  shows GitHub's key fingerprint. Check it against GitHub's published SSH
+  fingerprints and answer `yes`; answering no ends in
+  `Host key verification failed`, and the next `prefix+f` asks again.
+- **`Too many authentication failures`** from `ssh forge-local` or
+  `ssh forge-vm`: sshd allows two attempts, which an agent holding several
+  keys uses up. Add `IdentityFile ~/.ssh/<your key>.pub` and
+  `IdentitiesOnly yes` to the Host block.
+- **A repository whose default branch is not `main`:** new tasks start from
+  `origin/main`, so such a repository is not supported yet.
 - **`forge setup` warns that forge runs directly on this machine:** you ran it
   outside a VM. Use the Lima VM: nothing would stand between an escaped agent
   and your machine.
