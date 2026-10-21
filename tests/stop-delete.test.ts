@@ -1,6 +1,6 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fakeContext } from "./lib/fake-context.ts";
@@ -159,6 +159,20 @@ test("delete removes a half-provisioned container without asking", async () => {
   assert.ok(c.out_lines.some((l) => l.startsWith("Kept ")), c.out_lines.join("\n"));
 });
 
+test("delete says a workspace the failed attempt created was emptied, not kept", async () => {
+  {
+    const dir = join(workspacesDir(), "agent-o-r");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "f"), "x");
+    const c = fakeContext({ incus: incusWith({ ...MARKER, "user.forge.provisioning_workspace": "new" }), answers: [] });
+    assert.equal(await cmdDelete(c, "o/r", false), 0);
+    assert.ok(c.out_lines.some((l) => l.startsWith(`Emptied ${dir}`)), c.out_lines.join("\n"));
+    assert.ok(!c.out_lines.some((l) => l.startsWith("Kept ")), c.out_lines.join("\n"));
+    assert.deepEqual(readdirSync(dir), []);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("delete asks before removing a container with no forge metadata", async () => {
   const yes = fakeContext({ incus: incusWith({}), answers: [1] });
   assert.equal(await cmdDelete(yes, "o/r", false), 0);
@@ -166,7 +180,7 @@ test("delete asks before removing a container with no forge metadata", async () 
   assert.ok(yes.out_lines.some((l) => l.startsWith("Kept ")));
 
   const no = fakeContext({ incus: incusWith({}), answers: [2] });
-  await assert.rejects(() => cmdDelete(no, "o/r", false));
+  await assert.rejects(() => cmdDelete(no, "o/r", false), /left alone\. From a script: forge delete o\/r --force/);
   assert.ok(!deleted(no));
 
   const forced = fakeContext({ incus: incusWith({}), answers: [] });

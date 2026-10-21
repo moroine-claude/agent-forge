@@ -34,7 +34,7 @@ export async function cmdStart(
     // Un lancement interrompu : on propose de repartir de zéro, le workspace
     // préexistant et le miroir restent (discardHalfProvisioned).
     const choice = await ctx.prompt.pick(`${container} did not finish provisioning`,
-      ["recreate it (its workspace and mirror are kept)", "stop"]);
+      ["recreate it (a workspace from an earlier run and the mirror are kept)", "stop"]);
     if (choice !== 1) {
       throw new ForgeError(
         `${container} did not finish provisioning. Remove it with: forge delete ${ownerRepo}, ` +

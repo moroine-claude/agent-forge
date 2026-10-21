@@ -32,16 +32,19 @@ const MODE = "supervised";
 // tentative échouée n'est supprimé. Le workspace marqué "kept" peut porter la
 // seule copie d'un travail non récupéré ; le miroir n'est jamais touché. Le
 // marqueur se lit avant la suppression de l'instance, qui l'emporte avec elle.
-export async function discardHalfProvisioned(ctx: Context, container: string): Promise<void> {
+// Retourne ce qu'il est advenu du workspace : "emptied" (créé par la tentative
+// échouée, donc vidé) ou "kept" (préexistant, ou dans le doute).
+export async function discardHalfProvisioned(ctx: Context, container: string): Promise<"emptied" | "kept"> {
   const marker = await provisioningMarker(ctx, container);
   await mustSucceed("incus delete", deleteInstance(ctx, container));
-  if (marker?.workspace !== "new") return;
+  if (marker?.workspace !== "new") return "kept";
   const workspaceDir = join(workspacesDir(), container);
-  if (!existsSync(workspaceDir)) return;
+  if (!existsSync(workspaceDir)) return "emptied";
   // Le contenu seulement : le répertoire est reconstruit par le prochain launch.
   for (const entry of readdirSync(workspaceDir)) {
     rmSync(join(workspaceDir, entry), { recursive: true, force: true });
   }
+  return "emptied";
 }
 
 // `strict` : le container naît strict — jamais lancé ouvert, puis restreint :

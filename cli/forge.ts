@@ -29,7 +29,8 @@ Commands:
   resume [<owner/repo>] [<task>]    Re-attach a task's agent (--all: every forge tab left bare by a herdr restart)
   finish [<owner/repo>] [<task>]    Remove a finished task's worktree
   stop [<owner/repo>] [--force]     Stop a container (blocked on dirty/unpushed WIP unless --force)
-  delete [<owner/repo>] [--force]   Delete a container (blocked on dirty/unpushed WIP unless --force)
+  delete [<owner/repo>] [--force]   Delete a container (blocked on dirty/unpushed WIP unless --force; --force also skips
+                                    the "no forge metadata" confirmation)
   list                              Show all containers: repo, mode, egress, state, build
   egress [<owner/repo>] [strict|open]
                                     Show or switch a stopped container's egress
@@ -77,12 +78,6 @@ function waitForLine(): Promise<void> {
   });
 }
 
-// Politique d'acquittement de la popup herdr, qui se ferme avec le processus :
-// - un code de sortie non nul, ou une exception : on attend Entrée ;
-// - un succès sans rien à lire : elle se ferme aussitôt ;
-// - un succès qui a écrit des WARNING/NOTICE ou appelé ctx.notify : ces lignes
-//   partent en une notification herdr (voir cli/lib/popup.ts). On n'attend
-//   Entrée que si herdr ne l'a pas affichée (toasts éteints) ou a échoué.
 // Un onglet herdr lance `exec forge attach …` : le pane se ferme avec forge.
 // Dans un pane (HERDR_ENV=1 et HERDR_PANE_ID), un attach qui échoue ou un
 // agent sorti en erreur laisse donc de quoi lire avant la fermeture.
@@ -111,6 +106,12 @@ async function main(): Promise<number> {
     // Seul resume connaît --all : ailleurs, il serait ignoré en silence.
     if (values.all && cmd !== "resume") throw new ForgeError("--all only goes with resume: forge resume --all");
     const code = await dispatch(ctx, positionals, values.force === true, values.strict === true, values.all === true);
+    // Politique d'acquittement de la popup herdr, qui se ferme avec le processus :
+    // - un code de sortie non nul, ou une exception : on attend Entrée ;
+    // - un succès sans rien à lire : elle se ferme aussitôt ;
+    // - un succès qui a écrit des WARNING/NOTICE ou appelé ctx.notify : ces lignes
+    //   partent en une notification herdr (voir cli/lib/popup.ts). On n'attend
+    //   Entrée que si herdr ne l'a pas affichée (toasts éteints) ou a échoué.
     const popup = !!herdrEnv()?.popup;
     const attachPane = attachInHerdrPane(cmd);
     const ack = ackAfterRun({ popup, attachPane, code, threw: false, notices: notices.length });

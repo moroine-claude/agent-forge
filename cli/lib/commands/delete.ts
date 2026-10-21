@@ -23,6 +23,8 @@ export async function cmdDelete(ctx: Context, repo: string | undefined, force: b
   const ownerRepo = await resolveRepo(ctx, repo, USAGE);
   validateRepo(ownerRepo);
   let container = await containerForRepo(ctx, ownerRepo);
+  // Ce qu'il est advenu du workspace d'un container à moitié provisionné.
+  let discarded: "emptied" | "kept" | null = null;
 
   if (container) {
     if (!force && (await instanceStatus(ctx, container)) === "Running") {
@@ -38,12 +40,13 @@ export async function cmdDelete(ctx: Context, repo: string | undefined, force: b
     if (occupant === "half-provisioned") {
       // Aucun agent n'a tourné : pas de pré-vol WIP.
       ctx.out(`Deleting half-provisioned container ${container}...`);
-      await discardHalfProvisioned(ctx, container);
+      discarded = await discardHalfProvisioned(ctx, container);
     } else if (occupant === "unmarked") {
       if (!force) {
         const choice = await ctx.prompt.pick(`${container} has no forge metadata`,
           ["delete it (its workspace survives)", "stop"]);
-        if (choice !== 1) throw new ForgeError(`${container} left alone.`);
+        if (choice !== 1) throw new ForgeError(
+          `${container} left alone. From a script: forge delete ${ownerRepo} --force.`);
       }
       ctx.out(`Deleting container ${container}...`);
       await mustSucceed("incus delete", deleteInstance(ctx, container));
@@ -57,6 +60,12 @@ export async function cmdDelete(ctx: Context, repo: string | undefined, force: b
   // container d'avant le miroir n'en a pas.
   const workspace = join(workspacesDir(), container);
   const mirror = mirrorPath(container);
+  if (discarded === "emptied") {
+    // Le workspace n'existait pas avant la tentative échouée : elle l'a créé.
+    ctx.out(`Emptied ${workspace}: the failed attempt had created it.` +
+      (existsSync(mirror) ? ` Kept ${mirror}: 'forge start ${ownerRepo}' reuses it.` : ""));
+    return 0;
+  }
   ctx.out(existsSync(mirror)
     ? `Kept ${workspace} and ${mirror}: 'forge start ${ownerRepo}' reuses them.`
     : `Kept ${workspace}: 'forge start ${ownerRepo}' reuses it.`);

@@ -410,7 +410,10 @@ Known limits:
 
 - **A container was half provisioned** (provisioning stopped midway): the
   next `forge start` offers to recreate it; `forge delete <owner/repo>`
-  removes it. Its workspace and mirror survive either way.
+  removes it. The mirror survives either way, and so does a workspace from an
+  earlier run; a workspace the failed attempt created itself is emptied. A
+  container half provisioned before this version has no marker: `forge start`
+  then tells you to run `forge delete <owner/repo>`, which asks first.
 - **Provisioning says the security hook refuses a harmless command:** the
   image predates a change to it. Run `forge image build`, then recreate the
   container.

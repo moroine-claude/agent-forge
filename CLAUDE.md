@@ -56,7 +56,9 @@ strict), `docs/superpowers/specs/2026-10-17-v2-orchestration-herdr-design.md`
   machine). Il vérifie en lecture seule le contrat hôte (pas root, firewall
   nftables, sysctls userns, pool de stockage, `ip_forward`), converge les
   objets Incus (ceux du mode strict seulement avec un Incus assez récent), puis
-  écrit son bloc de raccourcis dans la config herdr de l'utilisateur.
+  écrit son bloc de raccourcis dans la config herdr de l'utilisateur ; ce bloc
+  active aussi les toasts intégrés de herdr, sauf si la config de
+  l'utilisateur définit déjà `[ui.toast]`.
 - `forge image build` pilote le cycle de vie de l'image : instance
   `forge-image-build`, publication sous `agent-base`, marquage
   `user.forge.commit`. La configuration de l'instance est faite par Ansible,
