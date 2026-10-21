@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { fakeContext } from "./lib/fake-context.ts";
 import {
   herdrEnv, listWorkspaces, createWorkspace, listTabs, listPanes, createTab,
-  renameTab, focusTab, closeTab, paneRun, paneForeground, classifyPane,
+  renameTab, focusTab, closeTab, paneRun, paneForeground, classifyPane, showNotification,
 } from "../cli/lib/herdr.ts";
 
 const h = { bin: "/x/herdr", popup: false };
@@ -117,6 +117,17 @@ test("a missing field is an unreadable answer, not a TypeError", async () => {
   await assert.rejects(listWorkspaces(ctx, h), /unreadable answer/);
   const ctx2 = fakeContext({ rules: [{ match: "workspace list", stdout: '{"result":{}}' }] });
   await assert.rejects(listWorkspaces(ctx2, h), /unreadable answer/);
+});
+
+test("showNotification passes the title and the body as argv", async () => {
+  const c = fakeContext({ rules: [{ match: "notification show", stdout: "" }] });
+  await showNotification(c, h, "forge start", "WARNING: a\nNOTICE: b");
+  assert.deepEqual(c.calls[0], ["/x/herdr", "notification", "show", "forge start", "--body", "WARNING: a\nNOTICE: b"]);
+});
+
+test("showNotification fails like any herdr call", async () => {
+  const c = fakeContext({ rules: [{ match: "notification show", code: 1, stderr: "no server" }] });
+  await assert.rejects(() => showNotification(c, h, "t", "b"), /herdr notification show failed: no server/);
 });
 
 test("classifyPane", () => {

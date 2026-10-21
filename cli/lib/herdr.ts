@@ -133,6 +133,11 @@ export async function paneRun(ctx: Context, h: HerdrEnv, paneId: string, command
   await herdrJson(ctx, h, ["pane", "run", paneId, command], ack, true);
 }
 
+// Shows a herdr notification; the answer is only checked for errors.
+export async function showNotification(ctx: Context, h: HerdrEnv, title: string, body: string): Promise<void> {
+  await herdrJson(ctx, h, ["notification", "show", title, "--body", body], ack, true);
+}
+
 export function paneForeground(ctx: Context, h: HerdrEnv, paneId: string): Promise<string[][]> {
   return herdrJson(ctx, h, ["pane", "process-info", "--pane", paneId], (r) =>
     need<any[]>(r.process_info.foreground_processes).map((p) => {
