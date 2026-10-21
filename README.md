@@ -91,10 +91,16 @@ It asks little:
 
 - which key is your GitHub key, only when your agent holds several (it uses
   the agent ssh uses for `github.com`);
-- whether to add `Include config.d/agent-forge` at the top of `~/.ssh/config`, so that
-  ssh reads forge's own file (an existing `Include config.d/*` is accepted);
+- whether to add `Include config.d/agent-forge.config` at the top of
+  `~/.ssh/config`, so that ssh reads forge's own file; only when no `Include`
+  there reads it already for every host (`Include config.d/*` at the top, or
+  `Include ~/.ssh/config.d/*.config` under `Match all` or `Host *`, is
+  enough);
 - whether to link `~/.local/bin/forge` to the checkout, so `forge` works from
   anywhere (a refusal is asked again on every run);
+- whether to turn herdr's notifications on in `~/.config/herdr/config.toml`,
+  on your machine, unless that file sets `ui` or `[ui.toast]` itself (a
+  refusal is asked again on every run);
 - the Claude login, once: `claude auth login` prints a URL, you open it and
   paste the code back.
 
@@ -107,8 +113,8 @@ In between it does, in order:
 3. writes the inventory, once, to
    `~/.config/agent-forge/hosts/forge-local/inventory.yml` (your edits are
    kept) and runs the playbook from the checkout;
-4. writes the SSH alias `forge-local` to `~/.ssh/config.d/agent-forge`, a file
-   that is forge's own, with forge's own `known_hosts`
+4. writes the SSH alias `forge-local` to `~/.ssh/config.d/agent-forge.config`,
+   a file that is forge's own, with forge's own `known_hosts`
    (`~/.config/agent-forge/known_hosts`);
 5. gives the host your git identity (`user.name`, `user.email`), the one the
    agents' commits carry;
@@ -116,10 +122,14 @@ In between it does, in order:
    new container reuses those credentials;
 7. runs `forge setup` there: forge's Incus objects, the egress proxy and its
    allowlist when Incus is recent enough (see
-   [Strict egress mode](#strict-egress-mode)), and forge's herdr key bindings;
+   [Strict egress mode](#strict-egress-mode)), and forge's herdr key bindings
+   on the host;
 8. builds `agent-base` (about 10 minutes) when it is missing or older than the
    checkout's image inputs;
-9. prints a summary and opens herdr.
+9. turns herdr's notifications on in your machine's herdr config if you say
+   yes: they are a setting of the client, not of the host (see
+   [step 3](#3-start-a-task-from-herdr));
+10. prints a summary and opens herdr.
 
 A run that fails stops with the step to fix; run `forge install` again and it
 resumes. `forge install` refuses a `forge-local` Lima VM or a `Host` entry it
@@ -137,6 +147,75 @@ The first goes away once Zabbly publishes Incus 7.0.2 and you update (see
 
 With a touch-to-use hardware key, a first install asks for about a dozen
 touches: one per SSH connection.
+
+#### What `forge install` changes on your machine
+
+| Path | What | Mode | Asked |
+|---|---|---|---|
+| `~/.config/agent-forge/hosts.json` | The hosts this machine installed | 0600 | No |
+| `~/.config/agent-forge/hosts/<name>/` | Per host: `inventory.yml`, the generated inventory, written once (your edits are kept), and `forge-key.pub`, the public half of your GitHub key | 0700; 0600 and 0644 | No |
+| `~/.config/agent-forge/known_hosts` | forge's own `known_hosts`: the hosts' keys, for the alias and for Ansible | Written by ssh | No |
+| `~/.local/share/agent-forge/collections` | The Ansible collections the playbook needs | Written by `ansible-galaxy` | No |
+| `~/.ssh/config.d/agent-forge.config` | forge's own SSH file: one block per host, rewritten on every run | 0600; 0700 for a directory forge creates | No |
+| `~/.ssh/config` | One line at the top, `Include config.d/agent-forge.config`, only when no `Include` there reads forge's file for every host. Nothing else changes | Kept; 0600 if forge creates it | Yes |
+| `~/.config/herdr/config.toml` | A block of forge's own at the end, `[ui.toast]` then `delivery = "herdr"`, only when the file sets neither `ui` nor `[ui.toast]` | Kept; 0644 if forge creates it, 0700 for a directory forge creates | Yes |
+| `~/.local/bin/forge` | A link to the checkout's `cli/forge` | A link | Yes |
+
+forge creates `~/.config/agent-forge` 0700. A `~/.ssh/config.d/agent-forge` that
+an earlier forge wrote (it starts with forge's header line) is removed; any
+other file of that name stays.
+
+forge's SSH file, for `forge-local`:
+
+```
+# Managed by forge install: edits are overwritten.
+
+Host forge-local
+  HostName 127.0.0.1
+  Port 60022
+  User forge
+  HostKeyAlias forge-local
+  StrictHostKeyChecking accept-new
+  UserKnownHostsFile ~/.config/agent-forge/known_hosts
+  IdentityFile ~/.config/agent-forge/hosts/forge-local/forge-key.pub
+  IdentitiesOnly yes
+  ForwardAgent yes
+```
+
+- forge writes your home's full path where this shows `~`.
+- `HostKeyAlias` and `accept-new`: the VM's port and host key change when it
+  is recreated, so its key is pinned under a stable name. A remote host's
+  block has neither: OpenSSH asked about its key at the first connection.
+- `IdentityFile` names the public half of your GitHub key, which stays in
+  your agent; `IdentitiesOnly` offers only that key.
+- An `IdentityAgent` line comes before `ForwardAgent` when your ssh uses
+  another agent than `SSH_AUTH_SOCK`'s for `github.com`.
+- `ForwardAgent yes`: the host clones and fetches your repositories with your
+  agent. Containers never get it.
+
+The tools write their own files: Lima keeps the VM in `~/.lima/forge-local`
+(and its SSH key, which the inventory uses, in `~/.lima/_config`), and
+Ansible its own in `~/.ansible`.
+
+#### To undo
+
+Fetch the work you want first: the local VM's workspaces live inside it.
+
+```bash
+limactl stop forge-local                 # if it is running
+limactl delete forge-local
+rm -f ~/.config/agent-forge/hosts.json ~/.config/agent-forge/known_hosts \
+  ~/.ssh/config.d/agent-forge.config
+rm -r ~/.config/agent-forge/hosts ~/.local/share/agent-forge/collections
+rm ~/.local/bin/forge                    # if it is forge's link
+```
+
+Then remove what forge added to your own files, if it did: the
+`Include config.d/agent-forge.config` line at the top of `~/.ssh/config`, and
+the block from `# >>> agent-forge laptop >>>` to `# <<< agent-forge laptop <<<`
+in `~/.config/herdr/config.toml`. A remote VM is deleted at your provider.
+`~/.lima/_config` and `~/.ansible` belong to Lima and Ansible, which may use
+them for other things.
 
 ### 3. Start a task from herdr
 
@@ -162,10 +241,12 @@ Press `prefix+f` (herdr's prefix is `ctrl+b`). A popup asks for the repository
 On success the popup closes by itself; warnings show up as a herdr
 notification. After an error it stays open until you press Enter.
 
-Those notifications only show if herdr has toasts turned on on your machine:
-put `[ui.toast]` then `delivery = "herdr"` in `~/.config/herdr/config.toml`.
-Otherwise herdr still reports the notification as shown, and the popup's
-warnings go unseen.
+Those notifications only show if herdr has toasts turned on on your machine,
+in `~/.config/herdr/config.toml`: `forge install` offers to add `[ui.toast]`
+then `delivery = "herdr"` there, in a block of its own. If you said no, or if
+that file sets `ui` or `[ui.toast]` itself (forge then leaves it alone), set
+them there yourself. Otherwise herdr still reports the notification as shown,
+and the popup's warnings go unseen.
 
 ### 4. Get the work back
 

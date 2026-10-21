@@ -152,6 +152,16 @@ OpenSSH forwards the agent it uses for that host, the one named by
 (a hardware key's, a password manager's), set `IdentityAgent` to it in the
 block.
 
+A file of yours in `~/.ssh/config.d/` works too, but OpenSSH reads that
+directory only through an `Include` that applies to every host: at the top of
+`~/.ssh/config`, before any `Host` or `Match` line, or under `Match all` or
+`Host *`. `forge install` writes the same blocks (with
+`UserKnownHostsFile`, `IdentityFile` and `IdentitiesOnly` added) to its own
+file, `~/.ssh/config.d/agent-forge.config`, and adds
+`Include config.d/agent-forge.config` at the top of `~/.ssh/config` when no
+`Include` there reads it already. Leave that name to forge: it rewrites the
+file on every run.
+
 ### Log in and build the image
 
 ```bash
@@ -166,6 +176,13 @@ exit
 
 Then `herdr --remote forge-local --remote-keybindings server` (for a remote
 host, your alias: `herdr --remote forge-vm --remote-keybindings server`).
+
+On your machine, turn herdr's notifications on, or the start popup's warnings
+go unseen: put `[ui.toast]` then `delivery = "herdr"` in
+`~/.config/herdr/config.toml`, unless that file already sets `ui` or
+`[ui.toast]`. It is a setting of the client: the host's herdr config changes
+nothing. `forge install` adds those two lines in a block of its own, after
+asking.
 
 ### Troubleshooting a manual install
 
