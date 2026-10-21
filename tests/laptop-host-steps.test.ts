@@ -83,7 +83,7 @@ test("the Claude login is skipped when the credentials exist", async () => {
 test("the Claude login is attached with a tty when the credentials are missing", async () => {
   const ctx = fakeContext({ rules: [{ match: "'test' '-e'", code: 1 }] });
   assert.equal(await ensureClaudeLogin(ctx, host), "logged-in");
-  assert.deepEqual(ctx.attachCalls[0].argv, ["ssh", "-t", "forge-acme", "--", "'claude' 'auth' 'login'"]);
+  assert.deepEqual(ctx.attachCalls[0].argv, ["ssh", "-o", "ForwardAgent=no", "-t", "forge-acme", "--", "'claude' 'auth' 'login'"]);
 });
 
 test("a failed Claude login names the step", async () => {
@@ -94,7 +94,7 @@ test("a failed Claude login names the step", async () => {
 test("runSetup attaches forge setup and fails on a non-zero code", async () => {
   const ok = fakeContext();
   await runSetup(ok, host);
-  assert.deepEqual(ok.attachCalls[0].argv, ["ssh", "forge-acme", "--", "'forge' 'setup'"]);
+  assert.deepEqual(ok.attachCalls[0].argv, ["ssh", "-o", "ForwardAgent=no", "forge-acme", "--", "'forge' 'setup'"]);
   await assert.rejects(runSetup(fakeContext({ attachCode: 2 }), host), ForgeError);
 });
 
@@ -197,7 +197,7 @@ test("ensureImage builds with a tty when the image is stale", async () => {
     const ctx = withImageCommit(r.c[2]);
     assert.equal(await ensureImage(ctx, host, r.dir), "built");
     assert.deepEqual((ctx as ReturnType<typeof fakeContext>).attachCalls[0].argv,
-      ["ssh", "-t", "forge-acme", "--", "'forge' 'image' 'build'"]);
+      ["ssh", "-o", "ForwardAgent=no", "-t", "forge-acme", "--", "'forge' 'image' 'build'"]);
   } finally { r.clean(); }
 });
 

@@ -109,9 +109,9 @@ test("a first local install runs every step in order and ends in herdr", async (
     ["limactl", "start", "--tty=false", "forge-local"],
     ["ansible-galaxy", "collection", "install", "-r", `${CHECKOUT}/ansible/requirements.yml`, "-p", collections],
     ["ansible-playbook", "-i", inventoryPath("forge-local"), `${CHECKOUT}/ansible/site.yml`],
-    ["ssh", "-t", "forge-local", "--", "'claude' 'auth' 'login'"],
-    ["ssh", "forge-local", "--", "'forge' 'setup'"],
-    ["ssh", "-t", "forge-local", "--", "'forge' 'image' 'build'"],
+    ["ssh", "-o", "ForwardAgent=no", "-t", "forge-local", "--", "'claude' 'auth' 'login'"],
+    ["ssh", "-o", "ForwardAgent=no", "forge-local", "--", "'forge' 'setup'"],
+    ["ssh", "-o", "ForwardAgent=no", "-t", "forge-local", "--", "'forge' 'image' 'build'"],
     HERDR_LOCAL,
   ]);
   for (const a of ctx.attachCalls.filter((c) => c.argv[0].startsWith("ansible"))) {
@@ -180,9 +180,9 @@ test("a re-run after an interrupted claude login resumes at the login", async ()
   assert.ok(!attached(second).some((a) => a.startsWith("ansible")));
   assert.deepEqual(asked(second), [LINK]);
   assert.deepEqual(attached(second), [
-    "ssh -t forge-local -- 'claude' 'auth' 'login'",
-    "ssh forge-local -- 'forge' 'setup'",
-    "ssh -t forge-local -- 'forge' 'image' 'build'",
+    "ssh -o ForwardAgent=no -t forge-local -- 'claude' 'auth' 'login'",
+    "ssh -o ForwardAgent=no forge-local -- 'forge' 'setup'",
+    "ssh -o ForwardAgent=no -t forge-local -- 'forge' 'image' 'build'",
     HERDR_LOCAL.join(" "),
   ]);
 });
@@ -209,8 +209,8 @@ test("a re-run of a finished host updates it", async () => {
   assert.deepEqual(attached(ctx), [
     `ansible-galaxy collection install -r ${CHECKOUT}/ansible/requirements.yml -p ${join(home, ".local/share/agent-forge/collections")}`,
     `ansible-playbook -i ${inventoryPath("forge-local")} ${CHECKOUT}/ansible/site.yml`,
-    "ssh forge-local -- 'forge' 'setup'",
-    "ssh -t forge-local -- 'forge' 'image' 'build'",
+    "ssh -o ForwardAgent=no forge-local -- 'forge' 'setup'",
+    "ssh -o ForwardAgent=no -t forge-local -- 'forge' 'image' 'build'",
     HERDR_LOCAL.join(" "),
   ]);
   assert.ok(called(ctx).some((c) => c.includes("forge-local -- 'forge' 'image' 'commit'")));
@@ -235,7 +235,7 @@ test("an update that fails resumes at the failed step", async () => {
   const ctx = laptop(world);
   assert.equal(await cmdInstall(ctx, OPTS), 0);
   assert.ok(!attached(ctx).some((a) => a.startsWith("ansible")));
-  assert.ok(attached(ctx).includes("ssh forge-local -- 'forge' 'setup'"));
+  assert.ok(attached(ctx).includes("ssh -o ForwardAgent=no forge-local -- 'forge' 'setup'"));
 });
 
 test("a stopped Lima VM is started on a re-run, not recreated", async () => {

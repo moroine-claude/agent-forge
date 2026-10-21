@@ -14,7 +14,7 @@ test("remoteExec sends each argument to ssh as one quoted word", async () => {
   const r = await remoteExec(ctx, host, ["git", "config", "--global", "user.name", "Al O'Neil Jr"]);
   assert.equal(r.stdout, "ok\n");
   assert.deepEqual(ctx.calls[0], [
-    "ssh", "-o", "BatchMode=yes", "forge-acme", "--",
+    "ssh", "-o", "BatchMode=yes", "-o", "ForwardAgent=no", "forge-acme", "--",
     `'git' 'config' '--global' 'user.name' 'Al O'\\''Neil Jr'`,
   ]);
 });
@@ -27,7 +27,7 @@ test("remoteExec returns a non-zero exit code instead of throwing", async () => 
 test("remoteAttach asks for a tty only when told to", async () => {
   const ctx = fakeContext({ attachCode: 3 });
   assert.equal(await remoteAttach(ctx, host, ["forge", "setup"]), 3);
-  assert.deepEqual(ctx.attachCalls[0].argv, ["ssh", "forge-acme", "--", "'forge' 'setup'"]);
+  assert.deepEqual(ctx.attachCalls[0].argv, ["ssh", "-o", "ForwardAgent=no", "forge-acme", "--", "'forge' 'setup'"]);
   await remoteAttach(ctx, host, ["claude", "auth", "login"], true);
-  assert.deepEqual(ctx.attachCalls[1].argv, ["ssh", "-t", "forge-acme", "--", "'claude' 'auth' 'login'"]);
+  assert.deepEqual(ctx.attachCalls[1].argv, ["ssh", "-o", "ForwardAgent=no", "-t", "forge-acme", "--", "'claude' 'auth' 'login'"]);
 });

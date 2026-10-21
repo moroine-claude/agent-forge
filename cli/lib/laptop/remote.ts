@@ -8,12 +8,16 @@ import type { LaptopHost } from "./state.ts";
 // word is quoted so it arrives as one.
 const remoteCommand = (argv: string[]): string => argv.map(shellQuote).join(" ");
 
+// The alias forwards the agent, for the agents' clones under herdr; none of
+// install's steps on the host needs it, so they turn it off.
+const NO_AGENT = ["-o", "ForwardAgent=no"];
+
 // Never prompts (BatchMode): a missing key fails instead of hanging.
 export function remoteExec(ctx: Context, host: LaptopHost, argv: string[]): Promise<ExecResult> {
-  return ctx.exec(["ssh", "-o", "BatchMode=yes", host.name, "--", remoteCommand(argv)]);
+  return ctx.exec(["ssh", "-o", "BatchMode=yes", ...NO_AGENT, host.name, "--", remoteCommand(argv)]);
 }
 
 // Inherits the terminal; `tty` for a command that asks the user something.
 export function remoteAttach(ctx: Context, host: LaptopHost, argv: string[], tty = false): Promise<number> {
-  return ctx.attach(["ssh", ...(tty ? ["-t"] : []), host.name, "--", remoteCommand(argv)]);
+  return ctx.attach(["ssh", ...NO_AGENT, ...(tty ? ["-t"] : []), host.name, "--", remoteCommand(argv)]);
 }
