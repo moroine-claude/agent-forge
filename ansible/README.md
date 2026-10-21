@@ -57,7 +57,123 @@ Local mode is the same playbook on a Lima VM, on a Mac or a Linux machine:
   - `forge_exposure` is `local`;
   - sshd stays on 22, the port Lima forwards to.
 
-The main README's "Quick start: local" walks through the whole setup.
+The main README's "Quick start: local" runs the whole setup with
+`forge install`; the next section is the same setup by hand.
+
+## Installing by hand
+
+`forge install` (see the main README) does everything below. Do it by hand to
+run the playbook yourself: other options, a machine forge does not manage, or
+to see what `forge install` runs.
+
+### A local Lima VM
+
+```bash
+git clone https://github.com/moroine/agent-forge.git
+cd agent-forge
+limactl create --tty=false --name forge-local ansible/lima/forge.yaml
+limactl start forge-local
+```
+
+`--tty=false` skips `limactl create`'s question (proceed, edit the
+configuration, or pick another template): the template is meant to be used as
+is. If port 60022 is taken, create the VM with another one, then use that port
+as `ansible_port` in the inventory and as `Port` in the SSH block below:
+
+```bash
+limactl create --tty=false --name forge-local --set '.ssh.localPort = 60122' ansible/lima/forge.yaml
+```
+
+Copy the matching inventory and edit it:
+
+```bash
+cp ansible/inventory.lima.example.yml ~/forge-local-inventory.yml
+```
+
+- `ansible_user`: your login name on this machine (`whoami`); Lima created
+  that account in the VM;
+- `ssh_keys`: the public key you use for GitHub (`ssh-add -L`).
+
+### A remote VM
+
+Create an Ubuntu 26.04 VM (at least 2 vCPU, 4 GB of memory, a 40 GB disk) with
+an admin account your key can log in to, and let SSH (port 22) through the
+provider's firewall. Copy `inventory.example.yml` outside the repository and
+set:
+
+- the VM's address, and the admin account as `ansible_user`;
+- `forge_exposure: public` for a cloud VM, `lan` for a machine on your
+  network;
+- your forge user: a name of your choice and your GitHub public key.
+
+An admin account with a sudo password is a manual inventory edit: set
+`ansible_become_exe: sudo.ws` and the password in an ansible-vault file (see
+"sudo password" above and the comments in `inventory.example.yml`).
+`forge install --remote` assumes passwordless sudo.
+
+### Run the playbook
+
+From the checkout (it deploys `forge` from its HEAD):
+
+```bash
+ansible-galaxy collection install -r ansible/requirements.yml
+ansible-playbook -i ~/forge-local-inventory.yml ansible/site.yml
+```
+
+A second run must report `changed=0`.
+
+### Reach the host over SSH
+
+Add this to `~/.ssh/config`, for a local VM:
+
+```
+Host forge-local
+  HostName 127.0.0.1
+  Port 60022
+  User forge
+  HostKeyAlias forge-local
+  ForwardAgent yes
+```
+
+and for a remote one (the port stays 22 unless you set `forge_ssh_port`):
+
+```
+Host forge-vm
+  HostName 203.0.113.10
+  User alice
+  ForwardAgent yes
+```
+
+`forge` (or your forge user) is the account the playbook created.
+`ForwardAgent yes` lets the host clone your repositories with your key.
+OpenSSH forwards the agent it uses for that host, the one named by
+`IdentityAgent` (or `SSH_AUTH_SOCK`): if your GitHub key lives in another agent
+(a hardware key's, a password manager's), set `IdentityAgent` to it in the
+block.
+
+### Log in and build the image
+
+```bash
+ssh forge-local                        # accept the host key once
+claude auth login
+git config --global user.name "Alice Example"
+git config --global user.email "alice@example.com"
+forge setup
+forge image build                      # about 10 minutes
+exit
+```
+
+Then `herdr --remote forge-local --remote-keybindings server`.
+
+### Troubleshooting a manual install
+
+- **`REMOTE HOST IDENTIFICATION HAS CHANGED`** after recreating the VM:
+  `ssh-keygen -R forge-local` (and `ssh-keygen -R forge-local-admin` for
+  Ansible).
+- **`Too many authentication failures`** from `ssh forge-local` or
+  `ssh forge-vm`: sshd allows two attempts, which an agent holding several
+  keys uses up. Add `IdentityFile ~/.ssh/<your key>.pub` and
+  `IdentitiesOnly yes` to the Host block.
 
 ## Tests
 

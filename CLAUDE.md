@@ -3,14 +3,14 @@
 ## Contexte
 Tu travailles sur `agent-forge`, un repo d'infrastructure pour faire tourner des agents Claude Code dans des containers Incus isolés, sur un hôte provisionné par Ansible : une VM distante (cloud ou LAN), ou une VM Lima locale sur la machine de dev (mode local, macOS ou Ubuntu).
 
-Ce fichier décrit la v2, sortie sur `main` (la v1, LXD, n'est plus maintenue). Les cinq sous-projets de la v2 sont livrés : hôte Ansible, runtime Incus, mode strict (liste blanche de sortie), orchestration herdr, mode local et docs. Le `README.md` est le guide d'installation par mode (local Lima, distant).
+Ce fichier décrit la v2, sortie sur `main` (la v1, LXD, n'est plus maintenue). Les cinq sous-projets de la v2 sont livrés : hôte Ansible, runtime Incus, mode strict (liste blanche de sortie), orchestration herdr, mode local et docs. Le `README.md` est le guide d'installation par mode (local Lima, distant), par `forge install` ; les étapes manuelles sont dans `ansible/README.md`.
 
 ## Stack
 - **Hôte** : Ubuntu 26.04 LTS, Incus 7.0 LTS (dépôt Zabbly), nftables (table `inet forge_host`), fail2ban (sauf en `forge_exposure: local`) — provisionné par `ansible/site.yml`. En local, la VM vient du template Lima `ansible/lima/forge.yaml`
 - **Runtime Incus** : projet `agent-forge`, bridge `forgebr0`, ACL `forge-egress`, profil `agent-forge` ; pour le mode strict, le container `forge-proxy`, son profil, les ACL `forge-proxy` et `forge-egress-strict` — tous créés par `forge setup`
 - **Image** `agent-base` : `images:ubuntu/26.04`, Node.js 24, pnpm, Claude Code, Google Chrome headless + `chrome-devtools-mcp`, Docker rootless — construite par `forge image build`
 - **Orchestration** : herdr, client sur la machine de dev (`herdr --remote <hôte> --remote-keybindings server`), serveur sur l'hôte ; chaque tâche tourne dans un onglet herdr via `forge attach`
-- **CLI** : `forge`, en TypeScript exécuté par Node (`cli/`)
+- **CLI** : `forge`, en TypeScript exécuté par Node (`cli/`) : des commandes hôte (`setup`, `start`, …) et des commandes laptop (`install`, `open`), lancées depuis le checkout sur la machine de dev
 - **User agent** : `aiuser` (UID/GID 1001, no sudo, scoped to `/workspace`)
 - **Auth** : une clé SSH (une clé matérielle par exemple), transmise à l'hôte par l'agent SSH ; aucune credential GitHub dans les containers (l'hôte clone et fetch avec l'agent SSH transmis)
 
