@@ -28,8 +28,10 @@ const MODE = "supervised";
 // Le miroir ne contient aucun objet LFS (mirror.ts clone déjà avec
 // GIT_LFS_SKIP_SMUDGE=1) : les fichiers LFS restent des pointeurs dans le
 // container. Sans ce drapeau, `git worktree add` (et tout checkout) tente de
-// télécharger ces objets et échoue, ce qui bloque `forge start`.
-const LFS_SKIP_SMUDGE = "--skip-smudge";
+// télécharger ces objets et échoue, ce qui bloque `forge start`. Exportées
+// pour le test de contrat qui les rejoue avec un vrai git-lfs.
+export const LFS_FILTERS_INSTALL = "git lfs install --skip-repo --skip-smudge";
+export const LFS_HOOKS_INSTALL = "git lfs install --skip-smudge";
 
 // `strict` : le container naît strict — jamais lancé ouvert, puis restreint :
 // l'ACL, les actions par défaut et l'environnement du proxy sont posés par le
@@ -147,7 +149,7 @@ export async function provisionContainer(
   // `--skip-repo` : les filtres clean/smudge/process, dans la config globale,
   // sans toucher aux hooks du dépôt. Déterministe, donc fatal s'il échoue.
   await mustSucceed(`git-lfs filters in ${container}`,
-    execAsAgent(ctx, container, `git lfs install --skip-repo ${LFS_SKIP_SMUDGE}`));
+    execAsAgent(ctx, container, LFS_FILTERS_INSTALL));
 
   ctx.out("Ignoring worktrees in the main clone...");
   // .trees/ ne doit jamais apparaître dans le status du clone principal.
@@ -159,7 +161,7 @@ export async function provisionContainer(
   // reconnaît pas (husky, lefthook, hooks d'un autre git-lfs). Les filtres
   // sont là, seul le hook d'upload manque. Cette commande réécrit aussi les
   // filtres globaux : elle garde `--skip-smudge`, sinon elle l'annulerait.
-  const hooks = await execAsAgent(ctx, container, `cd /workspace && git lfs install ${LFS_SKIP_SMUDGE}`);
+  const hooks = await execAsAgent(ctx, container, `cd /workspace && ${LFS_HOOKS_INSTALL}`);
   if (hooks.code !== 0) {
     ctx.err(`WARNING: installing git-lfs hooks in /workspace failed: ${hooks.stderr.trim() || `exit code ${hooks.code}`}`);
     ctx.err("The LFS filters are installed, so LFS files still check out (as pointers) and commit; only the pre-push");
