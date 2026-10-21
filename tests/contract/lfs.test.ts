@@ -39,14 +39,15 @@ const git = (args: string[], cwd: string, env: NodeJS.ProcessEnv = {}) =>
   run("git", ["-c", "commit.gpgsign=false", ...args], cwd, env);
 const sh = (command: string, cwd: string) => run("sh", ["-c", command], cwd);
 
-// A workspace provisioned the way forge does it: global filters, clone with
-// the smudge skipped (mirror.ts), then the repository's hooks.
+// A workspace provisioned in forge's order (provision.ts): clone with the
+// smudge skipped (mirror.ts), then the global filters, then the repository's
+// hooks.
 function workspace(name: string, filters: string, hooks: string): string {
   rmSync(join(root, "home"), { recursive: true, force: true });
   mkdirSync(join(root, "home"));
-  sh(filters, root);
   const ws = join(root, name);
   git(["clone", "-q", "--no-local", mirror, ws], root, { GIT_LFS_SKIP_SMUDGE: "1" });
+  sh(filters, root);
   sh(hooks, ws);
   return ws;
 }

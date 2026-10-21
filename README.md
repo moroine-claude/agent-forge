@@ -437,7 +437,7 @@ Known limits:
   Git LFS files): the container was provisioned by an older forge, whose
   git-lfs configuration downloads LFS objects the mirror does not hold. Fix it
   once on the host with
-  `incus --project agent-forge exec <container> --user 1001 --group 1001 --env HOME=/home/aiuser --cwd /workspace -- git lfs install --skip-smudge`,
+  `incus --project agent-forge exec <container> -- su - aiuser -c 'git lfs install --skip-repo --skip-smudge'`,
   or recreate the container (`forge delete`, then `forge start`; the
   workspace is kept).
 - **A repository whose default branch is not `main`:** new tasks start from
