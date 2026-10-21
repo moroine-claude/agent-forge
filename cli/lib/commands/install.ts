@@ -346,9 +346,9 @@ async function sshConfig(ctx: Context, host: LaptopHost): Promise<Outcome> {
   const path = join(sshDir(), "config");
   const text = existsSync(path) ? readFileSync(path, "utf8") : "";
   if (includeState(text) === "covered") return host.done.includes("ssh") ? "already there" : "done";
-  const yes = await ctx.prompt.pick("Add `Include config.d/*` at the top of ~/.ssh/config?", ["yes", "no"]);
+  const yes = await ctx.prompt.pick("Add `Include config.d/agent-forge` at the top of ~/.ssh/config?", ["yes", "no"]);
   if (yes !== 0) {
-    throw new ForgeError(`without Include config.d/* at the top of ~/.ssh/config, ssh never reads forge's file: the alias ${host.name} cannot work`);
+    throw new ForgeError(`without Include config.d/agent-forge at the top of ~/.ssh/config, ssh never reads forge's file: the alias ${host.name} cannot work`);
   }
   writeKeepingMode(path, addInclude(text));
   return "done";

@@ -40,7 +40,7 @@ const OPTS = { checkout: CHECKOUT, lima: { sleep: async () => {}, freePort: asyn
 const REMOTE = { ...OPTS, remote: "203.0.113.10" };
 const ALL: InstallStep[] = ["vm", "inventory", "playbook", "ssh", "identity", "claude", "setup", "image"];
 const HERDR_LOCAL = ["herdr", "--remote", "forge-local", "--remote-keybindings", "server"];
-const INCLUDE = "Add `Include config.d/*` at the top of ~/.ssh/config?";
+const INCLUDE = "Add `Include config.d/agent-forge` at the top of ~/.ssh/config?";
 const LINK = `Link ~/.local/bin/forge to ${CHECKOUT}/cli/forge?`;
 const RETRY = "forge-acme: the first connection never succeeded";
 const WHICH = "Install or update which host?";
@@ -145,7 +145,7 @@ test("a first local install runs every step in order and ends in herdr", async (
   assert.match(inventory, /ansible_user: "alice"/);
   assert.ok(inventory.includes(`- "${KEY}"`), inventory);
   assert.match(readFileSync(join(home, ".ssh/config.d/agent-forge"), "utf8"), /^Host forge-local$/m);
-  assert.equal(readFileSync(join(home, ".ssh/config"), "utf8"), "Include config.d/*\n");
+  assert.equal(readFileSync(join(home, ".ssh/config"), "utf8"), "Include config.d/agent-forge\n");
   assert.equal(statSync(join(home, ".ssh/config")).mode & 0o777, 0o600);
   assert.equal(readlinkSync(join(home, ".local/bin/forge")), `${CHECKOUT}/cli/forge`);
   assert.ok(ctx.out_lines.includes('export PATH="$HOME/.local/bin:$PATH"'), ctx.out_lines.join("\n"));
@@ -694,7 +694,7 @@ test("declining the Include stops the install, ~/.ssh/config unchanged", async (
   writeFileSync(config, "Host *\n  ServerAliveInterval 60\n", { mode: 0o644 });
   const ctx = laptop({ vm: null }, { answers: [1] });
   await assert.rejects(cmdInstall(ctx, OPTS), (e: Error) =>
-    e instanceof ForgeError && /Include config\.d\/\*/.test(e.message) && /forge-local/.test(e.message));
+    e instanceof ForgeError && /Include config\.d\/agent-forge/.test(e.message) && /forge-local/.test(e.message));
   assert.equal(readFileSync(config, "utf8"), "Host *\n  ServerAliveInterval 60\n");
   assert.equal(statSync(config).mode & 0o777, 0o644);
   assert.ok(!called(ctx).some((c) => c.includes("'git' 'config'")));
@@ -705,7 +705,7 @@ test("an accepted Include keeps the rest of ~/.ssh/config and its mode", async (
   const config = join(home, ".ssh/config");
   writeFileSync(config, "Host *\n  ServerAliveInterval 60\n", { mode: 0o640 });
   assert.equal(await cmdInstall(laptop({ vm: null }, { answers: [0, 1] }), OPTS), 0);
-  assert.equal(readFileSync(config, "utf8"), "Include config.d/*\n\nHost *\n  ServerAliveInterval 60\n");
+  assert.equal(readFileSync(config, "utf8"), "Include config.d/agent-forge\n\nHost *\n  ServerAliveInterval 60\n");
   assert.equal(statSync(config).mode & 0o777, 0o640);
 });
 

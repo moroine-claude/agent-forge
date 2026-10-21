@@ -91,8 +91,8 @@ It asks little:
 
 - which key is your GitHub key, only when your agent holds several (it uses
   the agent ssh uses for `github.com`);
-- whether to add `Include config.d/*` at the top of `~/.ssh/config`, so that
-  ssh reads forge's own file;
+- whether to add `Include config.d/agent-forge` at the top of `~/.ssh/config`, so that
+  ssh reads forge's own file (an existing `Include config.d/*` is accepted);
 - whether to link `~/.local/bin/forge` to the checkout, so `forge` works from
   anywhere (a refusal is asked again on every run);
 - the Claude login, once: `claude auth login` prints a URL, you open it and

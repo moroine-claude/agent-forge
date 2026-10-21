@@ -129,13 +129,14 @@ test("an existing Include is detected", () => {
   assert.equal(includeState("Host gh\n  Include config.d/*\n"), "missing");
   assert.equal(includeState("Match all\nInclude config.d/*\n"), "missing");
   assert.equal(includeState("Include other.conf\n"), "missing");
+  assert.equal(includeState("Include ~/.ssh/config.d/*.config\n"), "missing");
   assert.equal(includeState(""), "missing");
 });
 
 test("the Include goes above the first Host line", () => {
   const input = "# my config\nHost *\n  ServerAliveInterval 30\n\nHost gh\n  User git\n";
-  assert.equal(addInclude(input), `Include config.d/*\n\n${input}`);
-  assert.equal(addInclude(""), "Include config.d/*\n");
+  assert.equal(addInclude(input), `Include config.d/agent-forge\n\n${input}`);
+  assert.equal(addInclude(""), "Include config.d/agent-forge\n");
   assert.equal(includeState(addInclude(input)), "covered");
 });
 

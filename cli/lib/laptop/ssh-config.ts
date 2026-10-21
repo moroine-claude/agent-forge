@@ -100,7 +100,7 @@ export function includeState(configText: string): "covered" | "missing" {
 // The Include goes at the very top (below a Host line it would only apply to
 // that host); every byte of the input follows unchanged.
 export function addInclude(configText: string): string {
-  return configText === "" ? "Include config.d/*\n" : `Include config.d/*\n\n${configText}`;
+  return configText === "" ? "Include config.d/agent-forge\n" : `Include config.d/agent-forge\n\n${configText}`;
 }
 
 // Before forge's block exists for `name`: does `ssh -G` already resolve it to
