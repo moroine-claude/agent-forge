@@ -37,8 +37,13 @@ function binding(key: string, command: string, description: string): string[] {
   ];
 }
 
-// The block, with \n line endings, ending with a newline.
-export function renderBlock(forge: string): string {
+// The block, with \n line endings, ending with a newline. With `toasts`, it
+// also turns herdr's in-app notifications on: herdr 0.9.5 ships with
+// `[ui.toast] delivery = "off"`, and then the start popup's warnings (sent as a
+// herdr notification, spec "Sub-project 1") never show and it falls back to
+// waiting. The [ui.toast] table goes last: it is a table, so it must follow
+// the key bindings' tables rather than precede them.
+export function renderBlock(forge: string, opts: { toasts: boolean }): string {
   const q = shellQuote(forge);
   return [
     BLOCK_START,
@@ -47,6 +52,7 @@ export function renderBlock(forge: string): string {
     ...binding("prefix+f", `${q} start`, "forge: start or open a task"),
     "",
     ...binding("prefix+shift+f", `${q} resume --all`, "forge: resume agents stopped by a herdr restart"),
+    ...(opts.toasts ? ["", "[ui.toast]", 'delivery = "herdr"'] : []),
     BLOCK_END,
     "",
   ].join("\n");
@@ -119,6 +125,28 @@ export function conflictingKeys(text: string): string[] {
   return [...keys];
 }
 
+// True when the user configures toasts outside forge's block: a `[ui.toast]`
+// (or `[ui.toast.*]`) table, a `ui.toast...` key at the top level, or a
+// `toast...` key under `[ui]`. Then forge leaves toasts alone.
+export function userSetsToasts(text: string): boolean {
+  const found = findBlock(text);
+  const outside = found ? text.slice(0, found.from) + text.slice(found.to) : text;
+  let table = "";
+  for (const l of lines(outside)) {
+    const header = /^\s*\[\[?\s*([^\]]*?)\s*\]\]?\s*(?:#.*)?$/.exec(l.text);
+    if (header) {
+      table = header[1].replaceAll(/\s*\.\s*/g, ".");
+      if (table === "ui.toast" || table.startsWith("ui.toast.")) return true;
+      continue;
+    }
+    const key = /^\s*(?:ui\s*\.\s*)?toast\s*[.=]/.exec(l.text);
+    if (!key) continue;
+    const dotted = /^\s*ui\s*\./.test(l.text);
+    if ((table === "" && dotted) || (table === "ui" && !dotted)) return true;
+  }
+  return false;
+}
+
 function readConfig(path: string): string {
   try {
     return readFileSync(path, "utf8");
@@ -157,7 +185,7 @@ export async function ensureHerdrConfig(ctx: Context): Promise<void> {
   const text = readConfig(path);
   let spliced;
   try {
-    spliced = spliceBlock(text, renderBlock(forgeCommand()));
+    spliced = spliceBlock(text, renderBlock(forgeCommand(), { toasts: !userSetsToasts(text) }));
   } catch (e) {
     throw new ForgeError(`${path}: ${(e as Error).message}`);
   }

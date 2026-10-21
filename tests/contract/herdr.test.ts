@@ -21,7 +21,7 @@ let home = "";
 let env: NodeJS.ProcessEnv = process.env;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const saved = { home: process.env.HOME, sock: process.env.HERDR_SOCKET_PATH };
+const saved = { home: process.env.HOME, sock: process.env.HERDR_SOCKET_PATH, cfg: process.env.HERDR_CONFIG_PATH };
 
 before(async () => {
   if (skip) return;
@@ -31,6 +31,8 @@ before(async () => {
   const sock = `${home}/s.sock`;
   process.env.HOME = home;
   process.env.HERDR_SOCKET_PATH = sock;
+  // The server reads this file at start (absent: defaults) and on reload-config.
+  process.env.HERDR_CONFIG_PATH = `${home}/config.toml`;
   env = process.env;
   const server = spawn("herdr", ["server"], { env, detached: true, stdio: "ignore" });
   server.unref();
@@ -42,7 +44,7 @@ after(() => {
   if (skip || !home) return;
   spawnSync("herdr", ["server", "stop"], { env, stdio: "ignore" });
   rmSync(home, { recursive: true, force: true });
-  for (const [k, v] of [["HOME", saved.home], ["HERDR_SOCKET_PATH", saved.sock]] as const) {
+  for (const [k, v] of [["HOME", saved.home], ["HERDR_SOCKET_PATH", saved.sock], ["HERDR_CONFIG_PATH", saved.cfg]] as const) {
     if (v === undefined) delete process.env[k];
     else process.env[k] = v;
   }
@@ -50,10 +52,31 @@ after(() => {
 
 test("herdr accepts the config block forge setup writes", { skip }, () => {
   const file = `${home}/block.toml`;
-  writeFileSync(file, renderBlock("/usr/local/bin/forge"));
-  const r = spawnSync("herdr", ["config", "check"], { env: { ...process.env, HERDR_CONFIG_PATH: file }, encoding: "utf8" });
-  assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.match(r.stdout, /config: ok/);
+  for (const toasts of [false, true]) {
+    writeFileSync(file, renderBlock("/usr/local/bin/forge", { toasts }));
+    const r = spawnSync("herdr", ["config", "check"], { env: { ...process.env, HERDR_CONFIG_PATH: file }, encoding: "utf8" });
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.match(r.stdout, /config: ok/);
+  }
+});
+
+// Reads the server's config at reload-config, as the real server does after
+// `forge setup`, then asks it to show a notification and returns its reason.
+function notificationReason(config: string): string {
+  writeFileSync(`${home}/config.toml`, config);
+  const reload = spawnSync("herdr", ["server", "reload-config"], { env, encoding: "utf8" });
+  assert.match(reload.stdout, /"status":"applied"/, reload.stdout + reload.stderr);
+  const r = spawnSync("herdr", ["notification", "show", "forge test", "--body", "x"], { env, encoding: "utf8" });
+  return JSON.parse(r.stdout).result.reason;
+}
+
+test("the toasts block makes real herdr route notifications to a client", { skip }, () => {
+  assert.equal(notificationReason(renderBlock("/usr/local/bin/forge", { toasts: false })), "disabled");
+  // With delivery = "herdr" the notification is no longer disabled. A headless
+  // server has no attached client to draw the toast on, so it still answers
+  // shown: false (reason no_foreground_client); `shown: true` cannot be
+  // asserted without a client, so the reason is the observable difference.
+  assert.equal(notificationReason(renderBlock("/usr/local/bin/forge", { toasts: true })), "no_foreground_client");
 });
 
 test("tab list, rename and close against real herdr", { skip }, async () => {

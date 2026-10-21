@@ -153,6 +153,8 @@ exit
 - `forge setup` creates forge's Incus objects, the egress proxy and its
   allowlist when Incus is recent enough (see
   [Strict egress mode](#strict-egress-mode)), and forge's herdr key bindings.
+  It also turns herdr's in-app notifications on, unless your herdr config
+  sets `[ui.toast]`.
   Run it again after changing forge's configuration. On a fresh host, two
   notices are expected:
 
