@@ -5,13 +5,15 @@
 // credential GitHub, aucune clé de signature, aucun compte bot dans le
 // container. Les chemins hôte restent surchargeables par variable
 // d'environnement (paths.ts) pour que les tests ne touchent jamais un vrai home.
-import { existsSync, mkdirSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { Context, ExecResult } from "../context.ts";
 import { ForgeError, mustSucceed } from "../context.ts";
-import { BASE_IMAGE, latestImageCommit } from "../containers.ts";
 import {
-  configSet, execAsAgent, execAsAgentArgv, forgeProject, imageExists, incus, listObjects, waitReady,
+  BASE_IMAGE, latestImageCommit, PROVISIONING_KEY, PROVISIONING_WORKSPACE_KEY, provisioningMarker,
+} from "../containers.ts";
+import {
+  configSet, configUnset, deleteInstance, execAsAgent, execAsAgentArgv, forgeProject, imageExists, incus, listObjects, waitReady,
 } from "../incus.ts";
 import {
   cloneWorkspace, ensureMirror, HOST_GIT_CWD, MIRROR_MOUNT, mirrorRepo, ORIGIN_DEVICE, pointOriginAtMirror,
@@ -25,6 +27,25 @@ import { egressNames } from "../objects.ts";
 // Le concept de mode reste (pre-bash.sh, CLAUDE.md, user.forge.mode) : le mode
 // autonome pourra revenir sans restructurer. v2 n'en provisionne qu'un.
 const MODE = "supervised";
+
+// Défait un provisioning interrompu. Règle : rien de ce qui existait avant la
+// tentative échouée n'est supprimé. Le workspace marqué "kept" peut porter la
+// seule copie d'un travail non récupéré ; le miroir n'est jamais touché. Le
+// marqueur se lit avant la suppression de l'instance, qui l'emporte avec elle.
+// Retourne ce qu'il est advenu du workspace : "emptied" (créé par la tentative
+// échouée, donc vidé) ou "kept" (préexistant, ou dans le doute).
+export async function discardHalfProvisioned(ctx: Context, container: string): Promise<"emptied" | "kept"> {
+  const marker = await provisioningMarker(ctx, container);
+  await mustSucceed("incus delete", deleteInstance(ctx, container));
+  if (marker?.workspace !== "new") return "kept";
+  const workspaceDir = join(workspacesDir(), container);
+  if (!existsSync(workspaceDir)) return "emptied";
+  // Le contenu seulement : le répertoire est reconstruit par le prochain launch.
+  for (const entry of readdirSync(workspaceDir)) {
+    rmSync(join(workspaceDir, entry), { recursive: true, force: true });
+  }
+  return "emptied";
+}
 
 // `strict` : le container naît strict — jamais lancé ouvert, puis restreint :
 // l'ACL, les actions par défaut et l'environnement du proxy sont posés par le
@@ -59,7 +80,12 @@ export async function provisionContainer(
 
   ctx.out(`Creating container ${container}...`);
   const strictArgs = plan ? strictLaunchArgs(plan, egressNames(forgeProject())) : [];
-  await mustSucceed("incus launch", ctx.exec(incus("launch", BASE_IMAGE, container, "--profile", PROFILE, ...strictArgs)));
+  await mustSucceed("incus launch", ctx.exec(incus("launch", BASE_IMAGE, container, "--profile", PROFILE,
+    // Marqueurs de provisioning : retirés en tout dernier, ils permettent de
+    // reconnaître (et de relancer) un provisioning interrompu.
+    "-c", `${PROVISIONING_KEY}=${ownerRepo}`,
+    "-c", `${PROVISIONING_WORKSPACE_KEY}=${reuseWorkspace ? "kept" : "new"}`,
+    ...strictArgs)));
   await waitReady(ctx, container);
   // Dès que le container tourne, avant tout accès réseau (plugins, apt).
   if (plan) await applyStrictSettings(ctx, container, plan);
@@ -127,7 +153,7 @@ export async function provisionContainer(
     container, "/home/aiuser/.claude/hooks/pre-bash.sh", 0, "755");
   await pushFile(ctx, "push Claude settings", join(repoRoot(), "container", "settings.json"),
     container, "/home/aiuser/.claude/settings.json", 0, "644");
-  await requireHookBlocks(ctx, container);
+  await requireHookBlocks(ctx, container, ownerRepo);
 
   await refreshClaude(ctx, container, strict);
 
@@ -166,19 +192,13 @@ export async function provisionContainer(
   await mustSucceed("stamp image commit",
     configSet(ctx, container, "user.forge.image_commit", await latestImageCommit(ctx)));
 
-  // En dernier : c'est cette clé qui fait reconnaître le container par
-  // checkNameCollision.
+  // user.forge.repo reste la clé que checkNameCollision reconnaît ; les
+  // marqueurs de provisioning ne partent qu'après elle, en tout dernier.
   ctx.out("Recording forge metadata...");
   await mustSucceed("record forge repo", configSet(ctx, container, "user.forge.repo", ownerRepo));
+  await mustSucceed("clear provisioning marker", configUnset(ctx, container, PROVISIONING_KEY));
+  await mustSucceed("clear provisioning marker", configUnset(ctx, container, PROVISIONING_WORKSPACE_KEY));
 
-  // L'hôte de forge n'est connu que de l'humain ; le sous-projet 5 affine.
-  ctx.err("");
-  ctx.err("Retrieve this container's work from your machine with:");
-  ctx.err(`  git remote add ${container} <forge-host>:${container}`);
-  ctx.err(`  git config remote.${container}.uploadpack "forge upload-pack ${container}"`);
-  ctx.err(`  git fetch ${container}`);
-  // Imprimé une seule fois : la popup herdr ne doit pas l'effacer en se fermant.
-  ctx.attention();
   ctx.out(`Container ${container} provisioned.`);
   return { mirror: mirrorOutcome };
 }
@@ -221,13 +241,12 @@ async function requireRuntime(ctx: Context): Promise<void> {
 const hookProbe = (command: string) =>
   `printf '%s' '{"tool_name":"Bash","tool_input":{"command":"${command}"}}' | /home/aiuser/.claude/hooks/pre-bash.sh`;
 
-async function requireHookBlocks(ctx: Context, container: string): Promise<void> {
+async function requireHookBlocks(ctx: Context, container: string, ownerRepo: string): Promise<void> {
   ctx.out("Checking that the security hook guards the agent...");
-  // Le container s'arrête avant ses métadonnées forge : `forge delete` ne le
-  // trouve pas, d'où la commande incus exacte.
+  // Le container porte encore ses marqueurs de provisioning : `forge delete`
+  // sait le retirer.
   const rebuild = "Rebuild the image ('forge image build'), remove this container with " +
-    `'incus --project ${forgeProject()} delete --force ${container}' (its workspace survives), ` +
-    "then start the task again.";
+    `'forge delete ${ownerRepo}' (its workspace survives), then start the task again.`;
   // Le hook termine ses phrases par un point : on le retire avant d'enchaîner.
   const detail = (r: ExecResult) => {
     const stderr = r.stderr.trim().replace(/\.+$/, "");

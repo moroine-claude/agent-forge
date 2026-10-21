@@ -137,7 +137,7 @@ export async function resumeAll(ctx: Context, h: HerdrEnv): Promise<number> {
   const allTabs = await listTabs(ctx, h);
   const allPanes = await listPanes(ctx, h);
   let printed = 0;
-  const line = (s: string) => { ctx.out(s); printed++; };
+  const line = (s: string) => { ctx.notify(s); printed++; };
   // Per container, for the whole run: two workspaces whose labels differ only
   // by case map to one container. A task is typed into at most once: never
   // when the running probe has it, and never again once a tab of this run
@@ -195,9 +195,7 @@ export async function resumeAll(ctx: Context, h: HerdrEnv): Promise<number> {
       }
     }
   }
-  if (printed === 0) ctx.out("no forge tab to resume.");
-  // The lines are the result: the popup must not close over them.
-  ctx.attention();
+  if (printed === 0) ctx.notify("no forge tab to resume.");
   return 0;
 }
 

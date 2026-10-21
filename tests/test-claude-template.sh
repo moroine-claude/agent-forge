@@ -44,14 +44,14 @@ assert_contains '/home/aiuser/.claude/forge-mode'
 assert_contains '`autonomous`'
 assert_contains '`supervised`'
 assert_contains 'git push -u origin agent/<task-name>'
-# La base de la PR n'est plus figée sur main : c'est la branche dont la tâche
-# est partie (main par défaut, next pour la v2 d'agent-forge).
-assert_contains 'gh pr create --base <base>'
-assert_not_contains 'gh pr create --base main'
-assert_contains 'git merge origin/<base>'
-assert_contains 'origin/next'
-assert_contains 'git log -p <base>..agent/<task-name>'
-assert_contains 'git rebase --reset-author <base>'
+# La v2 est sortie sur main et la branche next est retirée : la base des
+# tâches est toujours main, sans variable <base> à résoudre.
+assert_contains 'gh pr create --base main'
+assert_contains 'git merge origin/main'
+assert_contains 'git log -p main..agent/<task-name>'
+assert_contains 'git rebase --reset-author main'
+assert_not_contains 'origin/next'
+assert_not_contains '<base>'
 assert_contains "aucune** credential GitHub"
 assert_contains 'arrête-toi là'
 assert_line_before '/home/aiuser/.claude/forge-mode' '`autonomous`'
