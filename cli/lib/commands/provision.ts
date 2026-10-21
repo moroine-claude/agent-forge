@@ -5,13 +5,15 @@
 // credential GitHub, aucune clé de signature, aucun compte bot dans le
 // container. Les chemins hôte restent surchargeables par variable
 // d'environnement (paths.ts) pour que les tests ne touchent jamais un vrai home.
-import { existsSync, mkdirSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { Context, ExecResult } from "../context.ts";
 import { ForgeError, mustSucceed } from "../context.ts";
-import { BASE_IMAGE, latestImageCommit, PROVISIONING_KEY, PROVISIONING_WORKSPACE_KEY } from "../containers.ts";
 import {
-  configSet, configUnset, execAsAgent, execAsAgentArgv, forgeProject, imageExists, incus, listObjects, waitReady,
+  BASE_IMAGE, latestImageCommit, PROVISIONING_KEY, PROVISIONING_WORKSPACE_KEY, provisioningMarker,
+} from "../containers.ts";
+import {
+  configSet, configUnset, deleteInstance, execAsAgent, execAsAgentArgv, forgeProject, imageExists, incus, listObjects, waitReady,
 } from "../incus.ts";
 import {
   cloneWorkspace, ensureMirror, HOST_GIT_CWD, MIRROR_MOUNT, mirrorRepo, ORIGIN_DEVICE, pointOriginAtMirror,
@@ -25,6 +27,22 @@ import { egressNames } from "../objects.ts";
 // Le concept de mode reste (pre-bash.sh, CLAUDE.md, user.forge.mode) : le mode
 // autonome pourra revenir sans restructurer. v2 n'en provisionne qu'un.
 const MODE = "supervised";
+
+// Défait un provisioning interrompu. Règle : rien de ce qui existait avant la
+// tentative échouée n'est supprimé. Le workspace marqué "kept" peut porter la
+// seule copie d'un travail non récupéré ; le miroir n'est jamais touché. Le
+// marqueur se lit avant la suppression de l'instance, qui l'emporte avec elle.
+export async function discardHalfProvisioned(ctx: Context, container: string): Promise<void> {
+  const marker = await provisioningMarker(ctx, container);
+  await mustSucceed("incus delete", deleteInstance(ctx, container));
+  if (marker?.workspace !== "new") return;
+  const workspaceDir = join(workspacesDir(), container);
+  if (!existsSync(workspaceDir)) return;
+  // Le contenu seulement : le répertoire est reconstruit par le prochain launch.
+  for (const entry of readdirSync(workspaceDir)) {
+    rmSync(join(workspaceDir, entry), { recursive: true, force: true });
+  }
+}
 
 // `strict` : le container naît strict — jamais lancé ouvert, puis restreint :
 // l'ACL, les actions par défaut et l'environnement du proxy sont posés par le

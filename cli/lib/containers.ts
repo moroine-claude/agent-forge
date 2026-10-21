@@ -70,25 +70,39 @@ export async function requireContainerForRepo(ctx: Context, ownerRepo: string): 
   return container;
 }
 
-// Échoue bruyamment si un container existe déjà sous le nom dérivé mais pour
-// un *autre* repo, ou sans métadonnée forge du tout (container hérité, ou
-// laissé par un provisioning interrompu avant l'enregistrement) — plutôt que
-// de le réutiliser silencieusement.
-export async function checkNameCollision(ctx: Context, container: string, ownerRepo: string): Promise<void> {
-  if (!(await instanceExists(ctx, container))) return;
+// Trois réponses : "absent" (rien sous ce nom), "ours" (user.forge.repo est ce
+// repo) ou "half-provisioned" (pas de user.forge.repo, mais le marqueur d'un
+// provisioning de CE repo : un lancement interrompu, que `forge start` propose
+// de recréer). Échoue bruyamment pour un container d'un *autre* repo
+// (user.forge.repo ou marqueur) ou sans aucune métadonnée forge (container
+// hérité) — plutôt que de le réutiliser silencieusement.
+export async function checkNameCollision(
+  ctx: Context, container: string, ownerRepo: string,
+): Promise<"absent" | "ours" | "half-provisioned"> {
+  if (!(await instanceExists(ctx, container))) return "absent";
+  const wanted = ownerRepo.toLowerCase();
   const existing = await containerRepo(ctx, container);
-  if (!existing) {
+  if (existing) {
+    if (existing.toLowerCase() !== wanted) {
+      throw new ForgeError(
+        `container ${container} already exists for a different repo (${existing}), refusing to reuse it for ${ownerRepo}.`,
+      );
+    }
+    return "ours";
+  }
+  const marker = await provisioningMarker(ctx, container);
+  if (!marker) {
     throw new ForgeError(
-      `container ${container} already exists but has no user.forge.repo metadata (a legacy or partially-provisioned container). ` +
-      `Refusing to reuse it — delete it first: incus --project ${forgeProject()} delete --force ${container} ` +
-      `(its workspace in ~/workspaces survives the deletion).`,
+      `container ${container} already exists but has no forge metadata. ` +
+      `Remove it with: forge delete ${ownerRepo} (its workspace survives).`,
     );
   }
-  if (existing.toLowerCase() !== ownerRepo.toLowerCase()) {
+  if (marker.repo.toLowerCase() !== wanted) {
     throw new ForgeError(
-      `container ${container} already exists for a different repo (${existing}), refusing to reuse it for ${ownerRepo}.`,
+      `container ${container} already exists for a different repo (${marker.repo}), refusing to reuse it for ${ownerRepo}.`,
     );
   }
+  return "half-provisioned";
 }
 
 export async function isRunning(ctx: Context, name: string): Promise<boolean> {

@@ -1,13 +1,13 @@
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, mkdirSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fakeContext, type ExecRule } from "./lib/fake-context.ts";
 import { FakeIncus } from "./lib/fake-incus.ts";
 import { assertNoHostGitIn } from "./lib/host-git.ts";
 import { mirrorPath } from "../cli/lib/paths.ts";
-import { provisionContainer } from "../cli/lib/commands/provision.ts";
+import { discardHalfProvisioned, provisionContainer } from "../cli/lib/commands/provision.ts";
 import { provisioningMarker } from "../cli/lib/containers.ts";
 
 let home: string;
@@ -460,4 +460,24 @@ test("the markers are removed after user.forge.repo, at the very end", async () 
 test("a failed hook probe points at forge delete, not at incus", async () => {
   const { run } = provision({ rules: [{ match: "forge-hook-probe-deny", code: 0 }] });
   await assert.rejects(run, (e: Error) => /forge delete o\/r/.test(e.message) && !/incus --project/.test(e.message));
+});
+
+// Nothing that existed before the failed attempt may be deleted: a reused
+// workspace can hold the only copy of unretrieved work.
+test("discarding removes the instance and empties a workspace the failed attempt created", async () => {
+  const fake = FakeIncus.withRuntime();
+  fake.addInstance("agent-forge", "agent-x", { config: { "user.forge.provisioning": "o/r", "user.forge.provisioning_workspace": "new" } });
+  const dir = seedWorkspace("partial");
+  await discardHalfProvisioned(fakeContext({ incus: fake }), "agent-x");
+  assert.equal(fake.instances.get("agent-forge")!.has("agent-x"), false);
+  assert.deepEqual(readdirSync(dir), []);
+});
+
+test("discarding keeps a workspace the failed attempt reused", async () => {
+  const fake = FakeIncus.withRuntime();
+  fake.addInstance("agent-forge", "agent-x", { config: { "user.forge.provisioning": "o/r", "user.forge.provisioning_workspace": "kept" } });
+  const dir = seedWorkspace("unretrieved");
+  await discardHalfProvisioned(fakeContext({ incus: fake }), "agent-x");
+  assert.equal(fake.instances.get("agent-forge")!.has("agent-x"), false);
+  assert.deepEqual(readdirSync(dir), ["unretrieved"]);
 });
