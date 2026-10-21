@@ -114,8 +114,9 @@ test("a first local install runs every step in order and ends in herdr", async (
     ["ssh", "-o", "ForwardAgent=no", "-t", "forge-local", "--", "'forge' 'image' 'build'"],
     HERDR_LOCAL,
   ]);
+  // From the checkout: an ansible.cfg in the developer's current directory is never read.
   for (const a of ctx.attachCalls.filter((c) => c.argv[0].startsWith("ansible"))) {
-    assert.deepEqual(a.opts?.env, { ANSIBLE_COLLECTIONS_PATH: collections });
+    assert.deepEqual(a.opts, { env: { ANSIBLE_COLLECTIONS_PATH: collections }, cwd: CHECKOUT });
   }
   // The SSH check comes after the playbook, the host's account steps after it.
   const playbook = firstIndex(ctx, "ansible-playbook -i");

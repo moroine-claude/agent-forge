@@ -282,15 +282,16 @@ async function firstConnection(ctx: Context, host: LaptopHost): Promise<Outcome>
   return "done";
 }
 
-// From the checkout, whose HEAD the playbook deploys; the collections live in
-// forge's data directory.
+// From the checkout, whose HEAD the playbook deploys (its directory too: an
+// ansible.cfg wherever forge was run from is never read); the collections
+// live in forge's data directory.
 async function playbook(ctx: Context, host: LaptopHost, checkout: string): Promise<Outcome> {
   const collections = join(laptopDataDir(), "collections");
-  const env = { ANSIBLE_COLLECTIONS_PATH: collections };
+  const opts = { env: { ANSIBLE_COLLECTIONS_PATH: collections }, cwd: checkout };
   const requirements = join(checkout, "ansible", "requirements.yml");
-  const galaxy = await ctx.attach(["ansible-galaxy", "collection", "install", "-r", requirements, "-p", collections], { env });
+  const galaxy = await ctx.attach(["ansible-galaxy", "collection", "install", "-r", requirements, "-p", collections], opts);
   if (galaxy !== 0) throw new ForgeError(`ansible-galaxy collection install failed (exit code ${galaxy})`);
-  const play = await ctx.attach(["ansible-playbook", "-i", inventoryPath(host.name), join(checkout, "ansible", "site.yml")], { env });
+  const play = await ctx.attach(["ansible-playbook", "-i", inventoryPath(host.name), join(checkout, "ansible", "site.yml")], opts);
   if (play !== 0) throw new ForgeError(`ansible-playbook failed (exit code ${play})`);
   return "done";
 }
