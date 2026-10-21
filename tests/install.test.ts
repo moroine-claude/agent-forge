@@ -354,7 +354,7 @@ test("a remote install asks its questions once and saves them first", async () =
   assert.deepEqual(second.attachCalls.at(-1)?.argv, ["herdr", "--remote", "forge-acme", "--remote-keybindings", "server"]);
   // The agent and the admin key reach the inventory, the agent the SSH block.
   const inventory = readFileSync(inventoryPath("forge-acme"), "utf8");
-  assert.match(inventory, /-o IdentityAgent='\/run\/agent.sock'/);
+  assert.match(inventory, /-o 'IdentityAgent=\/run\/agent.sock'/);
   assert.ok(inventory.includes(`ansible_ssh_private_key_file: "${join(home, "keys/admin")}"`), inventory);
   assert.match(inventory, /forge_exposure: "lan"/);
   assert.match(inventory, /- name: "alice"/);

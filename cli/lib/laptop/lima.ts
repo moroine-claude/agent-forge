@@ -5,6 +5,7 @@ import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { ForgeError, type Context } from "../context.ts";
 import { limaHome } from "../paths.ts";
+import { sshOption } from "./ssh-config.ts";
 import { knownHostsPath } from "./state.ts";
 
 export const LIMA_NAME = "forge-local";
@@ -110,7 +111,7 @@ export async function ensureLimaVm(
   const ssh = (command: string[]) =>
     ctx.exec([
       "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "IdentitiesOnly=yes",
-      "-o", `UserKnownHostsFile=${knownHostsPath()}`, "-o", `HostKeyAlias=${HOST_KEY_ALIAS}`,
+      "-o", sshOption("UserKnownHostsFile", knownHostsPath()), "-o", `HostKeyAlias=${HOST_KEY_ALIAS}`,
       "-o", "StrictHostKeyChecking=accept-new",
       "-i", adminKey, "-p", String(vm.port), `${vm.user}@127.0.0.1`, ...command,
     ]);

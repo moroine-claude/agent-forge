@@ -1,10 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, statSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  addInclude, forgeSshConfigDefines, hostDefinedElsewhere, includeState, renderForgeSshConfig, writeForgeSshConfig,
+  addInclude, forgeSshConfigDefines, hostDefinedElsewhere, includeState, renderForgeSshConfig, sshOption,
+  writeForgeSshConfig,
 } from "../cli/lib/laptop/ssh-config.ts";
 import type { LaptopHost } from "../cli/lib/laptop/state.ts";
 import { fakeContext } from "./lib/fake-context.ts";
@@ -63,6 +65,22 @@ test("a path with spaces is double-quoted", () => {
   assert.match(text, /^ {2}IdentityAgent "\/Users\/a b\/agent\.sock"$/m);
   assert.match(text, /^ {2}IdentityFile "\/my state\/key\.pub"$/m);
   assert.match(text, /^ {2}UserKnownHostsFile "\/my state\/known_hosts"$/m);
+});
+
+test("sshOption quotes a value the way ssh reads it", () => {
+  assert.equal(sshOption("IdentityAgent", "/run/agent.sock"), "IdentityAgent=/run/agent.sock");
+  assert.equal(sshOption("IdentityAgent", "/a b/s"), 'IdentityAgent="/a b/s"');
+  assert.equal(sshOption("IdentityAgent", "/o'b/s"), `IdentityAgent="/o'b/s"`);
+  assert.equal(sshOption("IdentityAgent", '/q"x\\y'), String.raw`IdentityAgent="/q\"x\\y"`);
+});
+
+// `-G` only parses the options, it never connects.
+test("ssh itself reads an sshOption value back whole", { skip: spawnSync("ssh", ["-V"]).status !== 0 }, () => {
+  for (const path of ["/run/agent.sock", "/Users/a  b/Group Containers/agent.sock", "/o'b/s", '/q"x\\y  z']) {
+    const r = spawnSync("ssh", ["-F", "/dev/null", "-G", "-o", sshOption("IdentityAgent", path), "example.invalid"], { encoding: "utf8" });
+    assert.equal(r.status, 0, r.stderr);
+    assert.ok(r.stdout.split("\n").includes(`identityagent ${path}`), path);
+  }
 });
 
 test("writes the file 0600 in 0700 directories, atomically", () => {

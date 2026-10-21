@@ -19,7 +19,8 @@ import {
 } from "../laptop/lima.ts";
 import { checkPrerequisites } from "../laptop/prereqs.ts";
 import {
-  addInclude, forgeSshConfigDefines, hostDefinedElsewhere, includeState, renderForgeSshConfig, writeForgeSshConfig,
+  addInclude, forgeSshConfigDefines, hostDefinedElsewhere, includeState, renderForgeSshConfig, sshOption,
+  writeForgeSshConfig,
 } from "../laptop/ssh-config.ts";
 import {
   forgeKeyPath, forgetHost, hostDir, inventoryPath, knownHostsPath, loadHosts, saveHost, selectHost, validHostName,
@@ -266,9 +267,6 @@ async function limaVm(ctx: Context, host: LaptopHost, checkout: string, lima?: L
   Object.assign(host, { port: vm.port, admin: vm.admin, adminKey: vm.adminKey });
   return "done";
 }
-
-// ssh reads a `-o` value like a config line: one with a space is quoted.
-const sshOption = (name: string, value: string): string => (/\s/.test(value) ? `${name}="${value}"` : `${name}=${value}`);
 
 // In the terminal, so that OpenSSH asks about the new host's key once, in the
 // open; exactly one key is offered (sshd allows two attempts, fail2ban bans).

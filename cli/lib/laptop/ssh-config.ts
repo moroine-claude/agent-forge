@@ -12,9 +12,17 @@ function forgeFile(): string {
   return join(sshDir(), "config.d", "agent-forge");
 }
 
-// ssh_config quotes a value that holds a space; plain values stay bare.
+// ssh splits a config line, and a `-o` value, on whitespace, honouring its own
+// quotes: a value with a space or a quote is double-quoted, `"` and `\`
+// escaped inside; plain values stay bare.
 function value(v: string): string {
-  return /\s/.test(v) ? `"${v}"` : v;
+  return /[\s"'\\]/.test(v) ? `"${v.replace(/["\\]/g, "\\$&")}"` : v;
+}
+
+// One `-o` option for ssh's argv. Where a shell (or Ansible's shlex) splits it
+// first, it is shell-quoted on top.
+export function sshOption(name: string, v: string): string {
+  return `${name}=${value(v)}`;
 }
 
 export function renderForgeSshConfig(

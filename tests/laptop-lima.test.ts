@@ -173,6 +173,14 @@ test("ensureLimaVm waits for SSH with forge's own known_hosts and the admin key"
   assert.ok(j.includes(`-i ${join(process.env.LIMA_HOME!, "_config", "user")} -p 60022 alice@127.0.0.1 true`));
 }));
 
+test("ensureLimaVm quotes a known_hosts path with a space for ssh", () => withTmpEnv(async () => {
+  process.env.XDG_CONFIG_HOME = join(process.env.XDG_CONFIG_HOME!, "my config");
+  const ctx = fakeContext({ rules: [{ match: "limactl list --json", stdout: inst("Running", 60022) }] });
+  await ensureLimaVm(ctx, TEMPLATE, { sleep: noSleep });
+  const known = join(process.env.XDG_CONFIG_HOME, "agent-forge", "known_hosts");
+  assert.ok(sshCalls(ctx)[0].includes(`UserKnownHostsFile="${known}"`), sshCalls(ctx)[0].join(" "));
+}));
+
 test("ensureLimaVm gives up after 60 SSH tries", () => withTmpEnv(async () => {
   const ctx = fakeContext({ rules: [{ match: "limactl list --json", stdout: inst("Running", 60022) }, { match: "ssh ", code: 255 }] });
   let sleeps = 0;

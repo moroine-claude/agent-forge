@@ -3,6 +3,7 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { shellQuote } from "../shell.ts";
+import { sshOption } from "./ssh-config.ts";
 import type { LaptopHost } from "./state.ts";
 
 // Same alias as the Lima wait (lima.ts), which stores the VM's key under it.
@@ -15,11 +16,13 @@ export function renderInventory(
   h: LaptopHost,
   o: { forgeKey: string; adminKeyFile: string; knownHosts: string },
 ): string {
-  // Ansible splits ansible_ssh_common_args with shlex: a value that is a path
-  // or a socket is single-quoted so that a space in it survives.
-  const args = ["-o IdentitiesOnly=yes", `-o UserKnownHostsFile=${shellQuote(o.knownHosts)}`];
+  // Two splits: Ansible splits ansible_ssh_common_args with shlex, then ssh
+  // splits each -o value again, like a config line. A path or a socket is
+  // quoted for ssh (sshOption), then the whole option for shlex.
+  const path = (name: string, v: string): string => `-o ${shellQuote(sshOption(name, v))}`;
+  const args = ["-o IdentitiesOnly=yes", path("UserKnownHostsFile", o.knownHosts)];
   if (h.kind === "lima") args.push(`-o HostKeyAlias=${HOST_KEY_ALIAS}`, "-o StrictHostKeyChecking=accept-new");
-  if (h.identityAgent) args.push(`-o IdentityAgent=${shellQuote(h.identityAgent)}`);
+  if (h.identityAgent) args.push(path("IdentityAgent", h.identityAgent));
   // No ansible_port for a remote host: an explicit one would stop the preflight
   // from probing forge_ssh_port, locking out a developer who edits it. Lima
   // forwards a local port to sshd, which stays on 22: it needs ansible_port.
