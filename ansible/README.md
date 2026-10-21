@@ -113,7 +113,8 @@ An admin account with a sudo password is a manual inventory edit: set
 
 ### Run the playbook
 
-From the checkout (it deploys `forge` from its HEAD):
+From the checkout (it deploys `forge` from its HEAD). For a remote VM, pass
+your copy of `inventory.example.yml` to `-i` instead:
 
 ```bash
 ansible-galaxy collection install -r ansible/requirements.yml
@@ -163,7 +164,8 @@ forge image build                      # about 10 minutes
 exit
 ```
 
-Then `herdr --remote forge-local --remote-keybindings server`.
+Then `herdr --remote forge-local --remote-keybindings server` (for a remote
+host, your alias: `herdr --remote forge-vm --remote-keybindings server`).
 
 ### Troubleshooting a manual install
 

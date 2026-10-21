@@ -225,8 +225,9 @@ The same install, on a VM that you create:
 
 `forge open --host forge-acme` opens herdr on it, and
 `git remote add <container> forge-acme:<container>` fetches its work (step
-[4](#4-get-the-work-back)). With several hosts installed, `forge install` and
-`forge open` ask which one.
+[4](#4-get-the-work-back)). With several hosts installed, `forge open` asks which one. `forge install`
+with no option goes to `forge-local` when it is listed, and asks which host
+only when just remote hosts are listed.
 
 ## Daily use
 
@@ -417,9 +418,13 @@ Known limits:
   container.
 - **`REMOTE HOST IDENTIFICATION HAS CHANGED`** after recreating a remote VM
   at the same address: a host forge installed keeps its key in forge's own
-  file, so run `ssh-keygen -R 203.0.113.10 -f ~/.config/agent-forge/known_hosts`
-  (the VM's address), then `forge install --host forge-acme`. For the local
-  VM, `forge install` handles it when it recreates the VM.
+  file. Remove the old key, then record the new one yourself:
+  `ssh-keygen -R 203.0.113.10 -f ~/.config/agent-forge/known_hosts` (the VM's
+  address), then `ssh forge-acme true` once in a terminal. Check the
+  fingerprint OpenSSH shows against your provider's console and answer yes:
+  the alias and the playbook's admin connection read the same file, and
+  nothing else records the key. Then `forge install --host forge-acme`. For
+  the local VM, `forge install` handles it when it recreates the VM.
 - **The host cannot clone** (`Permission denied (publickey)` or
   `Error connecting to agent`): the agent is not forwarded. Check
   `ForwardAgent yes` and `IdentityAgent` in your SSH config, and that you are
