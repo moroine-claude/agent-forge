@@ -2,7 +2,8 @@
 // deviennent un message et un code de sortie.
 import { parseArgs } from "node:util";
 import { createInterface } from "node:readline";
-import { herdrEnv } from "./lib/herdr.ts";
+import { herdrEnv, showNotification } from "./lib/herdr.ts";
+import { collectNotices, noticeBody } from "./lib/popup.ts";
 import type { Context } from "./lib/context.ts";
 import { createContext, ForgeError } from "./lib/context.ts";
 import { cmdSetup } from "./lib/commands/setup.ts";
@@ -76,24 +77,12 @@ function waitForLine(): Promise<void> {
   });
 }
 
-// Une seule politique d'acquittement pour la popup herdr : elle se ferme avec
-// le processus, donc un succès la ferme aussitôt — sauf si l'exécution a écrit
-// ce que l'utilisateur doit lire (une ligne WARNING/NOTICE sur stderr, ou un
-// ctx.notify() : hint de récupération, bilan de resume --all). L'état vit
-// dans cet appel de main, rien de global.
-function withAttention(base: Context): { ctx: Context; needed: () => boolean } {
-  let needed = false;
-  const ctx: Context = {
-    ...base,
-    err: (line) => {
-      if (line.startsWith("WARNING") || line.startsWith("NOTICE")) needed = true;
-      base.err(line);
-    },
-    notify: (line) => { base.out(line); needed = true; },
-  };
-  return { ctx, needed: () => needed };
-}
-
+// Politique d'acquittement de la popup herdr, qui se ferme avec le processus :
+// - un code de sortie non nul, ou une exception : on attend Entrée ;
+// - un succès sans rien à lire : elle se ferme aussitôt ;
+// - un succès qui a écrit des WARNING/NOTICE ou appelé ctx.notify : ces lignes
+//   partent en une notification herdr (voir cli/lib/popup.ts). On n'attend
+//   Entrée que si herdr ne l'a pas affichée (toasts éteints) ou a échoué.
 // Un onglet herdr lance `exec forge attach …` : le pane se ferme avec forge.
 // Dans un pane (HERDR_ENV=1 et HERDR_PANE_ID), un attach qui échoue ou un
 // agent sorti en erreur laisse donc de quoi lire avant la fermeture.
@@ -102,7 +91,8 @@ function attachInHerdrPane(cmd: string | undefined): boolean {
 }
 
 async function main(): Promise<number> {
-  const { ctx, needed } = withAttention(createContext());
+  const base = createContext();
+  const { ctx, notices } = collectNotices(base);
   let cmd: string | undefined;
   try {
     const { values, positionals } = parseArgs({
@@ -125,9 +115,21 @@ async function main(): Promise<number> {
       ctx.err(`the agent exited with code ${code}`);
       ctx.err("Press Enter to close");
       await waitForLine();
-    } else if (herdrEnv()?.popup && needed()) {
+    } else if (herdrEnv()?.popup && code !== 0) {
       ctx.err("Press Enter to close");
       await waitForLine();
+    } else if (herdrEnv()?.popup && notices.length > 0) {
+      let shown = false;
+      try {
+        shown = await showNotification(ctx, herdrEnv()!, `forge ${cmd}`, noticeBody(notices));
+      } catch (e) {
+        // Le contexte de base : cette ligne ne doit pas être collectée.
+        base.err(`herdr notification failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
+      if (!shown) {
+        ctx.err("Press Enter to close");
+        await waitForLine();
+      }
     }
     return code;
   } catch (e) {

@@ -4,12 +4,15 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, chmodSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, chmodSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 let bin: string;
 let herdr: string;
+let herdrNoteOnly: string;
+let herdrToastsOff: string;
+let noteFile: string;
 // Same fake incus, except that the agent itself (the attach argv) exits 3.
 let failingAgentBin: string;
 const ENTRY = resolve("cli/forge.ts");
@@ -23,7 +26,24 @@ case "$1 $2" in
   "pane list") echo '{"id":"1","result":{"panes":[{"pane_id":"w1:p1","tab_id":"w1:t1"}]}}' ;;
   "pane process-info") echo '{"id":"1","result":{"process_info":{"foreground_processes":[{"argv":["forge","attach","agent-alice-project","cli"]}]}}}' ;;
   "tab focus") ;;
+  "notification show") printf '%s\n' "$@" > "$FAKE_HERDR_NOTE"; echo '{"id":"1","result":{"shown":true}}' ;;
   *) echo "fake herdr: unexpected $*" >&2; exit 1 ;;
+esac
+`;
+
+// Shows notifications and refuses every other command.
+const FAKE_HERDR_NOTE_ONLY = `#!/bin/sh
+case "$1 $2" in
+  "notification show") printf '%s\n' "$@" > "$FAKE_HERDR_NOTE"; echo '{"id":"1","result":{"shown":true}}' ;;
+  *) exit 1 ;;
+esac
+`;
+
+// Answers like herdr 0.9.5 with its default config: toasts are off.
+const FAKE_HERDR_TOASTS_OFF = `#!/bin/sh
+case "$1 $2" in
+  "notification show") echo '{"id":"1","result":{"shown":false,"reason":"disabled"}}' ;;
+  *) exit 1 ;;
 esac
 `;
 
@@ -35,6 +55,13 @@ before(() => {
   herdr = join(bin, "fake-herdr");
   writeFileSync(herdr, FAKE_HERDR);
   chmodSync(herdr, 0o755);
+  herdrNoteOnly = join(bin, "fake-herdr-note-only");
+  writeFileSync(herdrNoteOnly, FAKE_HERDR_NOTE_ONLY);
+  chmodSync(herdrNoteOnly, 0o755);
+  herdrToastsOff = join(bin, "fake-herdr-toasts-off");
+  writeFileSync(herdrToastsOff, FAKE_HERDR_TOASTS_OFF);
+  chmodSync(herdrToastsOff, 0o755);
+  noteFile = join(bin, "note");
   failingAgentBin = mkdtempSync(join(tmpdir(), "forge-e2e-failbin-"));
   writeFileSync(join(failingAgentBin, "incus"),
     `#!/bin/sh\ncase " $* " in *" --cwd /workspace/.trees/"*) exit 3 ;; esac\nexec node ${stub} "$@"\n`);
@@ -84,23 +111,52 @@ test("outside the popup there is no wait", () => {
   assert.doesNotMatch(r.stderr, /Press Enter/);
 });
 
-// The popup's acknowledgement policy: a success closes it at once, unless it
-// printed something the user must read.
-const popup = (bin: string) => ({ HERDR_ENV: "1", HERDR_BIN_PATH: bin });
+// The popup's acknowledgement policy: a success closes it at once; what the
+// user must read goes to a herdr notification, and only if that fails does
+// the popup wait.
+const popup = (bin: string) => ({ HERDR_ENV: "1", HERDR_BIN_PATH: bin, FAKE_HERDR_NOTE: noteFile });
 const pane = (bin: string) => ({ ...popup(bin), HERDR_PANE_ID: "w1:p1" });
 
-test("the popup waits after resume --all, whose lines are the result", () => {
+test("resume --all in the popup sends its summary as a notification and closes", () => {
+  rmSync(noteFile, { force: true });
   const r = forge(["resume", "--all"], "\n", popup(herdr));
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /no forge tab to resume\./);
-  assert.match(r.stderr, /Press Enter to close/);
+  assert.doesNotMatch(r.stderr, /Press Enter/);
+  const note = readFileSync(noteFile, "utf8");
+  assert.match(note, /forge resume/);
+  assert.match(note, /no forge tab to resume\./);
 });
 
-test("the popup waits after a success that printed a WARNING", () => {
+test("a WARNING in the popup becomes a notification, and the popup closes", () => {
+  rmSync(noteFile, { force: true });
+  const r = forge(["finish", "alice/project", "cli"], "\n", popup(herdrNoteOnly));
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr, /WARNING: closing the herdr tab of cli failed/);
+  assert.doesNotMatch(r.stderr, /Press Enter/);
+  const note = readFileSync(noteFile, "utf8");
+  assert.match(note, /forge finish/);
+  assert.match(note, /WARNING: closing the herdr tab of cli failed/);
+});
+
+test("when the notification fails, the popup falls back to waiting for Enter", () => {
   // /bin/false as herdr: finish's tab cleanup fails, which only warns.
   const r = forge(["finish", "alice/project", "cli"], "\n", popup("/bin/false"));
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stderr, /WARNING: closing the herdr tab of cli failed[\s\S]*Press Enter to close/);
+});
+
+test("when herdr does not show the notification, the popup waits for Enter", () => {
+  const r = forge(["finish", "alice/project", "cli"], "\n", popup(herdrToastsOff));
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr, /WARNING: closing the herdr tab of cli failed[\s\S]*Press Enter to close/);
+  assert.doesNotMatch(r.stderr, /herdr notification failed/);
+});
+
+test("a non-zero exit in the popup waits for Enter", () => {
+  const r = forge(["attach", "agent-alice-project", "cli"], "\n",
+    { ...popup(herdr), PATH: `${failingAgentBin}:${process.env.PATH}` });
+  assert.equal(r.status, 3, r.stderr);
+  assert.match(r.stderr, /Press Enter to close\n?$/);
 });
 
 test("focusing a live tab from the popup closes it at once", () => {

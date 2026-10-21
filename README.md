@@ -183,8 +183,8 @@ Press `prefix+f` (herdr's prefix is `ctrl+b`). A popup asks for the repository
 - each task gets a worktree, `/workspace/.trees/<task>` on branch
   `agent/<task>`, and its own tab running Claude Code.
 
-The popup waits for Enter when it has something to show you, such as the
-retrieval commands after a new container.
+On success the popup closes by itself; warnings show up as a herdr
+notification. After an error it stays open until you press Enter.
 
 ### 7. Get the work back
 
@@ -196,8 +196,8 @@ git config remote.agent-acme-widgets.uploadpack "forge upload-pack agent-acme-wi
 git fetch agent-acme-widgets
 ```
 
-`forge start` prints these three lines for each new container, with
-`<forge-host>` where your SSH alias goes. The fetch runs `forge upload-pack` on
+Run these three lines once per container, with your SSH alias in place of
+`forge-local`. The fetch runs `forge upload-pack` on
 the host, which serves the repository from inside the container: the host
 never runs git in the agent's workspace. Review the branch, then sign and push
 it yourself.
