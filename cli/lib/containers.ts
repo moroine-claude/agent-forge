@@ -3,7 +3,7 @@
 import type { Context } from "./context.ts";
 import { ForgeError } from "./context.ts";
 import type { Instance } from "./incus.ts";
-import { configGet, forgeProject, imageProperty, instanceExists, instanceStatus, listInstances } from "./incus.ts";
+import { configGet, imageProperty, instanceExists, instanceStatus, listInstances } from "./incus.ts";
 
 export type BuildStatus = "unknown" | "up-to-date" | "behind";
 
@@ -43,12 +43,14 @@ export function containerMode(ctx: Context, name: string): Promise<string> {
 }
 
 // Ne lit que des clés de config : aucun `incus exec`, pour rester assez rapide
-// à alimenter une complétion sous TAB ou un menu interactif.
+// à alimenter une complétion sous TAB ou un menu interactif. Un container à
+// moitié provisionné (marqueur, pas de user.forge.repo) compte aussi : sans
+// cela, les menus de start et de delete n'offriraient plus son repo.
 export async function forgeRepos(ctx: Context): Promise<string[]> {
   const repos: string[] = [];
   for (const name of await listForgeContainers(ctx)) {
-    const repo = await containerRepo(ctx, name);
-    if (repo) repos.push(repo);
+    const repo = (await containerRepo(ctx, name)) || (await provisioningMarker(ctx, name))?.repo;
+    if (repo && !repos.includes(repo)) repos.push(repo);
   }
   return repos;
 }

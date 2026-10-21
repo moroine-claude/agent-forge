@@ -48,6 +48,18 @@ test("forgeRepos skips a container with no repo metadata", async () => {
   assert.deepEqual(await forgeRepos(ctx), ["alice/project"]);
 });
 
+test("forgeRepos lists the repo of a half-provisioned container, once", async () => {
+  const ctx = fakeContext({
+    rules: [
+      { match: "incus --project agent-forge list", stdout: LIST },
+      { match: "config get agent-alice-project user.forge.provisioning", stdout: "alice/project" },
+      { match: "config get agent-acme-widgets user.forge.repo", stdout: "acme/widgets" },
+      { match: "config get agent-acme-widgets user.forge.provisioning", stdout: "acme/widgets" },
+    ],
+  });
+  assert.deepEqual(await forgeRepos(ctx), ["alice/project", "acme/widgets"]);
+});
+
 test("containerForRepo matches case-insensitively", async () => {
   const ctx = ctxWith({ "agent-alice-project": "alice/project" });
   assert.equal(await containerForRepo(ctx, "Alice/Project"), "agent-alice-project");
