@@ -8,7 +8,7 @@ import { renderBlock } from "../../cli/lib/herdr-config.ts";
 import { createContext } from "../../cli/lib/context.ts";
 import {
   createWorkspace, listWorkspaces, createTab, listPanes, listTabs, renameTab, closeTab,
-  paneRun, paneForeground, classifyPane,
+  paneRun, paneForeground, classifyPane, showNotification,
 } from "../../cli/lib/herdr.ts";
 
 const present = spawnSync("herdr", ["--version"], { stdio: "ignore" }).status === 0;
@@ -74,6 +74,15 @@ test("tab list, rename and close against real herdr", { skip }, async () => {
   tabs = await listTabs(ctx, h);
   assert.ok(!tabs.some((t) => t.id === tab.tabId), shown(tabs));
   assert.ok(tabs.some((t) => t.id === ws.tabId), shown(tabs));
+});
+
+test("notification show is accepted by real herdr", { skip }, async () => {
+  const shown = await showNotification(ctx, h, "forge test", "line one\nline two");
+  assert.equal(typeof shown, "boolean");
+  // With no client attached, herdr answers shown: false, not an error. With a
+  // client attached it answers shown: true whether or not the toast is drawn:
+  // the client's own config ([ui.toast] delivery) decides that.
+  assert.equal(shown, false);
 });
 
 test("workspace, tab, pane and process classification against real herdr", { skip }, async () => {

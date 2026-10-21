@@ -225,6 +225,58 @@ test("with no forge container yet, start asks owner/repo and provisions it", asy
   }
 });
 
+// A launch interrupted before the end leaves the marker and no user.forge.repo.
+function halfProvisioned(): FakeIncus {
+  const fake = FakeIncus.withRuntime({ commit: "IMGSHA" });
+  fake.addInstance("agent-forge", "agent-o-r", {
+    status: "Stopped",
+    config: { "user.forge.provisioning": "o/r", "user.forge.provisioning_workspace": "new" },
+  });
+  return fake;
+}
+
+test("a half-provisioned container is recreated on yes, then provisioned again", async () => {
+  const home = mkdtempSync(join(tmpdir(), "forge-start-"));
+  mkdirSync(join(home, ".claude"), { recursive: true });
+  writeFileSync(join(home, ".claude", ".credentials.json"), "{}");
+  process.env.FORGE_HOME = home;
+  process.env.FORGE_REPO_DIR = process.cwd();
+  process.env.FORGE_WORKSPACES = join(home, "workspaces");
+  process.env.FORGE_MIRRORS = join(home, "mirrors");
+  try {
+    const c = fakeContext({
+      incus: halfProvisioned(),
+      rules: [
+        { match: "git config --global --includes user.name", stdout: "Ada\n" },
+        { match: "git config --global --includes user.email", stdout: "ada@example.com\n" },
+        { match: "forge-hook-probe-deny", code: 2, stderr: "BLOCKED.\n" },
+      ],
+      answers: [1, "fresh"],
+    });
+    await cmdStart(c, "o/r", undefined);
+    const flat = c.calls.map((x) => x.join(" "));
+    const del = flat.findIndex((l) => l.includes(" delete agent-o-r"));
+    const launch = flat.findIndex((l) => l.includes(" launch "));
+    assert.ok(del >= 0 && launch > del, flat.join("\n"));
+    assert.ok(c.out_lines.includes("Container agent-o-r provisioned."), c.out_lines.join(" | "));
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+    for (const k of ["FORGE_HOME", "FORGE_REPO_DIR", "FORGE_WORKSPACES", "FORGE_MIRRORS"]) delete process.env[k];
+  }
+});
+
+test("answering stop leaves a half-provisioned container alone", async () => {
+  const c = fakeContext({ incus: halfProvisioned(), answers: [2] });
+  await assert.rejects(() => cmdStart(c, "o/r", undefined), /forge delete o\/r/);
+  assert.ok(!c.calls.some((x) => x.includes("delete")));
+});
+
+test("with no TTY, a half-provisioned container is left alone and the way out is named", async () => {
+  const c = fakeContext({ incus: halfProvisioned(), tty: false });
+  await assert.rejects(() => cmdStart(c, "o/r", undefined), /forge delete o\/r/);
+  assert.ok(!c.calls.some((x) => x.includes("delete")));
+});
+
 test("with no forge container yet and no TTY, start exits with its message", async () => {
   const c = fakeContext({ incus: FakeIncus.withRuntime(), tty: false });
   await assert.rejects(() => cmdStart(c, undefined, undefined),

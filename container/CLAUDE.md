@@ -26,7 +26,7 @@ Tu es un agent Claude Code tournant dans un container Incus isolé.
     git rebase --reset-author main
     git push origin agent/<task-name>            # identité de l'humain, re-signé par lui
     ```
-    La commande exacte (`<forge-host>`) est celle que `forge start` a affichée à l'humain au provisioning — ne l'invente pas. La suite (review, rebase, push) est le rôle de l'humain, pas le tien.
+    `<forge-host>` est l'alias SSH de l'hôte forge sur la machine de l'humain (le README, « Get the work back ») — ne l'invente pas. La suite (review, rebase, push) est le rôle de l'humain, pas le tien.
 
 ## Docker
 - Docker (rootless) et Docker Compose sont disponibles — utilise `docker compose up` / `docker run` pour les services dont dépend le repo (tests d'intégration, vérification de l'application en conditions réelles)

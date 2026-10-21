@@ -133,6 +133,15 @@ export async function paneRun(ctx: Context, h: HerdrEnv, paneId: string, command
   await herdrJson(ctx, h, ["pane", "run", paneId, command], ack, true);
 }
 
+// Resolves to true only when herdr says it displayed the notification. herdr
+// 0.9.5 answers shown:false when no client is attached (reason `disabled` or
+// `no_foreground_client`); with a client attached, shown:true does not prove a
+// visible toast: the client's `[ui.toast]` decides. An empty answer counts as
+// not shown.
+export function showNotification(ctx: Context, h: HerdrEnv, title: string, body: string): Promise<boolean> {
+  return herdrJson(ctx, h, ["notification", "show", title, "--body", body], (r) => r?.shown === true, true);
+}
+
 export function paneForeground(ctx: Context, h: HerdrEnv, paneId: string): Promise<string[][]> {
   return herdrJson(ctx, h, ["pane", "process-info", "--pane", paneId], (r) =>
     need<any[]>(r.process_info.foreground_processes).map((p) => {

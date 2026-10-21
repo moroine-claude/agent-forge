@@ -70,7 +70,8 @@ assert_contains 'forge egress'
 assert_contains '--strict'
 assert_contains 'egress-allowlist'
 assert_contains 'forge completion bash'
-assert_contains 'incus --project agent-forge delete --force'
+assert_not_contains 'incus --project agent-forge delete --force'
+assert_contains 'offers to recreate it'
 
 # Mode distant : alias SSH, port 22 par défaut.
 assert_contains 'Host forge-vm'
