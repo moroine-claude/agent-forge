@@ -8,6 +8,7 @@ import { FakeIncus } from "./lib/fake-incus.ts";
 import { assertNoHostGitIn } from "./lib/host-git.ts";
 import { mirrorPath } from "../cli/lib/paths.ts";
 import { provisionContainer } from "../cli/lib/commands/provision.ts";
+import { provisioningMarker } from "../cli/lib/containers.ts";
 
 let home: string;
 beforeEach(() => {
@@ -65,7 +66,7 @@ test("a new container is launched from agent-base under the agent-forge profile,
   const { ctx, run } = provision();
   await run();
   const calls = flat(ctx);
-  const launch = calls.indexOf("incus --project agent-forge launch agent-base agent-x --profile agent-forge");
+  const launch = calls.findIndex((l) => l.startsWith("incus --project agent-forge launch agent-base agent-x --profile agent-forge"));
   const ready = calls.indexOf("incus --project agent-forge exec agent-x -- systemctl is-system-running --wait");
   assert.ok(launch >= 0 && ready > launch, calls.join("\n"));
 });
@@ -187,10 +188,10 @@ test("a hook that lets a forbidden command through aborts provisioning", async (
 test("a hook that refuses a harmless command aborts provisioning", async () => {
   const { fake, run } = provision({ rules: [{ match: "forge-hook-probe-allow", code: 2, stderr: "BLOCKED: jq introuvable, le hook ne peut pas lire la commande (fail-closed).\n" }] });
   // The hook's own sentence ends with a period: no ".." in the message. The
-  // half-provisioned container has no forge metadata, so `forge delete` cannot
-  // find it: the message gives the incus command (seen on a real host).
+  // half-provisioned container still carries its provisioning markers, so
+  // `forge delete` can remove it: the message points there.
   await assert.rejects(run, (e: Error) => /refuses a harmless command/.test(e.message) && /jq introuvable/.test(e.message)
-    && !e.message.includes("..") && e.message.includes("incus --project agent-forge delete --force agent-x"));
+    && !e.message.includes("..") && e.message.includes("forge delete o/r"));
   assert.equal(fake.instances.get("agent-forge")!.get("agent-x")!.config["user.forge.repo"], undefined);
 });
 
@@ -383,6 +384,7 @@ test("--strict launches with every override in the same call; there is no launch
   const launches = ctx.calls.filter((c) => c.includes("launch"));
   assert.equal(launches.length, 1);
   assert.deepEqual(launches[0], ["incus", "--project", "agent-forge", "launch", "agent-base", "agent-x", "--profile", "agent-forge",
+    "-c", "user.forge.provisioning=o/r", "-c", "user.forge.provisioning_workspace=new",
     ...strictLaunchArgs(proxyPlan("10.77.0.1/24", 0), egressNames("agent-forge"))]);
 });
 
@@ -428,4 +430,34 @@ test("without --strict, provisioning is unchanged", async () => {
   await assert.rejects(run, /install Claude plugins/);
   assert.ok(!flat(ctx).some((l) => l.includes(" launch ") && l.includes(" -d ")));
   assert.ok(!flat(ctx).some((l) => l.includes("agent-forge-proxy.sh")));
+});
+
+test("the container is launched with the provisioning markers", async () => {
+  const { ctx, run } = provision();
+  await run();
+  const launch = flat(ctx).find((l) => l.includes(" launch ")) ?? "";
+  assert.match(launch, /-c user\.forge\.provisioning=o\/r/);
+  assert.match(launch, /-c user\.forge\.provisioning_workspace=new/);
+});
+
+test("a reused workspace is marked kept", async () => {
+  seedWorkspace("README");
+  const { ctx, run } = provision({ rules: [seedMirror("git@github.com:o/r.git")] });
+  await run();
+  assert.match(flat(ctx).find((l) => l.includes(" launch ")) ?? "", /provisioning_workspace=kept/);
+});
+
+test("the markers are removed after user.forge.repo, at the very end", async () => {
+  const { ctx, run } = provision();
+  await run();
+  const calls = flat(ctx);
+  const repo = calls.findIndex((l) => l.includes("config set agent-x user.forge.repo o/r"));
+  const unset = calls.findIndex((l) => l.includes("config unset agent-x user.forge.provisioning"));
+  assert.ok(repo >= 0 && unset > repo, calls.join("\n"));
+  assert.equal(await provisioningMarker(ctx, "agent-x"), null);
+});
+
+test("a failed hook probe points at forge delete, not at incus", async () => {
+  const { run } = provision({ rules: [{ match: "forge-hook-probe-deny", code: 0 }] });
+  await assert.rejects(run, (e: Error) => /forge delete o\/r/.test(e.message) && !/incus --project/.test(e.message));
 });

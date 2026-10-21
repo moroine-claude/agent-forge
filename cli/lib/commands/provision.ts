@@ -9,9 +9,9 @@ import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { Context, ExecResult } from "../context.ts";
 import { ForgeError, mustSucceed } from "../context.ts";
-import { BASE_IMAGE, latestImageCommit } from "../containers.ts";
+import { BASE_IMAGE, latestImageCommit, PROVISIONING_KEY, PROVISIONING_WORKSPACE_KEY } from "../containers.ts";
 import {
-  configSet, execAsAgent, execAsAgentArgv, forgeProject, imageExists, incus, listObjects, waitReady,
+  configSet, configUnset, execAsAgent, execAsAgentArgv, forgeProject, imageExists, incus, listObjects, waitReady,
 } from "../incus.ts";
 import {
   cloneWorkspace, ensureMirror, HOST_GIT_CWD, MIRROR_MOUNT, mirrorRepo, ORIGIN_DEVICE, pointOriginAtMirror,
@@ -59,7 +59,12 @@ export async function provisionContainer(
 
   ctx.out(`Creating container ${container}...`);
   const strictArgs = plan ? strictLaunchArgs(plan, egressNames(forgeProject())) : [];
-  await mustSucceed("incus launch", ctx.exec(incus("launch", BASE_IMAGE, container, "--profile", PROFILE, ...strictArgs)));
+  await mustSucceed("incus launch", ctx.exec(incus("launch", BASE_IMAGE, container, "--profile", PROFILE,
+    // Marqueurs de provisioning : retirés en tout dernier, ils permettent de
+    // reconnaître (et de relancer) un provisioning interrompu.
+    "-c", `${PROVISIONING_KEY}=${ownerRepo}`,
+    "-c", `${PROVISIONING_WORKSPACE_KEY}=${reuseWorkspace ? "kept" : "new"}`,
+    ...strictArgs)));
   await waitReady(ctx, container);
   // Dès que le container tourne, avant tout accès réseau (plugins, apt).
   if (plan) await applyStrictSettings(ctx, container, plan);
@@ -127,7 +132,7 @@ export async function provisionContainer(
     container, "/home/aiuser/.claude/hooks/pre-bash.sh", 0, "755");
   await pushFile(ctx, "push Claude settings", join(repoRoot(), "container", "settings.json"),
     container, "/home/aiuser/.claude/settings.json", 0, "644");
-  await requireHookBlocks(ctx, container);
+  await requireHookBlocks(ctx, container, ownerRepo);
 
   await refreshClaude(ctx, container, strict);
 
@@ -166,10 +171,12 @@ export async function provisionContainer(
   await mustSucceed("stamp image commit",
     configSet(ctx, container, "user.forge.image_commit", await latestImageCommit(ctx)));
 
-  // En dernier : c'est cette clé qui fait reconnaître le container par
-  // checkNameCollision.
+  // user.forge.repo reste la clé que checkNameCollision reconnaît ; les
+  // marqueurs de provisioning ne partent qu'après elle, en tout dernier.
   ctx.out("Recording forge metadata...");
   await mustSucceed("record forge repo", configSet(ctx, container, "user.forge.repo", ownerRepo));
+  await mustSucceed("clear provisioning marker", configUnset(ctx, container, PROVISIONING_KEY));
+  await mustSucceed("clear provisioning marker", configUnset(ctx, container, PROVISIONING_WORKSPACE_KEY));
 
   ctx.out(`Container ${container} provisioned.`);
   return { mirror: mirrorOutcome };
@@ -213,13 +220,12 @@ async function requireRuntime(ctx: Context): Promise<void> {
 const hookProbe = (command: string) =>
   `printf '%s' '{"tool_name":"Bash","tool_input":{"command":"${command}"}}' | /home/aiuser/.claude/hooks/pre-bash.sh`;
 
-async function requireHookBlocks(ctx: Context, container: string): Promise<void> {
+async function requireHookBlocks(ctx: Context, container: string, ownerRepo: string): Promise<void> {
   ctx.out("Checking that the security hook guards the agent...");
-  // Le container s'arrête avant ses métadonnées forge : `forge delete` ne le
-  // trouve pas, d'où la commande incus exacte.
+  // Le container porte encore ses marqueurs de provisioning : `forge delete`
+  // sait le retirer.
   const rebuild = "Rebuild the image ('forge image build'), remove this container with " +
-    `'incus --project ${forgeProject()} delete --force ${container}' (its workspace survives), ` +
-    "then start the task again.";
+    `'forge delete ${ownerRepo}' (its workspace survives), then start the task again.`;
   // Le hook termine ses phrases par un point : on le retire avant d'enchaîner.
   const detail = (r: ExecResult) => {
     const stderr = r.stderr.trim().replace(/\.+$/, "");

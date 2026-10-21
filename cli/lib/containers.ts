@@ -22,6 +22,22 @@ export function containerRepo(ctx: Context, name: string): Promise<string> {
   return configGet(ctx, name, "user.forge.repo");
 }
 
+// Marqueurs posés par `incus launch` et retirés en tout dernier : un container
+// qui les porte encore est un provisioning interrompu.
+export const PROVISIONING_KEY = "user.forge.provisioning";
+export const PROVISIONING_WORKSPACE_KEY = "user.forge.provisioning_workspace";
+
+// null hors provisioning. Une valeur de workspace inconnue se lit "kept" : dans
+// le doute, on ne supprime jamais un workspace.
+export async function provisioningMarker(
+  ctx: Context, name: string,
+): Promise<{ repo: string; workspace: "new" | "kept" } | null> {
+  const repo = (await configGet(ctx, name, PROVISIONING_KEY)).trim();
+  if (!repo) return null;
+  const workspace = (await configGet(ctx, name, PROVISIONING_WORKSPACE_KEY)).trim();
+  return { repo, workspace: workspace === "new" ? "new" : "kept" };
+}
+
 export function containerMode(ctx: Context, name: string): Promise<string> {
   return configGet(ctx, name, "user.forge.mode");
 }

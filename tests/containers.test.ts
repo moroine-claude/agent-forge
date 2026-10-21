@@ -4,7 +4,7 @@ import { fakeContext } from "./lib/fake-context.ts";
 import { ForgeError } from "../cli/lib/context.ts";
 import {
   listForgeContainers, forgeRepos, containerForRepo, requireContainerForRepo,
-  checkNameCollision, isRunning, buildStatus, latestImageCommit,
+  checkNameCollision, isRunning, buildStatus, latestImageCommit, provisioningMarker,
 } from "../cli/lib/containers.ts";
 
 const LIST = JSON.stringify([
@@ -94,4 +94,21 @@ test("buildStatus compares the two stamps", () => {
 test("latestImageCommit reads agent-base's stamp", async () => {
   const ctx = fakeContext({ rules: [{ match: "image get-property agent-base user.forge.commit", stdout: "BASESHA\n" }] });
   assert.equal(await latestImageCommit(ctx), "BASESHA");
+});
+
+test("provisioningMarker reads both keys, null without them, unknown workspace reads as kept", async () => {
+  const rules = (repo: string, ws: string) => [
+    { match: "config get agent-a user.forge.provisioning_workspace", stdout: ws },
+    { match: "config get agent-a user.forge.provisioning", stdout: repo },
+  ];
+  assert.deepEqual(await provisioningMarker(fakeContext({ rules: rules("o/r", "new\n") }), "agent-a"),
+    { repo: "o/r", workspace: "new" });
+  assert.deepEqual(await provisioningMarker(fakeContext({ rules: rules("o/r", "kept") }), "agent-a"),
+    { repo: "o/r", workspace: "kept" });
+  assert.deepEqual(await provisioningMarker(fakeContext({ rules: rules("o/r", "") }), "agent-a"),
+    { repo: "o/r", workspace: "kept" });
+  assert.deepEqual(await provisioningMarker(fakeContext({ rules: rules("o/r", "weird") }), "agent-a"),
+    { repo: "o/r", workspace: "kept" });
+  assert.equal(await provisioningMarker(fakeContext({ rules: rules("", "new") }), "agent-a"), null);
+  assert.equal(await provisioningMarker(fakeContext({ rules: [] }), "agent-a"), null);
 });
