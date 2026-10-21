@@ -443,6 +443,13 @@ Known limits:
   `ssh forge-vm`: sshd allows two attempts, which an agent holding several
   keys uses up. Add `IdentityFile ~/.ssh/<your key>.pub` and
   `IdentitiesOnly yes` to the Host block.
+- **`forge start` stops on `smudge filter lfs failed`** (a repository with
+  Git LFS files): the container was provisioned by an older forge, whose
+  git-lfs configuration downloads LFS objects the mirror does not hold. Fix it
+  once on the host with
+  `incus --project agent-forge exec <container> -- su - aiuser -c 'git lfs install --skip-repo --skip-smudge'`,
+  or recreate the container (`forge delete`, then `forge start`; the
+  workspace is kept).
 - **A repository whose default branch is not `main`:** new tasks start from
   `origin/main`, so such a repository is not supported yet.
 - **`forge setup` warns that forge runs directly on this machine:** you ran it

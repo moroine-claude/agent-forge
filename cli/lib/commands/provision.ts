@@ -27,6 +27,13 @@ import { egressNames } from "../objects.ts";
 // Le concept de mode reste (pre-bash.sh, CLAUDE.md, user.forge.mode) : le mode
 // autonome pourra revenir sans restructurer. v2 n'en provisionne qu'un.
 const MODE = "supervised";
+// Le miroir ne contient aucun objet LFS (mirror.ts clone déjà avec
+// GIT_LFS_SKIP_SMUDGE=1) : les fichiers LFS restent des pointeurs dans le
+// container. Sans ce drapeau, `git worktree add` (et tout checkout) tente de
+// télécharger ces objets et échoue, ce qui bloque `forge start`. Exportées
+// pour le test de contrat qui les rejoue avec un vrai git-lfs.
+export const LFS_FILTERS_INSTALL = "git lfs install --skip-repo --skip-smudge";
+export const LFS_HOOKS_INSTALL = "git lfs install --skip-smudge";
 
 // Défait un provisioning interrompu. Règle : rien de ce qui existait avant la
 // tentative échouée n'est supprimé. Le workspace marqué "kept" peut porter la
@@ -168,7 +175,7 @@ export async function provisionContainer(
   // `--skip-repo` : les filtres clean/smudge/process, dans la config globale,
   // sans toucher aux hooks du dépôt. Déterministe, donc fatal s'il échoue.
   await mustSucceed(`git-lfs filters in ${container}`,
-    execAsAgent(ctx, container, "git lfs install --skip-repo"));
+    execAsAgent(ctx, container, LFS_FILTERS_INSTALL));
 
   ctx.out("Ignoring worktrees in the main clone...");
   // .trees/ ne doit jamais apparaître dans le status du clone principal.
@@ -178,11 +185,12 @@ export async function provisionContainer(
   ctx.out("Installing git-lfs hooks in /workspace...");
   // Best-effort : `git lfs install` refuse d'écraser un pre-push qu'il ne
   // reconnaît pas (husky, lefthook, hooks d'un autre git-lfs). Les filtres
-  // sont là, seul le hook d'upload manque.
-  const hooks = await execAsAgent(ctx, container, "cd /workspace && git lfs install");
+  // sont là, seul le hook d'upload manque. Cette commande réécrit aussi les
+  // filtres globaux : elle garde `--skip-smudge`, sinon elle l'annulerait.
+  const hooks = await execAsAgent(ctx, container, `cd /workspace && ${LFS_HOOKS_INSTALL}`);
   if (hooks.code !== 0) {
     ctx.err(`WARNING: installing git-lfs hooks in /workspace failed: ${hooks.stderr.trim() || `exit code ${hooks.code}`}`);
-    ctx.err("The LFS filters are installed, so LFS files still check out and commit normally; only the pre-push");
+    ctx.err("The LFS filters are installed, so LFS files still check out (as pointers) and commit; only the pre-push");
     ctx.err("upload hook is missing. Expected when the project manages its own hooks (husky, lefthook) or when");
     ctx.err("they were written by another git-lfs version. If a task touches LFS-tracked files, run");
     ctx.err("'git lfs update --manual' in /workspace to merge the hooks by hand.");
