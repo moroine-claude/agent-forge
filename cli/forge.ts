@@ -18,10 +18,11 @@ import { cmdImage } from "./lib/commands/image.ts";
 import { cmdAttach } from "./lib/commands/attach.ts";
 import { cmdUploadPack } from "./lib/commands/upload-pack.ts";
 import { cmdCompletion } from "./lib/commands/completion.ts";
+import { currentSide, requireSide } from "./lib/side.ts";
 
 const USAGE = `Usage: forge <command> [args]
 
-Commands:
+On the forge host:
   setup                             Create or update forge's Incus project, bridge, ACLs and profiles,
                                     the egress proxy (forge-proxy) and its allowlist
   start [--strict] [<owner/repo>] [<task>]
@@ -42,6 +43,10 @@ Commands:
   completion bash                   Print a bash completion function (eval it in ~/.bashrc)
   completion repos                  List managed owner/repo, one per line (machine-readable)
   completion tasks <owner/repo>     List a repo's task names, one per line (machine-readable)
+
+On your laptop:
+  install [--remote <address>] [--host <name>]
+  open [--host <name>]
 
 A bracketed argument is asked for when you leave it out, as a numbered menu.
 With no terminal on stdin (scripts, CI) nothing is asked and the command
@@ -103,6 +108,8 @@ async function main(): Promise<number> {
       return 0;
     }
     cmd = positionals[0];
+    // Chaque commande a son côté : la mauvaise machine reçoit une ligne qui dit où aller.
+    requireSide(cmd, currentSide());
     // Seul resume connaît --all : ailleurs, il serait ignoré en silence.
     if (values.all && cmd !== "resume") throw new ForgeError("--all only goes with resume: forge resume --all");
     const code = await dispatch(ctx, positionals, values.force === true, values.strict === true, values.all === true);

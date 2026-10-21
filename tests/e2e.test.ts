@@ -79,7 +79,7 @@ function forge(args: string[], input = "", extraEnv: Record<string, string> = {}
   return spawnSync("node", [ENTRY, ...args], {
     encoding: "utf8",
     input,
-    env: { ...env, PATH: `${bin}:${process.env.PATH}`, ...extraEnv },
+    env: { ...env, FORGE_SIDE: "host", PATH: `${bin}:${process.env.PATH}`, ...extraEnv },
   });
 }
 
@@ -260,10 +260,16 @@ test("image without a subcommand fails with its usage", () => {
 test("the bash shim runs the TypeScript entry", () => {
   const r = spawnSync(resolve("cli/forge"), ["list"], {
     encoding: "utf8",
-    env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+    env: { ...process.env, FORGE_SIDE: "host", PATH: `${bin}:${process.env.PATH}` },
   });
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /^REPO\s+MODE\s+EGRESS\s+STATE\s+BUILD$/m);
+});
+
+test("a host command on the laptop says where it runs", () => {
+  const r = forge(["list"], "", { FORGE_SIDE: "laptop" });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /runs on the forge host/);
 });
 
 test("setup appears in the usage", () => {

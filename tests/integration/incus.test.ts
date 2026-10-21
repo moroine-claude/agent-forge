@@ -382,7 +382,7 @@ test("hostile workspace: refresh and retrieval run nothing the agent planted", {
   const emptyRemote = mkdtempSync(join(workspaces, "remote-"));
   hostGit(["init", "-q", "."], client);
   hostGit(["remote", "add", c, emptyRemote], client);
-  hostGit(["config", `remote.${c}.uploadpack`, `${FORGE} upload-pack ${c}`], client);
+  hostGit(["config", `remote.${c}.uploadpack`, `FORGE_SIDE=host ${FORGE} upload-pack ${c}`], client);
   const fetched = run("git", ["-C", client, "fetch", c], { env: { FORGE_INCUS_PROJECT: PROJECT } });
   must("client fetch", fetched);
   const branch = hostGit(["branch", "-r", "--list", `${c}/agent/t`], client).stdout;

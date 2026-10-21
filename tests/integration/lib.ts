@@ -35,7 +35,7 @@ export const incus = (project: string, args: string[], input?: string) =>
   run("incus", ["--project", project, ...args], { input });
 // `env` adds variables on top of FORGE_INCUS_PROJECT (FORGE_PROXY_SLOT, XDG_CONFIG_HOME…).
 export const forge = (project: string, args: string[], env: NodeJS.ProcessEnv = {}) =>
-  run(FORGE, args, { env: { ...env, FORGE_INCUS_PROJECT: project } });
+  run(FORGE, args, { env: { ...env, FORGE_INCUS_PROJECT: project, FORGE_SIDE: "host" } });
 // A throwaway XDG_CONFIG_HOME for forge (its config and allowlist), so the
 // user's own files are never touched. The invoking user's config.json, when
 // there is one, is copied in: forgebr0 and forge-egress are shared with the
