@@ -294,11 +294,12 @@ agent in the foreground and say
   agent's code there.
 - **Large files:** Git LFS content is not available inside containers; files
   are checked out as pointers.
-- **Submodules:** not available inside containers either. The host mirrors
-  the repository alone, so `git submodule update` finds nothing, and a
-  relative URL (`../other.git`) resolves next to the read-only mirror, where
-  no repository lives. Scripts that rely on a submodule fail in the
-  container; the agent has to work around them.
+- **Submodules:** not set up inside containers. The host mirrors the
+  repository alone, so `git submodule update --init` fails for a relative URL
+  (`../other.git` resolves to `/forge/other.git`, which does not exist) and
+  for a private repository (no GitHub credential in the container). A public
+  HTTPS URL may work, egress permitting. Scripts that rely on a missing
+  submodule fail in the container; the agent has to work around them.
 
 Inside the container, `origin` is a read-only mirror the host refreshes at
 each `forge start`: the agent can `git fetch origin`, never push.
