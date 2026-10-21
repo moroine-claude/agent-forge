@@ -55,7 +55,8 @@ function isHost(h: unknown): h is LaptopHost {
   if (typeof h !== "object" || h === null) return false;
   const o = h as Record<string, unknown>;
   const str = (k: string) => typeof o[k] === "string";
-  return str("name") && str("address") && str("user") && str("admin") && str("adminKey") &&
+  // A valid name only: hostDir(name) is removed recursively when a host is forgotten.
+  return str("name") && validHostName(o.name as string) && str("address") && str("user") && str("admin") && str("adminKey") &&
     typeof o.port === "number" && Number.isInteger(o.port) &&
     str("kind") && KINDS.includes(o.kind as string) &&
     str("exposure") && EXPOSURES.includes(o.exposure as string) &&

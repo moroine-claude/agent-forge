@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, statSync, readFileSync, readdirSync } from "node:fs";
+import { mkdirSync, mkdtempSync, statSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -93,6 +93,17 @@ test("writes the file 0600 in 0700 directories, atomically", () => {
     assert.equal(statSync(dir).mode & 0o777, 0o700);
     assert.equal(statSync(join(dir, "config.d")).mode & 0o777, 0o700);
     assert.deepEqual(readdirSync(join(dir, "config.d")), ["agent-forge"]);
+  });
+});
+
+// OpenSSH's `Include config.d/*` skips dotfiles: an interrupted write never
+// leaves a temp file that ssh would read.
+test("the temp file is a dotfile, outside the Include glob", () => {
+  withSshDir((dir) => {
+    // A directory in the way makes the rename fail and leaves the temp file.
+    mkdirSync(join(dir, "config.d", "agent-forge", "x"), { recursive: true });
+    assert.throws(() => writeForgeSshConfig("one\n"));
+    assert.deepEqual(readdirSync(join(dir, "config.d")).sort(), [".agent-forge.forge-tmp", "agent-forge"]);
   });
 });
 

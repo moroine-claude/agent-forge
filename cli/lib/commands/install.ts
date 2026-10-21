@@ -1,8 +1,8 @@
 // forge install (spec "Sub-project 3: guided install"): installs or updates a
 // forge host from the laptop, the Lima VM forge-local or a remote VM
 // forge-<name>. Each step is recorded in hosts.json when it succeeds and
-// skipped on a re-run, which so picks up after a failure; a re-run of a
-// finished host is an update (playbook, setup and image again).
+// skipped on a re-run, so that a re-run picks up after a failure; a re-run of
+// a finished host is an update (playbook, setup and image again).
 import {
   chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync,
   statSync, symlinkSync, writeFileSync,

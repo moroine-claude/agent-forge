@@ -51,13 +51,14 @@ export function renderForgeSshConfig(
   return [HEADER, ...blocks].join("\n\n") + "\n";
 }
 
-// Atomic write: temp file next to the target, then rename; 0600 file in 0700 directories.
+// Atomic write: temp file next to the target, then rename; 0600 file in 0700
+// directories. The temp file is a dotfile, which `Include config.d/*` skips.
 export function writeForgeSshConfig(text: string): void {
   const path = forgeFile();
   for (const dir of [sshDir(), join(sshDir(), "config.d")]) {
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
-  const tmp = `${path}.forge-tmp`;
+  const tmp = join(sshDir(), "config.d", ".agent-forge.forge-tmp");
   writeFileSync(tmp, text, { mode: 0o600 });
   chmodSync(tmp, 0o600); // the umask may have narrowed the mode above
   renameSync(tmp, path);

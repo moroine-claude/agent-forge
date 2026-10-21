@@ -31,7 +31,7 @@ export async function listAgentKeys(ctx: Context, agent: string | undefined): Pr
   if (r.code === 1) return [];
   if (r.code !== 0) {
     throw new ForgeError(
-      "No SSH agent is reachable. Start an SSH agent and add the key GitHub accepts with ssh-add, then run forge install again.",
+      "No SSH agent is reachable. Start an SSH agent and add the key GitHub accepts with ssh-add, then run the same forge install command again.",
     );
   }
   return r.stdout.split("\n").map((l) => l.trim()).filter(Boolean);
@@ -47,7 +47,7 @@ export function keyLabel(key: string): string {
 // La ligne publique complète de la clé choisie (type, base64, commentaire).
 export async function chooseKey(ctx: Context, keys: string[]): Promise<string> {
   if (keys.length === 0) {
-    throw new ForgeError("The SSH agent holds no key. Add the key GitHub accepts with ssh-add, then run forge install again.");
+    throw new ForgeError("The SSH agent holds no key. Add the key GitHub accepts with ssh-add, then run the same forge install command again.");
   }
   if (keys.length === 1) return keys[0];
   const i = await ctx.prompt.pick("Key GitHub accepts", keys.map(keyLabel));

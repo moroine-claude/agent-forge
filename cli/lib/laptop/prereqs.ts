@@ -1,5 +1,5 @@
 // Vérifie, avant `forge install`, que les outils de la machine de dev sont là.
-// Ne cherche pas l'agent SSH (voir ssh.ts) et n'installe rien : il dit quoi
+// Ne cherche pas l'agent SSH (voir keys.ts) et n'installe rien : il dit quoi
 // installer et laisse l'utilisateur le faire.
 import { ForgeError, type Context } from "../context.ts";
 

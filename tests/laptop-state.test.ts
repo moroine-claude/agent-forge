@@ -110,6 +110,10 @@ test("an invalid schema is a ForgeError naming the file", () => {
     [{ ...good, port: "22" }],
     [{ ...good, adminKey: undefined }],
     [{ ...good, identityAgent: 3 }],
+    // A name that is a path would turn hostDir(name) into the state directory or outside it.
+    [{ ...good, name: ".." }],
+    [{ ...good, name: "../x" }],
+    [{ ...good, name: "acme" }],
   ];
   for (const c of cases) {
     const path = writeState(JSON.stringify(c));

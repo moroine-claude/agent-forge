@@ -73,7 +73,8 @@ test("an agent without identities lists no key", async () => {
 
 test("a missing agent asks to start one and add the key", async () => {
   const ctx = fakeContext({ rules: [{ match: "ssh-add -L", code: 2, stderr: "Could not open a connection to your authentication agent." }] });
-  await assert.rejects(listAgentKeys(ctx, undefined), (e: Error) => e instanceof ForgeError && /start an ssh agent/i.test(e.message) && /ssh-add/.test(e.message));
+  await assert.rejects(listAgentKeys(ctx, undefined), (e: Error) => e instanceof ForgeError && /start an ssh agent/i.test(e.message) && /ssh-add/.test(e.message) &&
+    /the same forge install command again/.test(e.message));
 });
 
 test("one key is chosen without a question", async () => {
@@ -96,6 +97,8 @@ test("a key without comment is labelled with a short prefix of the key", async (
 });
 
 test("no key, or a cancelled pick, is an error", async () => {
-  await assert.rejects(chooseKey(fakeContext(), []), ForgeError);
+  // After `forge install --remote <address>`, a bare `forge install` would start a Lima install.
+  await assert.rejects(chooseKey(fakeContext(), []), (e: Error) =>
+    e instanceof ForgeError && /the same forge install command again/.test(e.message));
   await assert.rejects(chooseKey(fakeContext({ answers: [] }), [KEY_A, KEY_B]), ForgeError);
 });
