@@ -42,6 +42,7 @@ const ALL: InstallStep[] = ["vm", "inventory", "playbook", "ssh", "identity", "c
 const HERDR_LOCAL = ["herdr", "--remote", "forge-local", "--remote-keybindings", "server"];
 const INCLUDE = "Add `Include config.d/*` at the top of ~/.ssh/config?";
 const LINK = `Link ~/.local/bin/forge to ${CHECKOUT}/cli/forge?`;
+const RETRY = "forge-acme: the first connection never succeeded";
 
 const BASE: ExecRule[] = [
   { match: "limactl --version", stdout: "limactl version 2.1.2\n" },
@@ -328,7 +329,8 @@ test("a remote install asks its questions once and saves them first", async () =
     rules, answers: ["acme", "", 1, "alice", 1, "~/keys/admin"],
     attachRules: [{ match: "ubuntu@203.0.113.10", code: 255 }],
   });
-  await assert.rejects(cmdInstall(first, REMOTE), /The first SSH connection step failed: run forge install --host forge-acme to resume there\./);
+  await assert.rejects(cmdInstall(first, REMOTE),
+    /The first SSH connection step failed: the next forge install --host forge-acme offers to try again or to change these answers\./);
   assert.deepEqual(asked(first), [
     "Host name: forge-<name>", "Admin account (default ubuntu)", "Exposure",
     asked(first)[3], "Key the admin account accepts", "Private key file",
@@ -344,9 +346,10 @@ test("a remote install asks its questions once and saves them first", async () =
   }]);
   assert.equal(readFileSync(forgeKeyPath("forge-acme"), "utf8"), `${KEY}\n`);
 
-  const second = laptop(world, { rules, answers: [0, 1] });
+  // Tried again with the saved answers: nothing of them is asked again.
+  const second = laptop(world, { rules, answers: [0, 0, 1] });
   assert.equal(await cmdInstall(second, REMOTE), 0);
-  assert.deepEqual(asked(second), [INCLUDE, LINK]);
+  assert.deepEqual(asked(second), [RETRY, INCLUDE, LINK]);
   assert.ok(!called(second).some((c) => c.startsWith("limactl")));
   assert.deepEqual(second.attachCalls.at(-1)?.argv, ["herdr", "--remote", "forge-acme", "--remote-keybindings", "server"]);
   // The agent and the admin key reach the inventory, the agent the SSH block.
@@ -358,6 +361,73 @@ test("a remote install asks its questions once and saves them first", async () =
   const block = readFileSync(join(home, ".ssh/config.d/agent-forge"), "utf8");
   assert.match(block, /Host forge-acme\n[\s\S]*IdentityAgent \/run\/agent.sock/);
   assert.deepEqual(loadHosts()[0].done, ALL);
+});
+
+// The first connection is where a wrong admin or key shows: its answers can be
+// tried again or forgotten, until it has succeeded once.
+const FAILED_FIRST = { match: "ubuntu@203.0.113.10", code: 255 };
+
+async function remoteFailedAtFirstConnection(world: World): Promise<void> {
+  const first = laptop(world, { answers: ["acme", "ubuntu", 0, "alice", null], attachRules: [FAILED_FIRST] });
+  await assert.rejects(cmdInstall(first, REMOTE), ForgeError);
+  assert.deepEqual(loadHosts().map((h) => [h.name, h.done]), [["forge-acme", []]]);
+}
+
+test("the retry offer comes only for a remote whose first connection never succeeded", async () => {
+  // A remote that failed later, at the playbook: its first connection succeeded.
+  const world: World = { vm: null };
+  const failed = laptop(world, { answers: ["acme", "ubuntu", 0, "alice", null], attachRules: [{ match: "ansible-playbook -i", code: 2 }] });
+  await assert.rejects(cmdInstall(failed, REMOTE), ForgeError);
+  const again = laptop(world, { answers: [0, 1] });
+  assert.equal(await cmdInstall(again, { ...OPTS, host: "forge-acme" }), 0);
+  assert.deepEqual(asked(again), [INCLUDE, LINK]);
+  // A new remote is not offered it either: its questions come instead.
+  assert.ok(!asked(failed).includes(RETRY));
+});
+
+test("trying again re-runs the first connection with the saved answers and asks nothing else", async () => {
+  const world: World = { vm: null };
+  await remoteFailedAtFirstConnection(world);
+  const saved = readFileSync(join(home, ".config/agent-forge/hosts.json"), "utf8");
+  // null (no answer) also tries again.
+  for (const answer of [0, null]) {
+    const ctx = laptop(world, { answers: [answer], attachRules: [FAILED_FIRST] });
+    await assert.rejects(cmdInstall(ctx, { ...OPTS, host: "forge-acme" }), /offers to try again or to change these answers/);
+    assert.deepEqual(ctx.err_lines.find((l) => l.startsWith(RETRY)),
+      `${RETRY}> [try again with the saved answers (admin ubuntu, key ${forgeKeyPath("forge-acme")}) | forget these answers]`);
+    assert.deepEqual(asked(ctx), [RETRY]);
+    assert.deepEqual(ctx.attachCalls.map((a) => a.argv), [[
+      "ssh", "-o", `UserKnownHostsFile=${knownHostsPath()}`, "-o", "IdentitiesOnly=yes",
+      "-i", forgeKeyPath("forge-acme"), "ubuntu@203.0.113.10", "true",
+    ]]);
+    assert.equal(readFileSync(join(home, ".config/agent-forge/hosts.json"), "utf8"), saved);
+  }
+});
+
+test("forgetting the answers removes the host and lets --remote ask again", async () => {
+  const world: World = { vm: null };
+  await remoteFailedAtFirstConnection(world);
+  const before = snapshot(home);
+  const ctx = laptop(world, { answers: [1] });
+  await assert.rejects(cmdInstall(ctx, REMOTE), (e: Error) =>
+    e instanceof ForgeError && /forge install --remote 203\.0\.113\.10/.test(e.message));
+  assert.deepEqual(asked(ctx), [RETRY]);
+  assert.deepEqual(ctx.attachCalls, []);
+  assert.deepEqual(loadHosts(), []);
+  assert.equal(existsSync(join(home, ".config/agent-forge/hosts/forge-acme")), false);
+  assert.deepEqual(changedOutsideForge(before, snapshot(home)).changed, [
+    ".config/agent-forge/hosts.json",
+    ".config/agent-forge/hosts/forge-acme",
+    ".config/agent-forge/hosts/forge-acme/forge-key.pub",
+  ]);
+
+  // Answered again, with the admin account that works.
+  const fresh = laptop(world, { answers: ["acme", "debian", 0, "alice", null, 0, 1] });
+  assert.equal(await cmdInstall(fresh, REMOTE), 0);
+  assert.equal(asked(fresh)[0], "Host name: forge-<name>");
+  assert.ok(!asked(fresh).includes(RETRY));
+  assert.equal(loadHosts()[0].admin, "debian");
+  assert.equal(fresh.attachCalls[0].argv.at(-2), "debian@203.0.113.10");
 });
 
 test("a remote admin that accepts the GitHub key uses its public half", async () => {

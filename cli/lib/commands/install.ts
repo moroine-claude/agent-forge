@@ -53,6 +53,9 @@ export async function cmdInstall(ctx: Context, opts: InstallOptions = {}): Promi
   // 1-3. Which host, the laptop's tools, the key GitHub accepts.
   const target = await whichHost(ctx, opts);
   await checkPrerequisites(ctx, target.kind);
+  if (target.kind === "remote" && target.listed && !target.listed.done.includes("vm")) {
+    await retryOrForget(ctx, target.listed);
+  }
   const { key, agent } = await forgeKey(ctx, target.listed);
   // 4-5. A new host is saved, with its key, before anything is created.
   const { host, vm } = target.kind === "lima"
@@ -61,6 +64,10 @@ export async function cmdInstall(ctx: Context, opts: InstallOptions = {}): Promi
 
   const finished = STEPS.every((s) => host.done.includes(s));
   const resume = host.kind === "remote" ? `forge install --host ${host.name}` : "forge install";
+  // A remote's first connection tests its answers: the next run offers to change them.
+  const next = (s: InstallStep): string => s === "vm" && host.kind === "remote"
+    ? `the next ${resume} offers to try again or to change these answers.`
+    : `run ${resume} to resume there.`;
   const outcomes: [InstallStep, Outcome][] = [];
   // Skipped when recorded (unless `always`), recorded when it succeeds. A
   // failure names the step and the command that resumes there.
@@ -71,7 +78,7 @@ export async function cmdInstall(ctx: Context, opts: InstallOptions = {}): Promi
       outcome = await run();
     } catch (e) {
       if (!(e instanceof ForgeError)) throw e;
-      throw new ForgeError(`${e.message}\nThe ${label(s, host.kind)} step failed: run ${resume} to resume there.`);
+      throw new ForgeError(`${e.message}\nThe ${label(s, host.kind)} step failed: ${next(s)}`);
     }
     host.done = STEPS.filter((x) => x === s || host.done.includes(x));
     saveHost(host);
@@ -195,6 +202,19 @@ async function forgetLimaHost(ctx: Context, host: LaptopHost): Promise<void> {
   }
   rmSync(hostDir(host.name), { recursive: true, force: true });
   forgetHost(host.name);
+}
+
+// A remote whose first connection never succeeded: nothing exists on it yet,
+// and its answers (admin account, key) may be what failed. Forgetting them
+// removes its entry and its directory (its key), nothing else.
+async function retryOrForget(ctx: Context, host: LaptopHost): Promise<void> {
+  const i = await ctx.prompt.pick(`${host.name}: the first connection never succeeded`, [
+    `try again with the saved answers (admin ${host.admin}, key ${host.adminKey})`, "forget these answers",
+  ]);
+  if (i !== 1) return;
+  rmSync(hostDir(host.name), { recursive: true, force: true });
+  forgetHost(host.name);
+  throw new ForgeError(`${host.name}'s answers are forgotten: run forge install --remote ${host.address} to answer again`);
 }
 
 // What a remote host needs and forge cannot guess, asked once.
