@@ -161,6 +161,7 @@ These would make the work a failure even if every test passed:
 | One host, several laptops | Out of scope: one host, one laptop | The maintainer, 2026-10-20 |
 | Stacked tasks | A task may start from another task's `agent/<a>`; `forge ship` ships the whole chain under it, so the developer never has to ship the tasks of a chain one by one | The maintainer, 2026-10-20 |
 | GitHub's SSH host keys | Written on the host in advance from GitHub's published keys, fetched over HTTPS; no more trust-on-first-use question in the popup | The maintainer, 2026-10-20 |
+| herdr toasts | Turned on in the laptop's herdr config by `forge install`, not on the host | The maintainer, 2026-10-21 (real-host test) |
 | LFS | Optional per repository; the agent reads **and writes** LFS files | The maintainer, 2026-10-20 |
 | Command names (`install`, `open`, `fetch`, `ship`) | Provisional | Implementer's call |
 
@@ -200,6 +201,23 @@ New policy, for a run in the popup (`herdrEnv().popup`):
 `herdr notification show` exists in herdr 0.9.5. If the call fails, forge
 falls back to today's behaviour for that run (print and wait), so a warning is
 never lost silently.
+
+**Finding (2026-10-21, real host).** Tested with herdr 0.9.5 and a client
+attached through `herdr --remote`: as soon as a client is attached,
+`herdr notification show` always answers `shown: true`, whatever the
+`[ui.toast]` setting of the host or the client. The toast is drawn only if the
+**client's** herdr config (the laptop's `~/.config/herdr/config.toml`) has
+`[ui.toast] delivery = "herdr"`; the host's config changes nothing (host
+without toasts and client with them: toast shown; the other way round:
+nothing). Without an attached client the server answers `shown: false`, with
+reason `disabled` (host without toasts) or `no_foreground_client` (host with
+them). So turning toasts on from `forge setup`'s host block (the plan's Task
+7) is useless. Decision A (the maintainer): the setting lives on the laptop;
+`forge install` (sub-project 3) turns it on in the laptop's herdr config,
+after confirmation, unless the user already sets `[ui.toast]`; the README
+explains it for a manual install. Remaining risk, documented: with toasts off
+on the laptop, the popup's warnings go unseen, herdr answering `shown: true`
+anyway.
 
 ### A half-provisioned container
 
@@ -326,6 +344,10 @@ failure:
    developer's GitHub key lives in another agent (a hardware key's, a password
    manager's), the block carries the `IdentityAgent` the developer's SSH uses
    for it *(implementer's call on how it is detected or asked)*.
+   `install` also turns herdr's toasts on in the laptop's herdr config
+   (`~/.config/herdr/config.toml`): a block of its own, delimited, after
+   confirmation, unless the laptop's config already sets `ui` or `[ui.toast]`
+   (see sub-project 1, Finding).
 7. **The host's account.** Over SSH, as the forge user:
    - the git identity: the laptop's `git config --global user.name` and
      `user.email`, set on the host if missing; asked if the laptop has none;

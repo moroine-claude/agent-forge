@@ -153,8 +153,6 @@ exit
 - `forge setup` creates forge's Incus objects, the egress proxy and its
   allowlist when Incus is recent enough (see
   [Strict egress mode](#strict-egress-mode)), and forge's herdr key bindings.
-  It also turns herdr's in-app notifications on, unless your herdr config
-  sets `[ui.toast]`.
   Run it again after changing forge's configuration. On a fresh host, two
   notices are expected:
 
@@ -187,6 +185,11 @@ Press `prefix+f` (herdr's prefix is `ctrl+b`). A popup asks for the repository
 
 On success the popup closes by itself; warnings show up as a herdr
 notification. After an error it stays open until you press Enter.
+
+Those notifications only show if herdr has toasts turned on on your machine:
+put `[ui.toast]` then `delivery = "herdr"` in `~/.config/herdr/config.toml`.
+Otherwise herdr still reports the notification as shown, and the popup's
+warnings go unseen.
 
 ### 7. Get the work back
 
