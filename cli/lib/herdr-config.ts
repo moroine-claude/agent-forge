@@ -3,6 +3,8 @@
 // idempotent block in the forge user's herdr config. The block is always kept
 // LAST in the file: a bare TOML key written after it would land in its last
 // [[keys.command]] table (herdr 0.9.5: "unknown config key keys.command.0.bogus").
+// On the laptop, `forge install` owns another block, with its own markers:
+// herdr's toasts (the laptop block, below).
 import {
   chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync,
 } from "node:fs";
@@ -13,6 +15,13 @@ import { shellQuote } from "./shell.ts";
 
 export const BLOCK_START = "# >>> agent-forge >>>";
 export const BLOCK_END = "# <<< agent-forge <<<";
+
+// A block's markers, and its name in error messages.
+type Markers = { start: string; end: string; name: string };
+const HOST_MARKERS: Markers = { start: BLOCK_START, end: BLOCK_END, name: "agent-forge block" };
+export const LAPTOP_MARKERS: Markers = {
+  start: "# >>> agent-forge laptop >>>", end: "# <<< agent-forge laptop <<<", name: "agent-forge laptop block",
+};
 
 // The two keys forge binds.
 const KEYS = ["prefix+f", "prefix+shift+f"];
@@ -72,27 +81,28 @@ function lines(text: string): Line[] {
 // end-marker line, terminator included. Null when there is none. A marker may
 // be followed by blanks (an editor's leftovers); a second marker of either
 // kind is refused rather than guessed around.
-function findBlock(text: string): { from: number; to: number } | null {
+function findBlock(text: string, m: Markers = HOST_MARKERS): { from: number; to: number } | null {
   const ls = lines(text);
-  const starts = ls.filter((l) => l.text.trimEnd() === BLOCK_START);
-  const ends = ls.filter((l) => l.text.trimEnd() === BLOCK_END);
-  if (starts.length > 1) throw new Error("more than one agent-forge block: remove the extra ones by hand");
+  const starts = ls.filter((l) => l.text.trimEnd() === m.start);
+  const ends = ls.filter((l) => l.text.trimEnd() === m.end);
+  if (starts.length > 1) throw new Error(`more than one ${m.name}: remove the extra ones by hand`);
   if (ends.length > 1) {
-    throw new Error(`more than one "${BLOCK_END}" in the agent-forge block: remove the extra ones by hand`);
+    throw new Error(`more than one "${m.end}" in the ${m.name}: remove the extra ones by hand`);
   }
   if (starts.length === 0 && ends.length === 0) return null;
-  if (starts.length === 0) throw new Error(`found "${BLOCK_END}" without a start marker in the agent-forge block`);
+  if (starts.length === 0) throw new Error(`found "${m.end}" without a start marker in the ${m.name}`);
   if (ends.length === 0 || ends[ends.length - 1].start < starts[0].start) {
-    throw new Error(`found "${BLOCK_START}" without an end marker in the agent-forge block`);
+    throw new Error(`found "${m.start}" without an end marker in the ${m.name}`);
   }
   const end = ends.find((l) => l.start > starts[0].start)!;
   return { from: starts[0].start, to: end.end };
 }
 
+// forge setup's block by default; the laptop block with LAPTOP_MARKERS.
 export function spliceBlock(
-  text: string, block: string,
+  text: string, block: string, markers: Markers = HOST_MARKERS,
 ): { text: string; outcome: "created" | "updated" | "unchanged" } {
-  const found = findBlock(text);
+  const found = findBlock(text, markers);
   if (!found) {
     if (text === "") return { text: block, outcome: "created" };
     const sep = (text.endsWith("\n") ? "" : "\n") + "\n";
@@ -119,7 +129,73 @@ export function conflictingKeys(text: string): string[] {
   return [...keys];
 }
 
-function readConfig(path: string): string {
+// The laptop block: herdr draws a notification, the start popup's warnings
+// among them, only if the attached client's config turns toasts on (herdr
+// 0.9.5 ships with them off; spec, sub-project 1, Finding). Appended at the
+// end like forge setup's block: a bare key written after it would land in
+// its [ui.toast] table.
+export function renderLaptopBlock(): string {
+  return [
+    LAPTOP_MARKERS.start,
+    "# Added by `forge install`: herdr draws its notifications, among them the",
+    "# warnings of forge's start popup. Remove this block to turn them off again.",
+    "# Keep your own settings above it.",
+    "[ui.toast]",
+    'delivery = "herdr"',
+    LAPTOP_MARKERS.end,
+    "",
+  ].join("\n");
+}
+
+// A TOML key or header name without its quotes or the blanks around dots:
+// `["ui" . 'toast']` and `ui.toast` name the same table.
+function bareName(name: string): string {
+  return name.replaceAll(/["']/g, "").replaceAll(/\s*\.\s*/g, ".").trim();
+}
+
+// True when the user's own settings, outside forge's laptop block, set the
+// toasts: a `[ui.toast]` (or `[ui.toast.*]`) table, a `ui.toast...` key at
+// the top level, a `toast...` key under `[ui]`, or a top-level `ui = ...` key
+// (an inline table, which a `[ui.toast]` header cannot extend). forge's
+// `[ui.toast]` would then override their choice or break the file (herdr
+// rejects a table defined twice). Quoted names count as unquoted ones.
+function userSetsToasts(text: string): boolean {
+  const found = findBlock(text, LAPTOP_MARKERS);
+  const outside = found ? text.slice(0, found.from) + text.slice(found.to) : text;
+  let table = "";
+  for (const l of lines(outside)) {
+    const header = /^\s*\[\[?\s*([^\]]*?)\s*\]\]?\s*(?:#.*)?$/.exec(l.text);
+    if (header) {
+      table = bareName(header[1]);
+      if (table === "ui.toast" || table.startsWith("ui.toast.")) return true;
+      continue;
+    }
+    const eq = l.text.indexOf("=");
+    if (eq === -1) continue;
+    const key = bareName(l.text.slice(0, eq));
+    if (table === "") {
+      if (key === "ui" || key === "ui.toast" || key.startsWith("ui.toast.")) return true;
+    } else if (table === "ui") {
+      if (key === "toast" || key.startsWith("toast.")) return true;
+    }
+  }
+  return false;
+}
+
+// What the laptop's herdr config says about toasts: forge's laptop block is
+// there, the user sets them, or neither. A broken laptop block throws.
+export function laptopToasts(text: string): "forge" | "user" | "none" {
+  if (findBlock(text, LAPTOP_MARKERS)) return "forge";
+  return userSetsToasts(text) ? "user" : "none";
+}
+
+// The laptop block added at the end of the config, which is created when
+// missing (as writeConfig does for forge setup's block).
+export function addLaptopBlock(path: string, text: string): void {
+  writeConfig(path, spliceBlock(text, renderLaptopBlock(), LAPTOP_MARKERS).text);
+}
+
+export function readConfig(path: string): string {
   try {
     return readFileSync(path, "utf8");
   } catch (e) {

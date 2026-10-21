@@ -9,15 +9,17 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { cmdInstall } from "../cli/lib/commands/install.ts";
 import { ForgeError } from "../cli/lib/context.ts";
+import { renderLaptopBlock } from "../cli/lib/herdr-config.ts";
 import {
   forgeKeyPath, inventoryPath, knownHostsPath, loadHosts, saveHost, type InstallStep, type LaptopHost,
 } from "../cli/lib/laptop/state.ts";
 import { fakeContext, type ExecRule, type FakeContext } from "./lib/fake-context.ts";
 
 // Every laptop path lives in a temporary home: never the real one, never the
-// real ~/.ssh, never a real VM.
+// real ~/.ssh or herdr config, never a real VM.
 const ENV: Record<string, string> = {
   FORGE_HOME: "", XDG_CONFIG_HOME: ".config", XDG_DATA_HOME: ".local/share", FORGE_SSH_DIR: ".ssh", LIMA_HOME: ".lima",
+  HERDR_CONFIG_PATH: ".config/herdr/config.toml",
 };
 let home: string;
 const saved: Record<string, string | undefined> = {};
@@ -44,6 +46,9 @@ const INCLUDE = "Add `Include config.d/agent-forge.config` at the top of ~/.ssh/
 const LINK = `Link ~/.local/bin/forge to ${CHECKOUT}/cli/forge?`;
 const RETRY = "forge-acme: the first connection never succeeded";
 const WHICH = "Install or update which host?";
+// The laptop's herdr config, in the temporary home, and the question about it.
+const herdrConfig = () => join(home, ".config/herdr/config.toml");
+const TOASTS = () => `Turn herdr's notifications on in ${herdrConfig()}?`;
 // The checkout's commit, which the playbook deploys.
 const HEAD = "1111111111111111111111111111111111111111";
 const HEAD2 = "2222222222222222222222222222222222222222";
@@ -98,7 +103,7 @@ const asked = (ctx: FakeContext) =>
 const firstIndex = (ctx: FakeContext, part: string) => called(ctx).findIndex((c) => c.includes(part));
 
 async function finishedLocal(world: World): Promise<void> {
-  const ctx = laptop(world, { answers: [0, 0] });
+  const ctx = laptop(world, { answers: [0, 0, 0] });
   assert.equal(await cmdInstall(ctx, OPTS), 0);
   assert.deepEqual(loadHosts()[0].done, ALL);
 }
@@ -149,7 +154,7 @@ test("a first local install runs every step in order and ends in herdr", async (
   assert.equal(statSync(join(home, ".ssh/config")).mode & 0o777, 0o600);
   assert.equal(readlinkSync(join(home, ".local/bin/forge")), `${CHECKOUT}/cli/forge`);
   assert.ok(ctx.out_lines.includes('export PATH="$HOME/.local/bin:$PATH"'), ctx.out_lines.join("\n"));
-  assert.deepEqual(asked(ctx), [INCLUDE, LINK]);
+  assert.deepEqual(asked(ctx), [INCLUDE, LINK, TOASTS()]);
   // The summary: the host, then one line per step.
   assert.ok(ctx.out_lines.includes("forge-local:"), ctx.out_lines.join("\n"));
   assert.ok(ctx.out_lines.includes("  VM: done"), ctx.out_lines.join("\n"));
@@ -170,8 +175,8 @@ test("a re-run after a failed playbook resumes at the playbook with the saved an
   const second = laptop(world, { rules: [keys], answers: [0, 1] });
   assert.equal(await cmdInstall(second, OPTS), 0);
   assert.ok(!attached(second).some((a) => a.startsWith("limactl")), attached(second).join("\n"));
-  // Only what comes after the playbook is asked: the Include and the link.
-  assert.deepEqual(asked(second), [INCLUDE, LINK]);
+  // Only what comes after the playbook is asked: the Include, the link, herdr.
+  assert.deepEqual(asked(second), [INCLUDE, LINK, TOASTS()]);
   assert.ok(attached(second).some((a) => a.startsWith("ansible-playbook -i")));
   assert.equal(readFileSync(forgeKeyPath("forge-local"), "utf8"), `${KEY2}\n`);
   assert.equal(readFileSync(inventoryPath("forge-local"), "utf8"), inventory);
@@ -187,7 +192,7 @@ test("a re-run after an interrupted claude login resumes at the login", async ()
   const second = laptop(world, { rules: [NO_LOGIN], answers: [1] });
   assert.equal(await cmdInstall(second, OPTS), 0);
   assert.ok(!attached(second).some((a) => a.startsWith("ansible")));
-  assert.deepEqual(asked(second), [LINK]);
+  assert.deepEqual(asked(second), [LINK, TOASTS()]);
   assert.deepEqual(attached(second), [
     "ssh -o ForwardAgent=no -t forge-local -- 'claude' 'auth' 'login'",
     "ssh -o ForwardAgent=no forge-local -- 'forge' 'setup'",
@@ -205,7 +210,7 @@ test("a Lima VM whose creation failed is created again without asking", async ()
   const second = laptop(world, { answers: [0, 1] });
   assert.equal(await cmdInstall(second, OPTS), 0);
   assert.ok(attached(second).some((a) => a.startsWith("limactl create")));
-  assert.deepEqual(asked(second), [INCLUDE, LINK]);
+  assert.deepEqual(asked(second), [INCLUDE, LINK, TOASTS()]);
 });
 
 test("a re-run of a finished host updates it", async () => {
@@ -443,7 +448,7 @@ test("a remote install asks its questions once and saves them first", async () =
   // Tried again with the saved answers: nothing of them is asked again.
   const second = laptop(world, { rules, answers: [0, 0, 1] });
   assert.equal(await cmdInstall(second, REMOTE), 0);
-  assert.deepEqual(asked(second), [RETRY, INCLUDE, LINK]);
+  assert.deepEqual(asked(second), [RETRY, INCLUDE, LINK, TOASTS()]);
   assert.ok(!called(second).some((c) => c.startsWith("limactl")));
   assert.deepEqual(second.attachCalls.at(-1)?.argv, ["herdr", "--remote", "forge-acme", "--remote-keybindings", "server"]);
   // The agent and the admin key reach the inventory, the agent the SSH block.
@@ -475,7 +480,7 @@ test("the retry offer comes only for a remote whose first connection never succe
   await assert.rejects(cmdInstall(failed, REMOTE), ForgeError);
   const again = laptop(world, { answers: [0, 1] });
   assert.equal(await cmdInstall(again, { ...OPTS, host: "forge-acme" }), 0);
-  assert.deepEqual(asked(again), [INCLUDE, LINK]);
+  assert.deepEqual(asked(again), [INCLUDE, LINK, TOASTS()]);
   // A new remote is not offered it either: its questions come instead.
   assert.ok(!asked(failed).includes(RETRY));
 });
@@ -542,7 +547,7 @@ test("a remote admin that accepts the GitHub key uses its public half", async ()
 
 test("a remote re-run finds its host by address or by name", async () => {
   const world: World = { vm: null };
-  assert.equal(await cmdInstall(laptop(world, { answers: ["acme", "", 0, "alice", null, 0, 0] }), REMOTE), 0);
+  assert.equal(await cmdInstall(laptop(world, { answers: ["acme", "", 0, "alice", null, 0, 0, 0] }), REMOTE), 0);
   for (const opts of [REMOTE, { ...OPTS, host: "forge-acme" }]) {
     const ctx = laptop(world);
     assert.equal(await cmdInstall(ctx, opts), 0);
@@ -739,7 +744,7 @@ test("a ~/.local/bin/forge pointing elsewhere is left alone", async () => {
   writeFileSync(join(home, ".ssh/config"), "Include config.d/*\n");
   const ctx = laptop({ vm: null });
   assert.equal(await cmdInstall(ctx, OPTS), 0);
-  assert.deepEqual(asked(ctx), []);
+  assert.deepEqual(asked(ctx), [TOASTS()]);
   assert.equal(readlinkSync(join(home, ".local/bin/forge")), "/elsewhere/forge");
   assert.ok([...ctx.out_lines, ...ctx.err_lines].some((l) => l.includes("~/.local/bin/forge") && l.includes("left")));
   assert.ok(!ctx.out_lines.includes('export PATH="$HOME/.local/bin:$PATH"'));
@@ -783,16 +788,88 @@ test("nothing is written outside forge's directories without a confirmation", as
   assert.ok(diff.changed.includes(".config/agent-forge/hosts.json"), diff.changed.join("\n"));
   assert.deepEqual(diff.outside, []);
 
-  // The Include already there and the link declined: the run completes.
+  // The Include already there, the link and herdr's notifications declined:
+  // the run completes.
   rmSync(join(home, ".config/agent-forge"), { recursive: true, force: true });
   rmSync(join(home, ".ssh/config.d"), { recursive: true, force: true });
   writeFileSync(join(home, ".ssh/config"), "Include config.d/*\n\nHost *\n  ServerAliveInterval 60\n");
   before = snapshot(home);
-  const ctx = laptop({ vm: null }, { answers: [1] });
+  const world: World = { vm: null };
+  const ctx = laptop(world, { answers: [1, 1] });
   assert.equal(await cmdInstall(ctx, OPTS), 0);
-  assert.deepEqual(asked(ctx), [LINK]);
+  assert.deepEqual(asked(ctx), [LINK, TOASTS()]);
   diff = changedOutsideForge(before, snapshot(home));
   assert.ok(diff.changed.includes(".ssh/config.d/agent-forge.config"), diff.changed.join("\n"));
   assert.deepEqual(diff.outside, []);
   assert.equal(existsSync(join(home, ".local/bin")), false);
+
+  // A yes for herdr's notifications: its config, and nothing else outside.
+  before = snapshot(home);
+  assert.equal(await cmdInstall(laptop(world, { answers: [1, 0] }), OPTS), 0);
+  assert.deepEqual(changedOutsideForge(before, snapshot(home)).outside, [".config/herdr", ".config/herdr/config.toml"]);
+});
+
+// herdr draws the start popup's warnings only when the laptop's herdr config
+// turns toasts on (spec, sub-project 1, Finding). Not a recorded step: asked
+// on each run until it is there.
+test("a yes turns herdr's notifications on in a new laptop config, once", async () => {
+  writeFileSync(join(home, ".ssh/config"), "Include config.d/*\n");
+  const world: World = { vm: null };
+  const ctx = laptop(world, { answers: [1, 0] });
+  assert.equal(await cmdInstall(ctx, OPTS), 0);
+  assert.deepEqual(asked(ctx), [LINK, TOASTS()]);
+  assert.equal(readFileSync(herdrConfig(), "utf8"), renderLaptopBlock());
+  assert.equal(statSync(herdrConfig()).mode & 0o777, 0o644);
+  assert.equal(statSync(join(home, ".config/herdr")).mode & 0o777, 0o700);
+  assert.ok(ctx.out_lines.includes("  herdr notifications: done"), ctx.out_lines.join("\n"));
+  assert.deepEqual(ctx.attachCalls.at(-1)?.argv, HERDR_LOCAL);
+
+  // Already there: not asked again, not written again.
+  const before = statSync(herdrConfig());
+  const again = laptop(world, { answers: [1] });
+  assert.equal(await cmdInstall(again, OPTS), 0);
+  assert.deepEqual(asked(again), [LINK]);
+  assert.equal(statSync(herdrConfig()).mtimeMs, before.mtimeMs);
+  assert.equal(statSync(herdrConfig()).ino, before.ino);
+  assert.ok(again.out_lines.includes("  herdr notifications: already there"), again.out_lines.join("\n"));
+});
+
+test("a yes adds the block after the laptop config's own settings and keeps its mode", async () => {
+  writeFileSync(join(home, ".ssh/config"), "Include config.d/*\n");
+  mkdirSync(join(home, ".config/herdr"));
+  const mine = '[keys]\nprefix = "ctrl+a"\n';
+  writeFileSync(herdrConfig(), mine, { mode: 0o600 });
+  assert.equal(await cmdInstall(laptop({ vm: null }, { answers: [1, 0] }), OPTS), 0);
+  assert.equal(readFileSync(herdrConfig(), "utf8"), `${mine}\n${renderLaptopBlock()}`);
+  assert.equal(statSync(herdrConfig()).mode & 0o777, 0o600);
+});
+
+test("a no, or no answer, leaves herdr's config alone, says the warnings go unseen, and goes on", async () => {
+  writeFileSync(join(home, ".ssh/config"), "Include config.d/*\n");
+  const world: World = { vm: null };
+  for (const answer of [1, null]) {
+    const ctx = laptop(world, { answers: [1, answer] });
+    assert.equal(await cmdInstall(ctx, OPTS), 0);
+    assert.deepEqual(asked(ctx), [LINK, TOASTS()]);
+    assert.equal(existsSync(join(home, ".config/herdr")), false);
+    assert.ok(ctx.out_lines.some((l) => /popup's warnings will go unseen/.test(l)), ctx.out_lines.join("\n"));
+    assert.ok(ctx.out_lines.includes("  herdr notifications: declined"), ctx.out_lines.join("\n"));
+    assert.deepEqual(ctx.attachCalls.at(-1)?.argv, HERDR_LOCAL);
+  }
+});
+
+test("a laptop herdr config that sets [ui.toast] or ui itself is left alone, without a question", async () => {
+  writeFileSync(join(home, ".ssh/config"), "Include config.d/*\n");
+  mkdirSync(join(home, ".config/herdr"));
+  const world: World = { vm: null };
+  for (const mine of ['[ui.toast]\ndelivery = "terminal"\n', "ui = { sidebar_width = 30 }\n"]) {
+    writeFileSync(herdrConfig(), mine);
+    const ctx = laptop(world, { answers: [1] });
+    assert.equal(await cmdInstall(ctx, OPTS), 0);
+    assert.deepEqual(asked(ctx), [LINK]);
+    assert.equal(readFileSync(herdrConfig(), "utf8"), mine);
+    const line = ctx.out_lines.find((l) => l.includes(herdrConfig()) && l.includes("leaves it alone"));
+    assert.ok(line && /popup's warnings/.test(line), ctx.out_lines.join("\n"));
+    assert.ok(ctx.out_lines.includes("  herdr notifications: set in your config"), ctx.out_lines.join("\n"));
+  }
 });

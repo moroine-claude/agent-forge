@@ -4,7 +4,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { renderBlock } from "../../cli/lib/herdr-config.ts";
+import { LAPTOP_MARKERS, renderBlock, renderLaptopBlock, spliceBlock } from "../../cli/lib/herdr-config.ts";
 import { createContext } from "../../cli/lib/context.ts";
 import {
   createWorkspace, listWorkspaces, createTab, listPanes, listTabs, renameTab, closeTab,
@@ -54,6 +54,18 @@ test("herdr accepts the config block forge setup writes", { skip }, () => {
   const r = spawnSync("herdr", ["config", "check"], { env: { ...process.env, HERDR_CONFIG_PATH: file }, encoding: "utf8" });
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /config: ok/);
+});
+
+// The laptop's block (forge install), alone or after forge setup's block.
+test("herdr accepts the laptop block forge install writes", { skip }, () => {
+  const file = `${home}/laptop.toml`;
+  const setup = renderBlock("/usr/local/bin/forge");
+  for (const text of [renderLaptopBlock(), spliceBlock(setup, renderLaptopBlock(), LAPTOP_MARKERS).text]) {
+    writeFileSync(file, text);
+    const r = spawnSync("herdr", ["config", "check"], { env: { ...process.env, HERDR_CONFIG_PATH: file }, encoding: "utf8" });
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.match(r.stdout, /config: ok/);
+  }
 });
 
 test("tab list, rename and close against real herdr", { skip }, async () => {

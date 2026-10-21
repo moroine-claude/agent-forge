@@ -10,7 +10,8 @@ import {
 import { userInfo } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { ForgeError, type Context } from "../context.ts";
-import { forgeHome, laptopDataDir, limaHome, repoRoot, sshDir } from "../paths.ts";
+import { addLaptopBlock, laptopToasts, readConfig } from "../herdr-config.ts";
+import { forgeHome, herdrConfigPath, laptopDataDir, limaHome, repoRoot, sshDir } from "../paths.ts";
 import { ensureClaudeLogin, ensureGitIdentity, ensureImage, runSetup } from "../laptop/host-steps.ts";
 import { renderInventory, writeInventoryOnce } from "../laptop/inventory.ts";
 import { chooseKey, githubAgent, keyLabel, listAgentKeys } from "../laptop/keys.ts";
@@ -117,12 +118,15 @@ export async function cmdInstall(ctx: Context, opts: InstallOptions = {}): Promi
   await step("claude", async () => ((await ensureClaudeLogin(ctx, host)) === "logged-in" ? "done" : "already there"));
   await step("setup", async () => { await runSetup(ctx, host); return "done"; });
   await step("image", async () => ((await ensureImage(ctx, host, checkout)) === "built" ? "done" : "already there"));
-  // 11. Not a recorded step: asked while the link is missing.
+  // 11. Not recorded steps: asked while the link, or herdr's notifications,
+  // are missing.
   await linkForge(ctx, checkout);
+  const toasts = await herdrToasts(ctx);
 
   // 12. What was done, what was already there; then herdr.
   ctx.out(`${host.name}:`);
   for (const [s, outcome] of outcomes) ctx.out(`  ${label(s, host.kind)}: ${outcome}`);
+  ctx.out(`  herdr notifications: ${toasts}`);
   return cmdOpen(ctx, { host: host.name });
 }
 
@@ -367,6 +371,40 @@ function writeKeepingMode(path: string, text: string): void {
   writeFileSync(tmp, text, { mode });
   chmodSync(tmp, mode);
   renameSync(tmp, target);
+}
+
+// herdr draws a notification, the start popup's warnings among them, only if
+// the laptop's herdr config turns toasts on (spec, sub-project 1, Finding):
+// forge's laptop block, after a confirmation, unless the developer's config
+// sets them itself. Declining is not an error.
+async function herdrToasts(ctx: Context): Promise<string> {
+  const path = herdrConfigPath();
+  let text: string;
+  let state: ReturnType<typeof laptopToasts>;
+  try {
+    text = readConfig(path);
+    state = laptopToasts(text);
+  } catch (e) {
+    ctx.out(`${path}: ${(e as Error).message}; herdr's notifications left as they are`);
+    return "left as they are";
+  }
+  if (state === "forge") return "already there";
+  if (state === "user") {
+    ctx.out(`${path} sets ui or [ui.toast]: forge leaves it alone. herdr's toasts must be on ` +
+      `(delivery = "herdr") for the start popup's warnings to show.`);
+    return "set in your config";
+  }
+  if ((await ctx.prompt.pick(`Turn herdr's notifications on in ${path}?`, ["yes", "no"])) !== 0) {
+    ctx.out("herdr's notifications stay as they are: with them off, the start popup's warnings will go unseen.");
+    return "declined";
+  }
+  try {
+    addLaptopBlock(path, text);
+  } catch (e) {
+    ctx.out(`${path}: ${(e as Error).message}; herdr's notifications left as they are`);
+    return "left as they are";
+  }
+  return "done";
 }
 
 // ~/.local/bin/forge → the checkout's cli/forge, after a confirmation; any
