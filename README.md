@@ -296,9 +296,10 @@ agent in the foreground and say
   are checked out as pointers.
 - **Submodules:** not set up inside containers. The host mirrors the
   repository alone, so `git submodule update --init` fails for a relative URL
-  (`../other.git` resolves to `/forge/other.git`, which does not exist) and
-  for a private repository (no GitHub credential in the container). A public
-  HTTPS URL may work, egress permitting. Scripts that rely on a missing
+  (`../other.git` resolves to `/forge/other.git`, which does not exist), for
+  an SSH URL (`git@github.com:…`, even to a public repository) and for a
+  private repository (no SSH key nor GitHub credential in the container). A
+  public HTTPS URL may work, egress permitting. Scripts that rely on a missing
   submodule fail in the container; the agent has to work around them.
 
 Inside the container, `origin` is a read-only mirror the host refreshes at
