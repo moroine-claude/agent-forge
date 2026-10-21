@@ -40,6 +40,7 @@ On the forge host:
   attach <container> <task>         Run a task's agent in this terminal (what herdr tabs run)
   upload-pack <container> [<path>]  Serve a container's repository to git fetch (see the README, "Get the work back")
   image build                       Build the agent-base image (Ansible, through Incus)
+  image commit                      Print the commit agent-base was built from (nothing if no image)
   completion bash                   Print a bash completion function (eval it in ~/.bashrc)
   completion repos                  List managed owner/repo, one per line (machine-readable)
   completion tasks <owner/repo>     List a repo's task names, one per line (machine-readable)

@@ -193,8 +193,24 @@ test("an instance that did not boot stops the build and is kept", async () => {
   await assert.rejects(run, /did not finish booting \(systemd state: maintenance\).*forge-image-build is left for debugging.*the next build removes it/);
 });
 
-test("forge image takes build and nothing else", async () => {
-  await assert.rejects(() => cmdImage(fakeContext(), "update"), /Usage: forge image build$/);
-  await assert.rejects(() => cmdImage(fakeContext(), "build", "super"), /Usage: forge image build$/);
-  await assert.rejects(() => cmdImage(fakeContext(), undefined), /Usage: forge image build$/);
+const USAGE = /Usage: forge image build \| commit$/;
+
+test("forge image takes build or commit and nothing else", async () => {
+  await assert.rejects(() => cmdImage(fakeContext(), "update"), USAGE);
+  await assert.rejects(() => cmdImage(fakeContext(), "build", "super"), USAGE);
+  await assert.rejects(() => cmdImage(fakeContext(), "commit", "super"), USAGE);
+  await assert.rejects(() => cmdImage(fakeContext(), undefined), USAGE);
+});
+
+test("image commit prints the image's commit, without the build's host checks", async () => {
+  const ctx = fakeContext({ incus: FakeIncus.withRuntime({ commit: "abc123" }) });
+  assert.equal(await cmdImage(ctx, "commit"), 0);
+  assert.deepEqual(ctx.out_lines, ["abc123"]);
+  assert.ok(!flat(ctx).some((l) => l.includes("ansible") || l.includes("launch")), flat(ctx).join("\n"));
+});
+
+test("image commit prints nothing when there is no image", async () => {
+  const ctx = fakeContext({ incus: new FakeIncus() });
+  assert.equal(await cmdImage(ctx, "commit"), 0);
+  assert.deepEqual(ctx.out_lines, []);
 });

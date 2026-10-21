@@ -1,4 +1,4 @@
-// forge image build (spec "Image → forge image build"). forge drives the
+// forge image build | commit (spec "Image → forge image build"). forge drives the
 // lifecycle (launch, publish, stamp); ansible/image.yml only configures the
 // one instance it is given. Ansible's output streams live, as v1's
 // v1's image script did.
@@ -7,7 +7,7 @@ import { join } from "node:path";
 import type { Context } from "../context.ts";
 import { ForgeError, mustSucceed } from "../context.ts";
 import { loadConfig } from "../config.ts";
-import { BASE_IMAGE } from "../containers.ts";
+import { BASE_IMAGE, latestImageCommit } from "../containers.ts";
 import { checkHost, checkIpForward, checkStoragePool, type ProcPaths } from "../host.ts";
 import {
   deleteInstance, forgeProject, imageExists, imageFingerprint, incus, instanceExists, listObjects, waitReady,
@@ -25,14 +25,21 @@ export const BUILD_INSTANCE = "forge-image-build";
 // No cloud-init: with it, every instance would recreate the ubuntu account and
 // its passwordless sudo (spec "Decisions").
 export const SOURCE_IMAGE = "images:ubuntu/26.04";
-const USAGE = "Usage: forge image build";
+const USAGE = "Usage: forge image build | commit";
 
 export type ImageOptions = { proc?: ProcPaths; root?: string };
 
 export async function cmdImage(
   ctx: Context, sub: string | undefined, extra?: string, opts: ImageOptions = {},
 ): Promise<number> {
-  if (sub !== "build" || extra !== undefined) throw new ForgeError(USAGE);
+  if ((sub !== "build" && sub !== "commit") || extra !== undefined) throw new ForgeError(USAGE);
+  if (sub === "commit") {
+    // Read-only query, which the laptop's `forge install` runs over SSH: the
+    // commit agent-base was built from, nothing when there is no image.
+    const commit = await latestImageCommit(ctx);
+    if (commit) ctx.out(commit);
+    return 0;
+  }
   const root = opts.root ?? repoRoot();
   const project = forgeProject();
 
