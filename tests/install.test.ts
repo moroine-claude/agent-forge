@@ -40,7 +40,7 @@ const OPTS = { checkout: CHECKOUT, lima: { sleep: async () => {}, freePort: asyn
 const REMOTE = { ...OPTS, remote: "203.0.113.10" };
 const ALL: InstallStep[] = ["vm", "inventory", "playbook", "ssh", "identity", "claude", "setup", "image"];
 const HERDR_LOCAL = ["herdr", "--remote", "forge-local", "--remote-keybindings", "server"];
-const INCLUDE = "Add `Include config.d/agent-forge` at the top of ~/.ssh/config?";
+const INCLUDE = "Add `Include config.d/agent-forge.config` at the top of ~/.ssh/config?";
 const LINK = `Link ~/.local/bin/forge to ${CHECKOUT}/cli/forge?`;
 const RETRY = "forge-acme: the first connection never succeeded";
 const WHICH = "Install or update which host?";
@@ -144,8 +144,8 @@ test("a first local install runs every step in order and ends in herdr", async (
   assert.match(inventory, /ansible_port: 60022/);
   assert.match(inventory, /ansible_user: "alice"/);
   assert.ok(inventory.includes(`- "${KEY}"`), inventory);
-  assert.match(readFileSync(join(home, ".ssh/config.d/agent-forge"), "utf8"), /^Host forge-local$/m);
-  assert.equal(readFileSync(join(home, ".ssh/config"), "utf8"), "Include config.d/agent-forge\n");
+  assert.match(readFileSync(join(home, ".ssh/config.d/agent-forge.config"), "utf8"), /^Host forge-local$/m);
+  assert.equal(readFileSync(join(home, ".ssh/config"), "utf8"), "Include config.d/agent-forge.config\n");
   assert.equal(statSync(join(home, ".ssh/config")).mode & 0o777, 0o600);
   assert.equal(readlinkSync(join(home, ".local/bin/forge")), `${CHECKOUT}/cli/forge`);
   assert.ok(ctx.out_lines.includes('export PATH="$HOME/.local/bin:$PATH"'), ctx.out_lines.join("\n"));
@@ -452,7 +452,7 @@ test("a remote install asks its questions once and saves them first", async () =
   assert.ok(inventory.includes(`ansible_ssh_private_key_file: "${join(home, "keys/admin")}"`), inventory);
   assert.match(inventory, /forge_exposure: "lan"/);
   assert.match(inventory, /- name: "alice"/);
-  const block = readFileSync(join(home, ".ssh/config.d/agent-forge"), "utf8");
+  const block = readFileSync(join(home, ".ssh/config.d/agent-forge.config"), "utf8");
   assert.match(block, /Host forge-acme\n[\s\S]*IdentityAgent \/run\/agent.sock/);
   assert.deepEqual(loadHosts()[0].done, ALL);
 });
@@ -620,7 +620,7 @@ test("no option, only remote hosts and no answer stops and names --host and --re
   assert.equal(readFileSync(join(home, ".config/agent-forge/hosts.json"), "utf8"), before);
 });
 
-const forgeSshFile = () => readFileSync(join(home, ".ssh/config.d/agent-forge"), "utf8");
+const forgeSshFile = () => readFileSync(join(home, ".ssh/config.d/agent-forge.config"), "utf8");
 
 test("forge's SSH file lists only the hosts whose machine was reached", async () => {
   const world: World = { vm: null };
@@ -646,7 +646,7 @@ test("forgetting a remote's answers rewrites forge's SSH file", async () => {
   await finishedLocal(world);
   await remoteFailedAtFirstConnection(world, ["forge-local", "forge-acme"]);
   // A block left by an earlier run.
-  appendFileSync(join(home, ".ssh/config.d/agent-forge"), "\nHost forge-acme\n  HostName 203.0.113.10\n");
+  appendFileSync(join(home, ".ssh/config.d/agent-forge.config"), "\nHost forge-acme\n  HostName 203.0.113.10\n");
   await assert.rejects(cmdInstall(laptop(world, { answers: [1] }), REMOTE), /forgotten/);
   assert.match(forgeSshFile(), /^Host forge-local$/m);
   assert.doesNotMatch(forgeSshFile(), /^Host forge-acme$/m);
@@ -664,7 +664,7 @@ test("a remote host defined by hand in ~/.ssh/config stops the install", async (
   assert.deepEqual(loadHosts(), []);
   assert.equal(existsSync(join(home, ".config/agent-forge/hosts")), false);
   assert.deepEqual(ctx.attachCalls, []);
-  assert.equal(existsSync(join(home, ".ssh/config.d/agent-forge")), false);
+  assert.equal(existsSync(join(home, ".ssh/config.d/agent-forge.config")), false);
   assert.equal(existsSync(join(home, ".ssh/config")), false);
 });
 
@@ -686,7 +686,7 @@ test("a host defined by hand after its install still stops at the SSH step", asy
   const ctx = laptop(world, { rules });
   await assert.rejects(cmdInstall(ctx, OPTS), (e: Error) => e instanceof ForgeError && /Host forge-local/.test(e.message));
   assert.deepEqual(loadHosts()[0].done, ["vm", "inventory", "playbook"]);
-  assert.equal(existsSync(join(home, ".ssh/config.d/agent-forge")), false);
+  assert.equal(existsSync(join(home, ".ssh/config.d/agent-forge.config")), false);
 });
 
 test("declining the Include stops the install, ~/.ssh/config unchanged", async () => {
@@ -694,7 +694,7 @@ test("declining the Include stops the install, ~/.ssh/config unchanged", async (
   writeFileSync(config, "Host *\n  ServerAliveInterval 60\n", { mode: 0o644 });
   const ctx = laptop({ vm: null }, { answers: [1] });
   await assert.rejects(cmdInstall(ctx, OPTS), (e: Error) =>
-    e instanceof ForgeError && /Include config\.d\/agent-forge/.test(e.message) && /forge-local/.test(e.message));
+    e instanceof ForgeError && /Include config\.d\/agent-forge\.config/.test(e.message) && /forge-local/.test(e.message));
   assert.equal(readFileSync(config, "utf8"), "Host *\n  ServerAliveInterval 60\n");
   assert.equal(statSync(config).mode & 0o777, 0o644);
   assert.ok(!called(ctx).some((c) => c.includes("'git' 'config'")));
@@ -705,8 +705,32 @@ test("an accepted Include keeps the rest of ~/.ssh/config and its mode", async (
   const config = join(home, ".ssh/config");
   writeFileSync(config, "Host *\n  ServerAliveInterval 60\n", { mode: 0o640 });
   assert.equal(await cmdInstall(laptop({ vm: null }, { answers: [0, 1] }), OPTS), 0);
-  assert.equal(readFileSync(config, "utf8"), "Include config.d/agent-forge\n\nHost *\n  ServerAliveInterval 60\n");
+  assert.equal(readFileSync(config, "utf8"), "Include config.d/agent-forge.config\n\nHost *\n  ServerAliveInterval 60\n");
   assert.equal(statSync(config).mode & 0o777, 0o640);
+});
+
+// An Include that already covers forge's file for every host is enough:
+// ~/.ssh/config is not touched (the maintainer's layout).
+test("an existing Include under Match all covers forge's file: ~/.ssh/config untouched", async () => {
+  const config = join(home, ".ssh/config");
+  const text = 'Host *\n  IdentityAgent "/run/user agent.sock"\n\nMatch All\nInclude ~/.ssh/config.d/*.config\n';
+  writeFileSync(config, text, { mode: 0o644 });
+  const ctx = laptop({ vm: null }, { answers: [1] });
+  assert.equal(await cmdInstall(ctx, OPTS), 0);
+  assert.ok(!asked(ctx).includes(INCLUDE), asked(ctx).join("\n"));
+  assert.equal(readFileSync(config, "utf8"), text);
+  assert.equal(statSync(config).mode & 0o777, 0o644);
+  assert.match(forgeSshFile(), /^Host forge-local$/m);
+});
+
+test("an install removes the config.d/agent-forge an earlier forge wrote", async () => {
+  mkdirSync(join(home, ".ssh/config.d"));
+  const old = join(home, ".ssh/config.d/agent-forge");
+  writeFileSync(old, "# Managed by forge install: edits are overwritten.\n\nHost forge-local\n  Port 60022\n");
+  writeFileSync(join(home, ".ssh/config"), "Include config.d/*\n");
+  assert.equal(await cmdInstall(laptop({ vm: null }, { answers: [1] }), OPTS), 0);
+  assert.equal(existsSync(old), false);
+  assert.match(forgeSshFile(), /^Host forge-local$/m);
 });
 
 test("a ~/.local/bin/forge pointing elsewhere is left alone", async () => {
@@ -743,7 +767,7 @@ function changedOutsideForge(before: Map<string, string>, after: Map<string, str
   const forge = (p: string) =>
     p === ".config/agent-forge" || p.startsWith(".config/agent-forge/") ||
     p === ".local/share/agent-forge" || p.startsWith(".local/share/agent-forge/") ||
-    p === ".ssh/config.d" || p === ".ssh/config.d/agent-forge";
+    p === ".ssh/config.d" || p === ".ssh/config.d/agent-forge.config";
   return { changed, outside: changed.filter((p) => !forge(p)) };
 }
 
@@ -768,7 +792,7 @@ test("nothing is written outside forge's directories without a confirmation", as
   assert.equal(await cmdInstall(ctx, OPTS), 0);
   assert.deepEqual(asked(ctx), [LINK]);
   diff = changedOutsideForge(before, snapshot(home));
-  assert.ok(diff.changed.includes(".ssh/config.d/agent-forge"), diff.changed.join("\n"));
+  assert.ok(diff.changed.includes(".ssh/config.d/agent-forge.config"), diff.changed.join("\n"));
   assert.deepEqual(diff.outside, []);
   assert.equal(existsSync(join(home, ".local/bin")), false);
 });

@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, statSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, statSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   addInclude, forgeSshConfigDefines, hostDefinedElsewhere, includeState, renderForgeSshConfig, sshOption,
   writeForgeSshConfig,
@@ -87,12 +87,12 @@ test("writes the file 0600 in 0700 directories, atomically", () => {
   withSshDir((dir) => {
     writeForgeSshConfig("one\n");
     writeForgeSshConfig("two\n");
-    const file = join(dir, "config.d", "agent-forge");
+    const file = join(dir, "config.d", "agent-forge.config");
     assert.equal(readFileSync(file, "utf8"), "two\n");
     assert.equal(statSync(file).mode & 0o777, 0o600);
     assert.equal(statSync(dir).mode & 0o777, 0o700);
     assert.equal(statSync(join(dir, "config.d")).mode & 0o777, 0o700);
-    assert.deepEqual(readdirSync(join(dir, "config.d")), ["agent-forge"]);
+    assert.deepEqual(readdirSync(join(dir, "config.d")), ["agent-forge.config"]);
   });
 });
 
@@ -101,9 +101,31 @@ test("writes the file 0600 in 0700 directories, atomically", () => {
 test("the temp file is a dotfile, outside the Include glob", () => {
   withSshDir((dir) => {
     // A directory in the way makes the rename fail and leaves the temp file.
-    mkdirSync(join(dir, "config.d", "agent-forge", "x"), { recursive: true });
+    mkdirSync(join(dir, "config.d", "agent-forge.config", "x"), { recursive: true });
     assert.throws(() => writeForgeSshConfig("one\n"));
-    assert.deepEqual(readdirSync(join(dir, "config.d")).sort(), [".agent-forge.forge-tmp", "agent-forge"]);
+    assert.deepEqual(readdirSync(join(dir, "config.d")).sort(), [".agent-forge.forge-tmp", "agent-forge.config"]);
+  });
+});
+
+// Earlier versions wrote config.d/agent-forge: it goes when forge wrote it
+// (its header line), any other file of that name stays.
+test("an old config.d/agent-forge written by forge is removed, any other one kept", () => {
+  withSshDir((dir) => {
+    const old = join(dir, "config.d", "agent-forge");
+    mkdirSync(dirname(old), { recursive: true });
+    writeFileSync(old, renderForgeSshConfig([lima], o));
+    writeForgeSshConfig("new\n");
+    assert.equal(existsSync(old), false);
+    assert.equal(readFileSync(join(dir, "config.d", "agent-forge.config"), "utf8"), "new\n");
+
+    writeFileSync(old, "Host mine\n  HostName 192.0.2.1\n");
+    writeForgeSshConfig("new\n");
+    assert.equal(readFileSync(old, "utf8"), "Host mine\n  HostName 192.0.2.1\n");
+  });
+  withSshDir((dir) => {
+    mkdirSync(join(dir, "config.d", "agent-forge"), { recursive: true });
+    writeForgeSshConfig("new\n");
+    assert.ok(statSync(join(dir, "config.d", "agent-forge")).isDirectory());
   });
 });
 
@@ -116,27 +138,79 @@ test("forgeSshConfigDefines sees only a Host line of forge's own file", () => {
   });
 });
 
-test("an existing Include is detected", () => {
-  assert.equal(includeState("Include config.d/*\n\nHost gh\n  User git\n"), "covered");
-  assert.equal(includeState("# mine\n\nInclude ~/.ssh/config.d/*\nHost gh\n"), "covered");
-  assert.equal(includeState("Include config.d/agent-forge\n"), "covered");
-  assert.equal(includeState("include=config.d/*\n"), "covered");
-  assert.equal(includeState("INCLUDE other.conf config.d/*\n"), "covered");
+// FORGE_HOME and FORGE_SSH_DIR in a temporary home: `~/` and `~/.ssh` agree.
+function withHome<T>(fn: (home: string) => T): T {
+  const home = mkdtempSync(join(tmpdir(), "forge-home-"));
+  const old = { home: process.env.FORGE_HOME, ssh: process.env.FORGE_SSH_DIR };
+  process.env.FORGE_HOME = home;
+  process.env.FORGE_SSH_DIR = join(home, ".ssh");
+  try { return fn(home); } finally {
+    if (old.home === undefined) delete process.env.FORGE_HOME; else process.env.FORGE_HOME = old.home;
+    if (old.ssh === undefined) delete process.env.FORGE_SSH_DIR; else process.env.FORGE_SSH_DIR = old.ssh;
+  }
+}
+
+// OpenSSH reads config.d/ only through an Include that applies to every host:
+// at the top level, under `Match all`, or under `Host *`.
+test("an Include that covers forge's file for every host is detected", () => {
+  withHome(() => {
+    // The maintainer's layout: `Match All` makes what follows global again.
+    const layout = 'Host *\n  IdentityAgent "/run/user agent.sock"\n\nMatch All\nInclude ~/.ssh/config.d/*.config\n';
+    assert.equal(includeState(layout), "covered");
+    for (const text of [
+      "Include config.d/*\n\nHost gh\n  User git\n",
+      "# mine\n\nInclude ~/.ssh/config.d/*\nHost gh\n",
+      "Include config.d/agent-forge.config\n",
+      "include=config.d/*\n",
+      "Include = config.d/*.config\n",
+      "INCLUDE other.conf config.d/*\n",
+      "Host *\n  Include config.d/*\n",
+      "Host gh\n  User git\nMatch all\n  Include config.d/*.config\n",
+      'Include "config.d/*.config"\n',
+      "Include 'config.d/agent-forge.config'\n",
+      'Include "my dir/*.conf" config.d/*\n',
+      "Include config.d/agent-forge.confi?\n",
+      "Include config.d/[a-c]gent-forge.config\n",
+      "Include config.d/agent-forge.[!x]onfig\n",
+      "Include */agent-forge.config\n",
+      "Include ~/.*/config.d/*\n",
+    ]) assert.equal(includeState(text), "covered", text);
+  });
+});
+
+test("an Include that misses forge's file, or applies to some hosts only, is not enough", () => {
+  withHome(() => {
+    for (const text of [
+      "",
+      "Include other.conf\n",
+      "Include config.d/*.conf\n",
+      "Include config.d/agent-forge\n",
+      "Include config.d/*.conf # config.d/*\n",
+      "Host github.com\n  Include config.d/*\n",
+      "Host * !gh\n  Include config.d/*\n",
+      "Match host gh\n  Include config.d/*\n",
+      "Match all\nHost gh\n  Include config.d/*\n",
+      "Include config.d/[!a]gent-forge.config\n",
+      "Include config.d/agent-forge.conf[a-f]?\n",
+      // A wildcard never matches a leading dot: not ~/.ssh.
+      "Include ~/*/config.d/*\n",
+      "Include ~/.ssh/*\n",
+    ]) assert.equal(includeState(text), "missing", text);
+  });
+});
+
+test("an absolute Include path is compared with forge's file", () => {
   withSshDir((dir) => {
     assert.equal(includeState(`Include ${join(dir, "config.d", "*")}\n`), "covered");
-    assert.equal(includeState(`Include ${join(dir, "config.d", "agent-forge")}\n`), "covered");
+    assert.equal(includeState(`Include ${join(dir, "config.d", "agent-forge.config")}\n`), "covered");
+    assert.equal(includeState(`Include ${join(dir, "config.d", "*.conf")}\n`), "missing");
   });
-  assert.equal(includeState("Host gh\n  Include config.d/*\n"), "missing");
-  assert.equal(includeState("Match all\nInclude config.d/*\n"), "missing");
-  assert.equal(includeState("Include other.conf\n"), "missing");
-  assert.equal(includeState("Include ~/.ssh/config.d/*.config\n"), "missing");
-  assert.equal(includeState(""), "missing");
 });
 
 test("the Include goes above the first Host line", () => {
   const input = "# my config\nHost *\n  ServerAliveInterval 30\n\nHost gh\n  User git\n";
-  assert.equal(addInclude(input), `Include config.d/agent-forge\n\n${input}`);
-  assert.equal(addInclude(""), "Include config.d/agent-forge\n");
+  assert.equal(addInclude(input), `Include config.d/agent-forge.config\n\n${input}`);
+  assert.equal(addInclude(""), "Include config.d/agent-forge.config\n");
   assert.equal(includeState(addInclude(input)), "covered");
 });
 

@@ -1,5 +1,5 @@
 // Commands run on the forge host from the laptop, over the SSH alias forge
-// wrote in ~/.ssh/config.d/agent-forge.
+// wrote in ~/.ssh/config.d/agent-forge.config.
 import type { Context, ExecResult } from "../context.ts";
 import { shellQuote } from "../shell.ts";
 import type { LaptopHost } from "./state.ts";

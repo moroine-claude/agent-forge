@@ -20,8 +20,8 @@ import {
 } from "../laptop/lima.ts";
 import { checkPrerequisites } from "../laptop/prereqs.ts";
 import {
-  addInclude, forgeSshConfigDefines, forgeSshConfigPath, hostDefinedElsewhere, includeState, renderForgeSshConfig,
-  sshOption, writeForgeSshConfig,
+  addInclude, forgeSshConfigDefines, forgeSshConfigPath, hostDefinedElsewhere, INCLUDE_LINE, includeState,
+  renderForgeSshConfig, sshOption, writeForgeSshConfig,
 } from "../laptop/ssh-config.ts";
 import {
   forgeKeyPath, forgetHost, hostDir, inventoryPath, knownHostsPath, loadHosts, saveHost, selectHost, validHostName,
@@ -337,8 +337,9 @@ async function playbook(ctx: Context, host: LaptopHost, checkout: string): Promi
   if (play !== 0) throw new ForgeError(`ansible-playbook failed (exit code ${play})`);
 }
 
-// forge's own file is rewritten freely; ~/.ssh/config only ever gains the one
-// Include, at its top, after a confirmation.
+// forge's own file is rewritten freely. ~/.ssh/config is left alone when an
+// Include of the developer's already reads that file for every host;
+// otherwise it gains the one Include, at its top, after a confirmation.
 async function sshConfig(ctx: Context, host: LaptopHost): Promise<Outcome> {
   // Checked again: a block may have been written by hand since the install began.
   await refuseHandDefined(ctx, host.name);
@@ -346,9 +347,12 @@ async function sshConfig(ctx: Context, host: LaptopHost): Promise<Outcome> {
   const path = join(sshDir(), "config");
   const text = existsSync(path) ? readFileSync(path, "utf8") : "";
   if (includeState(text) === "covered") return host.done.includes("ssh") ? "already there" : "done";
-  const yes = await ctx.prompt.pick("Add `Include config.d/agent-forge` at the top of ~/.ssh/config?", ["yes", "no"]);
+  const yes = await ctx.prompt.pick(`Add \`${INCLUDE_LINE}\` at the top of ~/.ssh/config?`, ["yes", "no"]);
   if (yes !== 0) {
-    throw new ForgeError(`without Include config.d/agent-forge at the top of ~/.ssh/config, ssh never reads forge's file: the alias ${host.name} cannot work`);
+    throw new ForgeError(
+      `without ${INCLUDE_LINE} at the top of ~/.ssh/config (or an Include of yours that reads it for every host), ` +
+      `ssh never reads forge's file: the alias ${host.name} cannot work`,
+    );
   }
   writeKeepingMode(path, addInclude(text));
   return "done";
