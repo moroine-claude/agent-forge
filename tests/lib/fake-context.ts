@@ -31,8 +31,8 @@ export type FakeContext = Context & {
   attachCalls: { argv: string[]; opts?: AttachOptions }[];
   out_lines: string[];
   err_lines: string[];
-  // Nombre d'appels à ctx.attention().
-  attentions: number;
+  // Chaque ligne passée à ctx.notify() (aussi présente dans out_lines).
+  notified: string[];
 };
 
 export function fakeContext(opts: FakeOptions = {}): FakeContext {
@@ -44,6 +44,7 @@ export function fakeContext(opts: FakeOptions = {}): FakeContext {
   const attachCalls: { argv: string[]; opts?: AttachOptions }[] = [];
   const out_lines: string[] = [];
   const err_lines: string[] = [];
+  const notified: string[] = [];
 
   const exec = async (argv: string[], callOpts?: ExecOptions): Promise<ExecResult> => {
     calls.push(argv);
@@ -87,13 +88,13 @@ export function fakeContext(opts: FakeOptions = {}): FakeContext {
     prompt,
     out: (line) => out_lines.push(line),
     err: (line) => err_lines.push(line),
-    attention: () => { fake.attentions++; },
+    notify: (line) => { out_lines.push(line); notified.push(line); },
     calls,
     execOptions,
     attachCalls,
     out_lines,
     err_lines,
-    attentions: 0,
+    notified,
   };
   return fake;
 }

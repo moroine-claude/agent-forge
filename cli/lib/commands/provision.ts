@@ -171,14 +171,6 @@ export async function provisionContainer(
   ctx.out("Recording forge metadata...");
   await mustSucceed("record forge repo", configSet(ctx, container, "user.forge.repo", ownerRepo));
 
-  // L'hôte de forge n'est connu que de l'humain ; le sous-projet 5 affine.
-  ctx.err("");
-  ctx.err("Retrieve this container's work from your machine with:");
-  ctx.err(`  git remote add ${container} <forge-host>:${container}`);
-  ctx.err(`  git config remote.${container}.uploadpack "forge upload-pack ${container}"`);
-  ctx.err(`  git fetch ${container}`);
-  // Imprimé une seule fois : la popup herdr ne doit pas l'effacer en se fermant.
-  ctx.attention();
   ctx.out(`Container ${container} provisioned.`);
   return { mirror: mirrorOutcome };
 }

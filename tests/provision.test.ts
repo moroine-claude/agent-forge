@@ -225,24 +225,11 @@ test("Claude Code is upgraded only when the package lists were refreshed", async
   assert.ok(update >= 0 && upgrade > update, calls.join("\n"));
 });
 
-test("the retrieval hint goes through forge upload-pack, with no ssh:// path", async () => {
+test("provisioning prints no retrieval hint", async () => {
   const { ctx, run } = provision();
   await run();
-  const at = ctx.err_lines.indexOf("Retrieve this container's work from your machine with:");
-  assert.ok(at >= 0, ctx.err_lines.join("\n"));
-  assert.deepEqual(ctx.err_lines.slice(at, at + 4), [
-    "Retrieve this container's work from your machine with:",
-    "  git remote add agent-x <forge-host>:agent-x",
-    '  git config remote.agent-x.uploadpack "forge upload-pack agent-x"',
-    "  git fetch agent-x",
-  ]);
-  assert.ok(!ctx.err_lines.join("\n").includes("ssh://"));
-});
-
-test("the retrieval hint keeps a herdr popup open until the user has read it", async () => {
-  const { ctx, run } = provision();
-  await run();
-  assert.equal(ctx.attentions, 1);
+  assert.ok(!ctx.err_lines.some((l) => l.includes("git remote add")), ctx.err_lines.join("\n"));
+  assert.deepEqual(ctx.notified, []);
 });
 
 test("the plugin marketplace is added over HTTPS, never over SSH", async () => {

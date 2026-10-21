@@ -35,7 +35,7 @@ Commands:
   egress log [<owner/repo>]         Show the proxy's recent requests (old lines may name the
                                     wrong container: addresses are reused)
   attach <container> <task>         Run a task's agent in this terminal (what herdr tabs run)
-  upload-pack <container> [<path>]  Serve a container's repository to git fetch (see forge start's retrieval hint)
+  upload-pack <container> [<path>]  Serve a container's repository to git fetch (see the README, "Get the work back")
   image build                       Build the agent-base image (Ansible, through Incus)
   completion bash                   Print a bash completion function (eval it in ~/.bashrc)
   completion repos                  List managed owner/repo, one per line (machine-readable)
@@ -79,7 +79,7 @@ function waitForLine(): Promise<void> {
 // Une seule politique d'acquittement pour la popup herdr : elle se ferme avec
 // le processus, donc un succès la ferme aussitôt — sauf si l'exécution a écrit
 // ce que l'utilisateur doit lire (une ligne WARNING/NOTICE sur stderr, ou un
-// ctx.attention() : hint de récupération, bilan de resume --all). L'état vit
+// ctx.notify() : hint de récupération, bilan de resume --all). L'état vit
 // dans cet appel de main, rien de global.
 function withAttention(base: Context): { ctx: Context; needed: () => boolean } {
   let needed = false;
@@ -89,7 +89,7 @@ function withAttention(base: Context): { ctx: Context; needed: () => boolean } {
       if (line.startsWith("WARNING") || line.startsWith("NOTICE")) needed = true;
       base.err(line);
     },
-    attention: () => { needed = true; },
+    notify: (line) => { base.out(line); needed = true; },
   };
   return { ctx, needed: () => needed };
 }

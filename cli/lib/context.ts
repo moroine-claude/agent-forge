@@ -21,10 +21,9 @@ export type Context = {
   prompt: Prompt;
   out(line: string): void;
   err(line: string): void;
-  // Signale une sortie que l'utilisateur doit lire (hint de récupération,
-  // bilan de resume --all) : dans la popup herdr, forge.ts attend alors Entrée
-  // avant de la fermer, même sur un succès. Sans effet ailleurs.
-  attention(): void;
+  // Une ligne de résultat que l'utilisateur doit voir : imprimée sur stdout et,
+  // dans la popup herdr, reprise dans la notification de fin d'exécution.
+  notify(line: string): void;
 };
 
 // Erreur métier : le message est affiché tel quel par forge.ts, préfixé une
@@ -111,7 +110,7 @@ export function createContext(): Context {
     prompt: createPrompt(),
     out: (line) => process.stdout.write(line + "\n"),
     err: (line) => process.stderr.write(line + "\n"),
-    // forge.ts l'enveloppe pour s'en servir ; seul, ce contexte n'attend jamais.
-    attention: () => {},
+    // forge.ts l'enveloppe pour la notification ; seul, notify n'est qu'un out.
+    notify: (line) => process.stdout.write(line + "\n"),
   };
 }
