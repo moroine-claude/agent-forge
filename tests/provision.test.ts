@@ -1,13 +1,14 @@
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, mkdirSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fakeContext, type ExecRule } from "./lib/fake-context.ts";
 import { FakeIncus } from "./lib/fake-incus.ts";
 import { assertNoHostGitIn } from "./lib/host-git.ts";
 import { mirrorPath } from "../cli/lib/paths.ts";
-import { provisionContainer } from "../cli/lib/commands/provision.ts";
+import { discardHalfProvisioned, provisionContainer } from "../cli/lib/commands/provision.ts";
+import { provisioningMarker } from "../cli/lib/containers.ts";
 
 let home: string;
 beforeEach(() => {
@@ -65,7 +66,7 @@ test("a new container is launched from agent-base under the agent-forge profile,
   const { ctx, run } = provision();
   await run();
   const calls = flat(ctx);
-  const launch = calls.indexOf("incus --project agent-forge launch agent-base agent-x --profile agent-forge");
+  const launch = calls.findIndex((l) => l.startsWith("incus --project agent-forge launch agent-base agent-x --profile agent-forge"));
   const ready = calls.indexOf("incus --project agent-forge exec agent-x -- systemctl is-system-running --wait");
   assert.ok(launch >= 0 && ready > launch, calls.join("\n"));
 });
@@ -187,10 +188,10 @@ test("a hook that lets a forbidden command through aborts provisioning", async (
 test("a hook that refuses a harmless command aborts provisioning", async () => {
   const { fake, run } = provision({ rules: [{ match: "forge-hook-probe-allow", code: 2, stderr: "BLOCKED: jq introuvable, le hook ne peut pas lire la commande (fail-closed).\n" }] });
   // The hook's own sentence ends with a period: no ".." in the message. The
-  // half-provisioned container has no forge metadata, so `forge delete` cannot
-  // find it: the message gives the incus command (seen on a real host).
+  // half-provisioned container still carries its provisioning markers, so
+  // `forge delete` can remove it: the message points there.
   await assert.rejects(run, (e: Error) => /refuses a harmless command/.test(e.message) && /jq introuvable/.test(e.message)
-    && !e.message.includes("..") && e.message.includes("incus --project agent-forge delete --force agent-x"));
+    && !e.message.includes("..") && e.message.includes("forge delete o/r"));
   assert.equal(fake.instances.get("agent-forge")!.get("agent-x")!.config["user.forge.repo"], undefined);
 });
 
@@ -225,24 +226,11 @@ test("Claude Code is upgraded only when the package lists were refreshed", async
   assert.ok(update >= 0 && upgrade > update, calls.join("\n"));
 });
 
-test("the retrieval hint goes through forge upload-pack, with no ssh:// path", async () => {
+test("provisioning prints no retrieval hint", async () => {
   const { ctx, run } = provision();
   await run();
-  const at = ctx.err_lines.indexOf("Retrieve this container's work from your machine with:");
-  assert.ok(at >= 0, ctx.err_lines.join("\n"));
-  assert.deepEqual(ctx.err_lines.slice(at, at + 4), [
-    "Retrieve this container's work from your machine with:",
-    "  git remote add agent-x <forge-host>:agent-x",
-    '  git config remote.agent-x.uploadpack "forge upload-pack agent-x"',
-    "  git fetch agent-x",
-  ]);
-  assert.ok(!ctx.err_lines.join("\n").includes("ssh://"));
-});
-
-test("the retrieval hint keeps a herdr popup open until the user has read it", async () => {
-  const { ctx, run } = provision();
-  await run();
-  assert.equal(ctx.attentions, 1);
+  assert.ok(!ctx.err_lines.some((l) => l.includes("git remote add")), ctx.err_lines.join("\n"));
+  assert.deepEqual(ctx.notified, []);
 });
 
 test("the plugin marketplace is added over HTTPS, never over SSH", async () => {
@@ -407,6 +395,7 @@ test("--strict launches with every override in the same call; there is no launch
   const launches = ctx.calls.filter((c) => c.includes("launch"));
   assert.equal(launches.length, 1);
   assert.deepEqual(launches[0], ["incus", "--project", "agent-forge", "launch", "agent-base", "agent-x", "--profile", "agent-forge",
+    "-c", "user.forge.provisioning=o/r", "-c", "user.forge.provisioning_workspace=new",
     ...strictLaunchArgs(proxyPlan("10.77.0.1/24", 0), egressNames("agent-forge"))]);
 });
 
@@ -452,4 +441,54 @@ test("without --strict, provisioning is unchanged", async () => {
   await assert.rejects(run, /install Claude plugins/);
   assert.ok(!flat(ctx).some((l) => l.includes(" launch ") && l.includes(" -d ")));
   assert.ok(!flat(ctx).some((l) => l.includes("agent-forge-proxy.sh")));
+});
+
+test("the container is launched with the provisioning markers", async () => {
+  const { ctx, run } = provision();
+  await run();
+  const launch = flat(ctx).find((l) => l.includes(" launch ")) ?? "";
+  assert.match(launch, /-c user\.forge\.provisioning=o\/r/);
+  assert.match(launch, /-c user\.forge\.provisioning_workspace=new/);
+});
+
+test("a reused workspace is marked kept", async () => {
+  seedWorkspace("README");
+  const { ctx, run } = provision({ rules: [seedMirror("git@github.com:o/r.git")] });
+  await run();
+  assert.match(flat(ctx).find((l) => l.includes(" launch ")) ?? "", /provisioning_workspace=kept/);
+});
+
+test("the markers are removed after user.forge.repo, at the very end", async () => {
+  const { ctx, run } = provision();
+  await run();
+  const calls = flat(ctx);
+  const repo = calls.findIndex((l) => l.includes("config set agent-x user.forge.repo o/r"));
+  const unset = calls.findIndex((l) => l.includes("config unset agent-x user.forge.provisioning"));
+  assert.ok(repo >= 0 && unset > repo, calls.join("\n"));
+  assert.equal(await provisioningMarker(ctx, "agent-x"), null);
+});
+
+test("a failed hook probe points at forge delete, not at incus", async () => {
+  const { run } = provision({ rules: [{ match: "forge-hook-probe-deny", code: 0 }] });
+  await assert.rejects(run, (e: Error) => /forge delete o\/r/.test(e.message) && !/incus --project/.test(e.message));
+});
+
+// Nothing that existed before the failed attempt may be deleted: a reused
+// workspace can hold the only copy of unretrieved work.
+test("discarding removes the instance and empties a workspace the failed attempt created", async () => {
+  const fake = FakeIncus.withRuntime();
+  fake.addInstance("agent-forge", "agent-x", { config: { "user.forge.provisioning": "o/r", "user.forge.provisioning_workspace": "new" } });
+  const dir = seedWorkspace("partial");
+  await discardHalfProvisioned(fakeContext({ incus: fake }), "agent-x");
+  assert.equal(fake.instances.get("agent-forge")!.has("agent-x"), false);
+  assert.deepEqual(readdirSync(dir), []);
+});
+
+test("discarding keeps a workspace the failed attempt reused", async () => {
+  const fake = FakeIncus.withRuntime();
+  fake.addInstance("agent-forge", "agent-x", { config: { "user.forge.provisioning": "o/r", "user.forge.provisioning_workspace": "kept" } });
+  const dir = seedWorkspace("unretrieved");
+  await discardHalfProvisioned(fakeContext({ incus: fake }), "agent-x");
+  assert.equal(fake.instances.get("agent-forge")!.has("agent-x"), false);
+  assert.deepEqual(readdirSync(dir), ["unretrieved"]);
 });

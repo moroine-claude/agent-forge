@@ -1,10 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fakeContext } from "./lib/fake-context.ts";
+import { FakeIncus } from "./lib/fake-incus.ts";
 import { ForgeError } from "../cli/lib/context.ts";
 import {
   listForgeContainers, forgeRepos, containerForRepo, requireContainerForRepo,
-  checkNameCollision, isRunning, buildStatus, latestImageCommit,
+  checkNameCollision, isRunning, buildStatus, latestImageCommit, provisioningMarker,
 } from "../cli/lib/containers.ts";
 
 const LIST = JSON.stringify([
@@ -47,6 +48,18 @@ test("forgeRepos skips a container with no repo metadata", async () => {
   assert.deepEqual(await forgeRepos(ctx), ["alice/project"]);
 });
 
+test("forgeRepos lists the repo of a half-provisioned container, once", async () => {
+  const ctx = fakeContext({
+    rules: [
+      { match: "incus --project agent-forge list", stdout: LIST },
+      { match: "config get agent-alice-project user.forge.provisioning", stdout: "alice/project" },
+      { match: "config get agent-acme-widgets user.forge.repo", stdout: "acme/widgets" },
+      { match: "config get agent-acme-widgets user.forge.provisioning", stdout: "acme/widgets" },
+    ],
+  });
+  assert.deepEqual(await forgeRepos(ctx), ["alice/project", "acme/widgets"]);
+});
+
 test("containerForRepo matches case-insensitively", async () => {
   const ctx = ctxWith({ "agent-alice-project": "alice/project" });
   assert.equal(await containerForRepo(ctx, "Alice/Project"), "agent-alice-project");
@@ -58,23 +71,38 @@ test("requireContainerForRepo throws a ForgeError naming the repo", async () => 
   await assert.rejects(() => requireContainerForRepo(ctx, "nobody/nothing"), /nobody\/nothing/);
 });
 
-test("checkNameCollision refuses a container with no forge metadata", async () => {
-  const ctx = fakeContext({
-    rules: [{ match: "incus --project agent-forge info", code: 0 }, { match: "config get", stdout: "" }],
-  });
-  await assert.rejects(() => checkNameCollision(ctx, "agent-x", "o/r"), /no user.forge.repo metadata/);
+function collisionCtx(config: Record<string, string> | null) {
+  const fake = FakeIncus.withRuntime();
+  if (config) fake.addInstance("agent-forge", "agent-x", { config });
+  return fakeContext({ incus: fake });
+}
+
+test("checkNameCollision says absent for a not-yet-existing container", async () => {
+  assert.equal(await checkNameCollision(collisionCtx(null), "agent-x", "o/r"), "absent");
 });
 
-test("checkNameCollision refuses a container belonging to another repo", async () => {
-  const ctx = fakeContext({
-    rules: [{ match: "incus --project agent-forge info", code: 0 }, { match: "config get", stdout: "other/repo" }],
-  });
-  await assert.rejects(() => checkNameCollision(ctx, "agent-x", "o/r"), /different repo/);
+test("checkNameCollision says ours when user.forge.repo matches, case-insensitively", async () => {
+  assert.equal(await checkNameCollision(collisionCtx({ "user.forge.repo": "O/R" }), "agent-x", "o/r"), "ours");
 });
 
-test("checkNameCollision accepts a not-yet-existing container", async () => {
-  const ctx = fakeContext({ rules: [{ match: "incus --project agent-forge info", code: 1 }] });
-  await checkNameCollision(ctx, "agent-x", "o/r");
+test("checkNameCollision says half-provisioned for this repo's marker and no user.forge.repo", async () => {
+  const ctx = collisionCtx({ "user.forge.provisioning": "o/r", "user.forge.provisioning_workspace": "new" });
+  assert.equal(await checkNameCollision(ctx, "agent-x", "o/r"), "half-provisioned");
+});
+
+test("a container belonging to another repo is a collision", async () => {
+  await assert.rejects(
+    () => checkNameCollision(collisionCtx({ "user.forge.repo": "other/repo" }), "agent-x", "o/r"), /different repo/);
+});
+
+test("a provisioning marker for another repo is a collision", async () => {
+  await assert.rejects(
+    () => checkNameCollision(collisionCtx({ "user.forge.provisioning": "other/repo" }), "agent-x", "o/r"),
+    /different repo/);
+});
+
+test("a container with no forge metadata names the way out", async () => {
+  await assert.rejects(() => checkNameCollision(collisionCtx({}), "agent-x", "o/r"), /forge delete o\/r/);
 });
 
 test("isRunning is true only for Running", async () => {
@@ -94,4 +122,21 @@ test("buildStatus compares the two stamps", () => {
 test("latestImageCommit reads agent-base's stamp", async () => {
   const ctx = fakeContext({ rules: [{ match: "image get-property agent-base user.forge.commit", stdout: "BASESHA\n" }] });
   assert.equal(await latestImageCommit(ctx), "BASESHA");
+});
+
+test("provisioningMarker reads both keys, null without them, unknown workspace reads as kept", async () => {
+  const rules = (repo: string, ws: string) => [
+    { match: "config get agent-a user.forge.provisioning_workspace", stdout: ws },
+    { match: "config get agent-a user.forge.provisioning", stdout: repo },
+  ];
+  assert.deepEqual(await provisioningMarker(fakeContext({ rules: rules("o/r", "new\n") }), "agent-a"),
+    { repo: "o/r", workspace: "new" });
+  assert.deepEqual(await provisioningMarker(fakeContext({ rules: rules("o/r", "kept") }), "agent-a"),
+    { repo: "o/r", workspace: "kept" });
+  assert.deepEqual(await provisioningMarker(fakeContext({ rules: rules("o/r", "") }), "agent-a"),
+    { repo: "o/r", workspace: "kept" });
+  assert.deepEqual(await provisioningMarker(fakeContext({ rules: rules("o/r", "weird") }), "agent-a"),
+    { repo: "o/r", workspace: "kept" });
+  assert.equal(await provisioningMarker(fakeContext({ rules: rules("", "new") }), "agent-a"), null);
+  assert.equal(await provisioningMarker(fakeContext({ rules: [] }), "agent-a"), null);
 });

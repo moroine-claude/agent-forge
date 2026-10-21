@@ -16,7 +16,7 @@ import { runTask } from "../tabs.ts";
 import { execAsAgent, instanceExists } from "../incus.ts";
 import { agentBranches, branchExists, taskNames, worktreeAbsPath, worktreeExists } from "../worktrees.ts";
 import { egressMode } from "../strict.ts";
-import { provisionContainer } from "./provision.ts";
+import { discardHalfProvisioned, provisionContainer } from "./provision.ts";
 
 const USAGE = "Usage: forge start [--strict] <owner/repo> [<task>]";
 
@@ -29,7 +29,19 @@ export async function cmdStart(
   validateRepo(ownerRepo);
 
   const container = sanitizeContainerName(ownerRepo);
-  await checkNameCollision(ctx, container, ownerRepo);
+  const state = await checkNameCollision(ctx, container, ownerRepo);
+  if (state === "half-provisioned") {
+    // Un lancement interrompu : on propose de repartir de zéro, le workspace
+    // préexistant et le miroir restent (discardHalfProvisioned).
+    const choice = await ctx.prompt.pick(`${container} did not finish provisioning`,
+      ["recreate it (a workspace from an earlier run and the mirror are kept)", "stop"]);
+    if (choice !== 1) {
+      throw new ForgeError(
+        `${container} did not finish provisioning. Remove it with: forge delete ${ownerRepo}, ` +
+        "or run forge start again to recreate it.");
+    }
+    await discardHalfProvisioned(ctx, container);
+  }
 
   let taskName = task ?? "";
   let ref = "";

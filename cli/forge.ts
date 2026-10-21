@@ -2,7 +2,8 @@
 // deviennent un message et un code de sortie.
 import { parseArgs } from "node:util";
 import { createInterface } from "node:readline";
-import { herdrEnv } from "./lib/herdr.ts";
+import { herdrEnv, showNotification } from "./lib/herdr.ts";
+import { ackAfterRun, collectNotices, noticeBody } from "./lib/popup.ts";
 import type { Context } from "./lib/context.ts";
 import { createContext, ForgeError } from "./lib/context.ts";
 import { cmdSetup } from "./lib/commands/setup.ts";
@@ -28,14 +29,15 @@ Commands:
   resume [<owner/repo>] [<task>]    Re-attach a task's agent (--all: every forge tab left bare by a herdr restart)
   finish [<owner/repo>] [<task>]    Remove a finished task's worktree
   stop [<owner/repo>] [--force]     Stop a container (blocked on dirty/unpushed WIP unless --force)
-  delete [<owner/repo>] [--force]   Delete a container (blocked on dirty/unpushed WIP unless --force)
+  delete [<owner/repo>] [--force]   Delete a container (blocked on dirty/unpushed WIP unless --force; --force also skips
+                                    the "no forge metadata" confirmation)
   list                              Show all containers: repo, mode, egress, state, build
   egress [<owner/repo>] [strict|open]
                                     Show or switch a stopped container's egress
   egress log [<owner/repo>]         Show the proxy's recent requests (old lines may name the
                                     wrong container: addresses are reused)
   attach <container> <task>         Run a task's agent in this terminal (what herdr tabs run)
-  upload-pack <container> [<path>]  Serve a container's repository to git fetch (see forge start's retrieval hint)
+  upload-pack <container> [<path>]  Serve a container's repository to git fetch (see the README, "Get the work back")
   image build                       Build the agent-base image (Ansible, through Incus)
   completion bash                   Print a bash completion function (eval it in ~/.bashrc)
   completion repos                  List managed owner/repo, one per line (machine-readable)
@@ -76,24 +78,6 @@ function waitForLine(): Promise<void> {
   });
 }
 
-// Une seule politique d'acquittement pour la popup herdr : elle se ferme avec
-// le processus, donc un succès la ferme aussitôt — sauf si l'exécution a écrit
-// ce que l'utilisateur doit lire (une ligne WARNING/NOTICE sur stderr, ou un
-// ctx.attention() : hint de récupération, bilan de resume --all). L'état vit
-// dans cet appel de main, rien de global.
-function withAttention(base: Context): { ctx: Context; needed: () => boolean } {
-  let needed = false;
-  const ctx: Context = {
-    ...base,
-    err: (line) => {
-      if (line.startsWith("WARNING") || line.startsWith("NOTICE")) needed = true;
-      base.err(line);
-    },
-    attention: () => { needed = true; },
-  };
-  return { ctx, needed: () => needed };
-}
-
 // Un onglet herdr lance `exec forge attach …` : le pane se ferme avec forge.
 // Dans un pane (HERDR_ENV=1 et HERDR_PANE_ID), un attach qui échoue ou un
 // agent sorti en erreur laisse donc de quoi lire avant la fermeture.
@@ -102,7 +86,8 @@ function attachInHerdrPane(cmd: string | undefined): boolean {
 }
 
 async function main(): Promise<number> {
-  const { ctx, needed } = withAttention(createContext());
+  const base = createContext();
+  const { ctx, notices } = collectNotices(base);
   let cmd: string | undefined;
   try {
     const { values, positionals } = parseArgs({
@@ -121,13 +106,32 @@ async function main(): Promise<number> {
     // Seul resume connaît --all : ailleurs, il serait ignoré en silence.
     if (values.all && cmd !== "resume") throw new ForgeError("--all only goes with resume: forge resume --all");
     const code = await dispatch(ctx, positionals, values.force === true, values.strict === true, values.all === true);
-    if (code !== 0 && attachInHerdrPane(cmd)) {
-      ctx.err(`the agent exited with code ${code}`);
+    // Politique d'acquittement de la popup herdr, qui se ferme avec le processus :
+    // - un code de sortie non nul, ou une exception : on attend Entrée ;
+    // - un succès sans rien à lire : elle se ferme aussitôt ;
+    // - un succès qui a écrit des WARNING/NOTICE ou appelé ctx.notify : ces lignes
+    //   partent en une notification herdr (voir cli/lib/popup.ts). On n'attend
+    //   Entrée que si herdr répond shown:false (aucun client herdr attaché) ou a échoué ;
+    //   avec un client attaché elle répond shown:true, toast affiché ou non.
+    const popup = !!herdrEnv()?.popup;
+    const attachPane = attachInHerdrPane(cmd);
+    const ack = ackAfterRun({ popup, attachPane, code, threw: false, notices: notices.length });
+    if (ack === "wait") {
+      if (code !== 0 && attachPane) ctx.err(`the agent exited with code ${code}`);
       ctx.err("Press Enter to close");
       await waitForLine();
-    } else if (herdrEnv()?.popup && needed()) {
-      ctx.err("Press Enter to close");
-      await waitForLine();
+    } else if (ack === "notify") {
+      let shown = false;
+      try {
+        shown = await showNotification(ctx, herdrEnv()!, `forge ${cmd}`, noticeBody(notices));
+      } catch (e) {
+        // Le contexte de base : cette ligne ne doit pas être collectée.
+        base.err(`herdr notification failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
+      if (!shown) {
+        ctx.err("Press Enter to close");
+        await waitForLine();
+      }
     }
     return code;
   } catch (e) {
@@ -136,7 +140,7 @@ async function main(): Promise<number> {
     ctx.err(`Error: ${e instanceof Error ? e.message : String(e)}`);
     // Dans la popup herdr, la fenêtre se ferme avec le processus : on laisse
     // le temps de lire l'erreur. De même pour un attach dans un pane herdr.
-    if (herdrEnv()?.popup || attachInHerdrPane(cmd)) {
+    if (ackAfterRun({ popup: !!herdrEnv()?.popup, attachPane: attachInHerdrPane(cmd), code: null, threw: true, notices: notices.length }) === "wait") {
       ctx.err("Press Enter to close");
       await waitForLine();
     }
