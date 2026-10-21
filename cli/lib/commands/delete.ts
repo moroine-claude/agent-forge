@@ -8,12 +8,13 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { Context } from "../context.ts";
-import { mustSucceed } from "../context.ts";
-import { validateRepo } from "../validate.ts";
-import { requireContainerForRepo } from "../containers.ts";
+import { ForgeError, mustSucceed } from "../context.ts";
+import { sanitizeContainerName, validateRepo } from "../validate.ts";
+import { checkNameCollision, containerForRepo, nameOccupant, requireContainerForRepo } from "../containers.ts";
 import { deleteInstance, instanceStatus } from "../incus.ts";
 import { mirrorPath, workspacesDir } from "../paths.ts";
 import { checkAllWorktrees } from "../wip.ts";
+import { discardHalfProvisioned } from "./provision.ts";
 import { resolveRepo } from "./resolve.ts";
 
 const USAGE = "Usage: forge delete <owner/repo> [--force]";
@@ -21,14 +22,37 @@ const USAGE = "Usage: forge delete <owner/repo> [--force]";
 export async function cmdDelete(ctx: Context, repo: string | undefined, force: boolean): Promise<number> {
   const ownerRepo = await resolveRepo(ctx, repo, USAGE);
   validateRepo(ownerRepo);
-  const container = await requireContainerForRepo(ctx, ownerRepo);
+  let container = await containerForRepo(ctx, ownerRepo);
 
-  if (!force && (await instanceStatus(ctx, container)) === "Running") {
-    await checkAllWorktrees(ctx, container);
+  if (container) {
+    if (!force && (await instanceStatus(ctx, container)) === "Running") {
+      await checkAllWorktrees(ctx, container);
+    }
+    ctx.out(`Deleting container ${container}...`);
+    await mustSucceed("incus delete", deleteInstance(ctx, container));
+  } else {
+    // Pas de user.forge.repo : un provisioning interrompu, ou un container
+    // sans métadonnée forge, occupe peut-être le nom du repo.
+    container = sanitizeContainerName(ownerRepo);
+    const occupant = await nameOccupant(ctx, container, ownerRepo);
+    if (occupant === "half-provisioned") {
+      // Aucun agent n'a tourné : pas de pré-vol WIP.
+      ctx.out(`Deleting half-provisioned container ${container}...`);
+      await discardHalfProvisioned(ctx, container);
+    } else if (occupant === "unmarked") {
+      if (!force) {
+        const choice = await ctx.prompt.pick(`${container} has no forge metadata`,
+          ["delete it (its workspace survives)", "stop"]);
+        if (choice !== 1) throw new ForgeError(`${container} left alone.`);
+      }
+      ctx.out(`Deleting container ${container}...`);
+      await mustSucceed("incus delete", deleteInstance(ctx, container));
+    } else if (occupant === "other-repo") {
+      await checkNameCollision(ctx, container, ownerRepo); // lève l'erreur « different repo »
+    } else {
+      await requireContainerForRepo(ctx, ownerRepo); // lève l'erreur « forge start »
+    }
   }
-
-  ctx.out(`Deleting container ${container}...`);
-  await mustSucceed("incus delete", deleteInstance(ctx, container));
   // Le workspace et le miroir sont hors du container : ils survivent. Un
   // container d'avant le miroir n'en a pas.
   const workspace = join(workspacesDir(), container);

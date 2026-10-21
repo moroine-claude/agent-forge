@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fakeContext } from "./lib/fake-context.ts";
+import { FakeIncus } from "./lib/fake-incus.ts";
 import { mirrorPath, workspacesDir } from "../cli/lib/paths.ts";
 import { cmdStop } from "../cli/lib/commands/stop.ts";
 import { cmdDelete } from "../cli/lib/commands/delete.ts";
@@ -141,4 +142,45 @@ test("delete of a container without a mirror names only the workspace", async ()
   assert.deepEqual(c.out_lines.filter((l) => l.startsWith("Kept ")), [
     `Kept ${join(workspacesDir(), "agent-alice-project")}: 'forge start alice/project' reuses it.`,
   ]);
+});
+
+function incusWith(config: Record<string, string>): FakeIncus {
+  const fake = FakeIncus.withRuntime();
+  fake.addInstance("agent-forge", "agent-o-r", { status: "Stopped", config });
+  return fake;
+}
+const MARKER = { "user.forge.provisioning": "o/r", "user.forge.provisioning_workspace": "kept" };
+const deleted = (c: { calls: string[][] }) => c.calls.some((call) => call.join(" ").includes(" delete agent-o-r"));
+
+test("delete removes a half-provisioned container without asking", async () => {
+  const c = fakeContext({ incus: incusWith(MARKER), answers: [] });
+  assert.equal(await cmdDelete(c, "o/r", false), 0);
+  assert.ok(deleted(c), c.calls.map((x) => x.join(" ")).join("\n"));
+  assert.ok(c.out_lines.some((l) => l.startsWith("Kept ")), c.out_lines.join("\n"));
+});
+
+test("delete asks before removing a container with no forge metadata", async () => {
+  const yes = fakeContext({ incus: incusWith({}), answers: [1] });
+  assert.equal(await cmdDelete(yes, "o/r", false), 0);
+  assert.ok(deleted(yes));
+  assert.ok(yes.out_lines.some((l) => l.startsWith("Kept ")));
+
+  const no = fakeContext({ incus: incusWith({}), answers: [2] });
+  await assert.rejects(() => cmdDelete(no, "o/r", false));
+  assert.ok(!deleted(no));
+
+  const forced = fakeContext({ incus: incusWith({}), answers: [] });
+  assert.equal(await cmdDelete(forced, "o/r", true), 0);
+  assert.ok(deleted(forced));
+});
+
+test("delete of an unknown repo still names forge start", async () => {
+  const c = fakeContext({ incus: FakeIncus.withRuntime() });
+  await assert.rejects(() => cmdDelete(c, "o/r", false), /no container found for o\/r\. Run 'forge start o\/r' first/);
+});
+
+test("delete refuses a container that belongs to another repo", async () => {
+  const c = fakeContext({ incus: incusWith({ "user.forge.provisioning": "x/y" }) });
+  await assert.rejects(() => cmdDelete(c, "o/r", false), /different repo/);
+  assert.ok(!deleted(c));
 });

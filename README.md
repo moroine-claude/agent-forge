@@ -406,11 +406,9 @@ Known limits:
 
 ## Troubleshooting
 
-- **A container was half provisioned** (provisioning stopped midway):
-  `forge delete` cannot find it and `forge start` refuses to reuse it. Delete
-  it on the host with
-  `incus --project agent-forge delete --force <container>`; its workspace
-  survives.
+- **A container was half provisioned** (provisioning stopped midway): the
+  next `forge start` offers to recreate it; `forge delete <owner/repo>`
+  removes it. Its workspace and mirror survive either way.
 - **Provisioning says the security hook refuses a harmless command:** the
   image predates a change to it. Run `forge image build`, then recreate the
   container.

@@ -70,39 +70,44 @@ export async function requireContainerForRepo(ctx: Context, ownerRepo: string): 
   return container;
 }
 
-// Trois réponses : "absent" (rien sous ce nom), "ours" (user.forge.repo est ce
-// repo) ou "half-provisioned" (pas de user.forge.repo, mais le marqueur d'un
-// provisioning de CE repo : un lancement interrompu, que `forge start` propose
-// de recréer). Échoue bruyamment pour un container d'un *autre* repo
-// (user.forge.repo ou marqueur) ou sans aucune métadonnée forge (container
+// Qui occupe le nom de container d'un repo ? Sonde sans effet de bord ni
+// exception : "absent" (rien), "ours" (user.forge.repo est ce repo),
+// "half-provisioned" (pas de user.forge.repo, mais le marqueur d'un provisioning
+// de CE repo : un lancement interrompu), "unmarked" (aucune métadonnée forge :
+// container hérité) ou "other-repo" (user.forge.repo ou marqueur d'un autre repo).
+export async function nameOccupant(
+  ctx: Context, container: string, ownerRepo: string,
+): Promise<"absent" | "ours" | "half-provisioned" | "unmarked" | "other-repo"> {
+  if (!(await instanceExists(ctx, container))) return "absent";
+  const wanted = ownerRepo.toLowerCase();
+  const existing = await containerRepo(ctx, container);
+  if (existing) return existing.toLowerCase() === wanted ? "ours" : "other-repo";
+  const marker = await provisioningMarker(ctx, container);
+  if (!marker) return "unmarked";
+  return marker.repo.toLowerCase() === wanted ? "half-provisioned" : "other-repo";
+}
+
+// Trois réponses : "absent", "ours" ou "half-provisioned" (un lancement
+// interrompu, que `forge start` propose de recréer). Échoue bruyamment pour un
+// container d'un *autre* repo ou sans aucune métadonnée forge (container
 // hérité) — plutôt que de le réutiliser silencieusement.
 export async function checkNameCollision(
   ctx: Context, container: string, ownerRepo: string,
 ): Promise<"absent" | "ours" | "half-provisioned"> {
-  if (!(await instanceExists(ctx, container))) return "absent";
-  const wanted = ownerRepo.toLowerCase();
-  const existing = await containerRepo(ctx, container);
-  if (existing) {
-    if (existing.toLowerCase() !== wanted) {
-      throw new ForgeError(
-        `container ${container} already exists for a different repo (${existing}), refusing to reuse it for ${ownerRepo}.`,
-      );
-    }
-    return "ours";
-  }
-  const marker = await provisioningMarker(ctx, container);
-  if (!marker) {
+  const occupant = await nameOccupant(ctx, container, ownerRepo);
+  if (occupant === "unmarked") {
     throw new ForgeError(
       `container ${container} already exists but has no forge metadata. ` +
       `Remove it with: forge delete ${ownerRepo} (its workspace survives).`,
     );
   }
-  if (marker.repo.toLowerCase() !== wanted) {
+  if (occupant === "other-repo") {
+    const other = (await containerRepo(ctx, container)) || (await provisioningMarker(ctx, container))?.repo;
     throw new ForgeError(
-      `container ${container} already exists for a different repo (${marker.repo}), refusing to reuse it for ${ownerRepo}.`,
+      `container ${container} already exists for a different repo (${other}), refusing to reuse it for ${ownerRepo}.`,
     );
   }
-  return "half-provisioned";
+  return occupant;
 }
 
 export async function isRunning(ctx: Context, name: string): Promise<boolean> {
