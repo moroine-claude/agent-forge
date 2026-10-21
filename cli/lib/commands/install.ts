@@ -183,16 +183,18 @@ async function limaHost(
   return { host, vm };
 }
 
-// Its entry, its directory (inventory and key) and its host keys: the new VM
-// has new ones, which accept-new would refuse under the old names.
+// Its host keys (the new VM has new ones, which accept-new would refuse under
+// the old names), its directory (inventory and key), then its entry: a failure
+// halfway leaves it listed, and the next run offers to forget it again.
 async function forgetLimaHost(ctx: Context, host: LaptopHost): Promise<void> {
-  forgetHost(host.name);
-  rmSync(hostDir(host.name), { recursive: true, force: true });
   const knownHosts = knownHostsPath();
-  if (!existsSync(knownHosts)) return;
-  for (const entry of [host.name, HOST_KEY_ALIAS, `[${host.address}]:${host.port}`]) {
-    await mustSucceed(`ssh-keygen -R ${entry}`, ctx.exec(["ssh-keygen", "-R", entry, "-f", knownHosts]));
+  if (existsSync(knownHosts)) {
+    for (const entry of [host.name, HOST_KEY_ALIAS, `[${host.address}]:${host.port}`]) {
+      await mustSucceed(`ssh-keygen -R ${entry}`, ctx.exec(["ssh-keygen", "-R", entry, "-f", knownHosts]));
+    }
   }
+  rmSync(hostDir(host.name), { recursive: true, force: true });
+  forgetHost(host.name);
 }
 
 // What a remote host needs and forge cannot guess, asked once.

@@ -283,6 +283,18 @@ test("a listed Lima VM that is gone is offered to be forgotten", async () => {
   assert.deepEqual(loadHosts().map((h) => [h.name, h.done]), [["forge-local", ALL]]);
 });
 
+test("a failed known_hosts cleanup keeps the gone Lima VM listed", async () => {
+  const world: World = { vm: null };
+  await finishedLocal(world);
+  writeFileSync(knownHostsPath(), "forge-local ssh-ed25519 AAAAold\n");
+  world.vm = null;
+  const ctx = laptop(world, { rules: [{ match: "ssh-keygen -R", code: 1, stderr: "boom" }], answers: [0] });
+  await assert.rejects(cmdInstall(ctx, OPTS), /ssh-keygen -R forge-local failed: boom/);
+  assert.deepEqual(loadHosts().map((h) => h.name), ["forge-local"]);
+  assert.ok(existsSync(inventoryPath("forge-local")));
+  assert.deepEqual(ctx.attachCalls, []);
+});
+
 test("stopping at a gone Lima VM keeps it listed", async () => {
   const world: World = { vm: null };
   await finishedLocal(world);
