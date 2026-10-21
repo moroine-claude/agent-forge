@@ -62,6 +62,18 @@ test("userSetsToasts reads a [ui.toast] table, not an unrelated [ui] table or fo
   assert.equal(userSetsToasts(""), false);
 });
 
+test("userSetsToasts: a top-level ui key or a quoted name counts as the user owning ui", () => {
+  assert.equal(userSetsToasts("ui = { sidebar_width = 30 }\n"), true);
+  assert.equal(userSetsToasts('"ui" = { sidebar_width = 30 }\n'), true);
+  assert.equal(userSetsToasts('["ui".toast]\ndelivery = "off"\n'), true);
+  assert.equal(userSetsToasts('[ui."toast"]\ndelivery = "off"\n'), true);
+  assert.equal(userSetsToasts('["ui"."toast"]\ndelivery = "off"\n'), true);
+  assert.equal(userSetsToasts('["ui"]\ntoast.delivery = "off"\n'), true);
+  assert.equal(userSetsToasts('["ui"]\nsidebar = true\n'), false);
+  assert.equal(userSetsToasts('[other]\nui = 1\n'), false);
+  assert.equal(userSetsToasts("ui = { sidebar_width = 30 }\n\n" + BLOCK), true);
+});
+
 test("renderBlock escapes a path as a TOML basic string", () => {
   const block = renderBlock('/opt/we"ird\\dir/forge', { toasts: false });
   assert.ok(block.includes(`command = "'/opt/we\\"ird\\\\dir/forge' start"`), block);

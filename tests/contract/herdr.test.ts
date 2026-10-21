@@ -4,7 +4,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { renderBlock } from "../../cli/lib/herdr-config.ts";
+import { renderBlock, userSetsToasts } from "../../cli/lib/herdr-config.ts";
 import { createContext } from "../../cli/lib/context.ts";
 import {
   createWorkspace, listWorkspaces, createTab, listPanes, listTabs, renameTab, closeTab,
@@ -60,6 +60,16 @@ test("herdr accepts the config block forge setup writes", { skip }, () => {
   }
 });
 
+test("herdr accepts forge's block after a user ui inline table, without toasts", { skip }, () => {
+  const file = `${home}/inline-ui.toml`;
+  const user = "ui = { sidebar_width = 30 }\n\n";
+  // As ensureHerdrConfig writes it: forge leaves ui alone, so no [ui.toast].
+  writeFileSync(file, user + renderBlock("/usr/local/bin/forge", { toasts: !userSetsToasts(user) }));
+  const r = spawnSync("herdr", ["config", "check"], { env: { ...process.env, HERDR_CONFIG_PATH: file }, encoding: "utf8" });
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /config: ok/);
+});
+
 // Reads the server's config at reload-config, as the real server does after
 // `forge setup`, then asks it to show a notification and returns its reason.
 function notificationReason(config: string): string {
@@ -77,6 +87,10 @@ test("the toasts block makes real herdr route notifications to a client", { skip
   // shown: false (reason no_foreground_client); `shown: true` cannot be
   // asserted without a client, so the reason is the observable difference.
   assert.equal(notificationReason(renderBlock("/usr/local/bin/forge", { toasts: true })), "no_foreground_client");
+  // Leave the shared server as found: no other test depends on this one.
+  writeFileSync(`${home}/config.toml`, "");
+  const reload = spawnSync("herdr", ["server", "reload-config"], { env, encoding: "utf8" });
+  assert.match(reload.stdout, /"status":"applied"/, reload.stdout + reload.stderr);
 });
 
 test("tab list, rename and close against real herdr", { skip }, async () => {

@@ -125,9 +125,18 @@ export function conflictingKeys(text: string): string[] {
   return [...keys];
 }
 
-// True when the user configures toasts outside forge's block: a `[ui.toast]`
-// (or `[ui.toast.*]`) table, a `ui.toast...` key at the top level, or a
-// `toast...` key under `[ui]`. Then forge leaves toasts alone.
+// A TOML key or header name without its quotes or the blanks around dots:
+// `["ui" . 'toast']` and `ui.toast` name the same table.
+function bareName(name: string): string {
+  return name.replaceAll(/["']/g, "").replaceAll(/\s*\.\s*/g, ".").trim();
+}
+
+// True when the user owns the toasts outside forge's block, so forge must not
+// append its own `[ui.toast]` (herdr rejects the whole file then): a
+// `[ui.toast]` (or `[ui.toast.*]`) table, a `ui.toast...` key at the top
+// level, a `toast...` key under `[ui]`, or a top-level `ui = ...` key (an
+// inline table: a `[ui.toast]` header cannot extend it). Quoted names count
+// as unquoted ones.
 export function userSetsToasts(text: string): boolean {
   const found = findBlock(text);
   const outside = found ? text.slice(0, found.from) + text.slice(found.to) : text;
@@ -135,14 +144,18 @@ export function userSetsToasts(text: string): boolean {
   for (const l of lines(outside)) {
     const header = /^\s*\[\[?\s*([^\]]*?)\s*\]\]?\s*(?:#.*)?$/.exec(l.text);
     if (header) {
-      table = header[1].replaceAll(/\s*\.\s*/g, ".");
+      table = bareName(header[1]);
       if (table === "ui.toast" || table.startsWith("ui.toast.")) return true;
       continue;
     }
-    const key = /^\s*(?:ui\s*\.\s*)?toast\s*[.=]/.exec(l.text);
-    if (!key) continue;
-    const dotted = /^\s*ui\s*\./.test(l.text);
-    if ((table === "" && dotted) || (table === "ui" && !dotted)) return true;
+    const eq = l.text.indexOf("=");
+    if (eq === -1) continue;
+    const key = bareName(l.text.slice(0, eq));
+    if (table === "") {
+      if (key === "ui" || key === "ui.toast" || key.startsWith("ui.toast.")) return true;
+    } else if (table === "ui") {
+      if (key === "toast" || key.startsWith("toast.")) return true;
+    }
   }
   return false;
 }
