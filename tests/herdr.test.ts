@@ -125,6 +125,15 @@ test("showNotification passes the title and the body as argv", async () => {
   assert.deepEqual(c.calls[0], ["/x/herdr", "notification", "show", "forge start", "--body", "WARNING: a\nNOTICE: b"]);
 });
 
+test("showNotification is true only when herdr says shown", async () => {
+  const shown = fakeContext({ rules: [{ match: "notification show", stdout: '{"id":"1","result":{"shown":true}}' }] });
+  assert.equal(await showNotification(shown, h, "t", "b"), true);
+  const disabled = fakeContext({ rules: [{ match: "notification show", stdout: '{"id":"1","result":{"shown":false,"reason":"disabled"}}' }] });
+  assert.equal(await showNotification(disabled, h, "t", "b"), false);
+  const empty = fakeContext({ rules: [{ match: "notification show", stdout: "" }] });
+  assert.equal(await showNotification(empty, h, "t", "b"), false);
+});
+
 test("showNotification fails like any herdr call", async () => {
   const c = fakeContext({ rules: [{ match: "notification show", code: 1, stderr: "no server" }] });
   await assert.rejects(() => showNotification(c, h, "t", "b"), /herdr notification show failed: no server/);

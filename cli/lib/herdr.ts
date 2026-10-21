@@ -133,9 +133,12 @@ export async function paneRun(ctx: Context, h: HerdrEnv, paneId: string, command
   await herdrJson(ctx, h, ["pane", "run", paneId, command], ack, true);
 }
 
-// Shows a herdr notification; the answer is only checked for errors.
-export async function showNotification(ctx: Context, h: HerdrEnv, title: string, body: string): Promise<void> {
-  await herdrJson(ctx, h, ["notification", "show", title, "--body", body], ack, true);
+// Resolves to true only when herdr says it displayed the notification. herdr
+// 0.9.5 answers {"result":{"shown":false,"reason":"disabled",...}} while
+// [ui.toast] delivery is "off" (its default), so a successful call alone does
+// not mean the user saw anything. An empty answer counts as not shown.
+export function showNotification(ctx: Context, h: HerdrEnv, title: string, body: string): Promise<boolean> {
+  return herdrJson(ctx, h, ["notification", "show", title, "--body", body], (r) => r?.shown === true, true);
 }
 
 export function paneForeground(ctx: Context, h: HerdrEnv, paneId: string): Promise<string[][]> {

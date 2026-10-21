@@ -77,7 +77,11 @@ test("tab list, rename and close against real herdr", { skip }, async () => {
 });
 
 test("notification show is accepted by real herdr", { skip }, async () => {
-  await showNotification(ctx, h, "forge test", "line one\nline two");
+  const shown = await showNotification(ctx, h, "forge test", "line one\nline two");
+  assert.equal(typeof shown, "boolean");
+  // Toasts are off by default ([ui.toast] delivery), so the isolated config
+  // reports shown: false, not an error.
+  assert.equal(shown, false);
 });
 
 test("workspace, tab, pane and process classification against real herdr", { skip }, async () => {
