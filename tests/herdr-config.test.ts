@@ -6,11 +6,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fakeContext } from "./lib/fake-context.ts";
-import { BLOCK_START, BLOCK_END, renderBlock, spliceBlock, conflictingKeys, userSetsToasts, ensureHerdrConfig } from "../cli/lib/herdr-config.ts";
+import { BLOCK_START, BLOCK_END, renderBlock, spliceBlock, conflictingKeys, ensureHerdrConfig } from "../cli/lib/herdr-config.ts";
 import { ForgeError } from "../cli/lib/context.ts";
 
 const FORGE = "/usr/local/bin/forge";
-const BLOCK_END_LINE = "# <<< agent-forge <<<\n";
 const BLOCK = [
   "# >>> agent-forge >>>",
   "# Managed by `forge setup`: edits inside this block are overwritten.",
@@ -34,48 +33,14 @@ const BLOCK = [
   "",
 ].join("\n");
 
-const TOAST_BLOCK = BLOCK.replace(BLOCK_END_LINE, "\n[ui.toast]\ndelivery = \"herdr\"\n" + BLOCK_END_LINE);
-
 test("renderBlock renders the exact block", () => {
-  assert.equal(renderBlock(FORGE, { toasts: false }), BLOCK);
-  assert.equal(renderBlock(FORGE, { toasts: true }), TOAST_BLOCK);
+  assert.equal(renderBlock(FORGE), BLOCK);
   assert.equal(BLOCK_START, "# >>> agent-forge >>>");
   assert.equal(BLOCK_END, "# <<< agent-forge <<<");
 });
 
-test("renderBlock with toasts ends with the [ui.toast] table, inside the markers", () => {
-  const block = renderBlock(FORGE, { toasts: true });
-  assert.ok(block.endsWith(`height = "90%"\n\n[ui.toast]\ndelivery = "herdr"\n${BLOCK_END}\n`), block);
-  assert.ok(block.startsWith(BLOCK_START));
-});
-
-test("userSetsToasts reads a [ui.toast] table, not an unrelated [ui] table or forge's own block", () => {
-  assert.equal(userSetsToasts('[ui.toast]\ndelivery = "terminal"\n\n' + BLOCK), true);
-  assert.equal(userSetsToasts('[ui.toast.herdr]\nposition = "top"\n'), true);
-  assert.equal(userSetsToasts('[ui]\nsidebar = true\n\n' + BLOCK), false);
-  assert.equal(userSetsToasts('[ui]\ntoast.delivery = "system"\n'), true);
-  assert.equal(userSetsToasts('[ui]\ntoast = { delivery = "system" }\n'), true);
-  assert.equal(userSetsToasts('ui.toast.delivery = "system"\n'), true);
-  assert.equal(userSetsToasts('[other]\ntoast = 1\n'), false);
-  assert.equal(userSetsToasts('# [ui.toast]\n'), false);
-  assert.equal(userSetsToasts(renderBlock(FORGE, { toasts: true })), false);
-  assert.equal(userSetsToasts(""), false);
-});
-
-test("userSetsToasts: a top-level ui key or a quoted name counts as the user owning ui", () => {
-  assert.equal(userSetsToasts("ui = { sidebar_width = 30 }\n"), true);
-  assert.equal(userSetsToasts('"ui" = { sidebar_width = 30 }\n'), true);
-  assert.equal(userSetsToasts('["ui".toast]\ndelivery = "off"\n'), true);
-  assert.equal(userSetsToasts('[ui."toast"]\ndelivery = "off"\n'), true);
-  assert.equal(userSetsToasts('["ui"."toast"]\ndelivery = "off"\n'), true);
-  assert.equal(userSetsToasts('["ui"]\ntoast.delivery = "off"\n'), true);
-  assert.equal(userSetsToasts('["ui"]\nsidebar = true\n'), false);
-  assert.equal(userSetsToasts('[other]\nui = 1\n'), false);
-  assert.equal(userSetsToasts("ui = { sidebar_width = 30 }\n\n" + BLOCK), true);
-});
-
 test("renderBlock escapes a path as a TOML basic string", () => {
-  const block = renderBlock('/opt/we"ird\\dir/forge', { toasts: false });
+  const block = renderBlock('/opt/we"ird\\dir/forge');
   assert.ok(block.includes(`command = "'/opt/we\\"ird\\\\dir/forge' start"`), block);
 });
 
@@ -94,7 +59,7 @@ test("spliceBlock leaves a text holding this block unchanged", () => {
 });
 
 test("spliceBlock replaces an old block, user lines byte-identical", () => {
-  const old = renderBlock("/old/forge", { toasts: false });
+  const old = renderBlock("/old/forge");
   const text = "a = 1\n\n" + old + "b = 2\n";
   const r = spliceBlock(text, BLOCK);
   assert.equal(r.outcome, "updated");
@@ -105,7 +70,7 @@ test("spliceBlock keeps CRLF outside the block and finds markers followed by CR"
   const crlf = BLOCK.replaceAll("\n", "\r\n");
   const same = "a = 1\r\n\r\n" + crlf;
   assert.deepEqual(spliceBlock(same, BLOCK), { text: same, outcome: "unchanged" });
-  const old = renderBlock("/old/forge", { toasts: false }).replaceAll("\n", "\r\n");
+  const old = renderBlock("/old/forge").replaceAll("\n", "\r\n");
   const r = spliceBlock("a = 1\r\n" + old + "b = 2\r\n", BLOCK);
   assert.equal(r.outcome, "updated");
   assert.ok(r.text.startsWith("a = 1\r\n"));
@@ -121,7 +86,7 @@ test("spliceBlock refuses a broken block", () => {
 // An editor may leave blanks after a marker: the block is still forge's,
 // never a reason to append a second one.
 test("spliceBlock finds markers followed by blanks", () => {
-  const old = renderBlock("/old/forge", { toasts: false }).replace(BLOCK_START, `${BLOCK_START}  `).replace(BLOCK_END, `${BLOCK_END}\t`);
+  const old = renderBlock("/old/forge").replace(BLOCK_START, `${BLOCK_START}  `).replace(BLOCK_END, `${BLOCK_END}\t`);
   assert.deepEqual(spliceBlock("a = 1\n\n" + old, BLOCK), { text: "a = 1\n\n" + BLOCK, outcome: "updated" });
 });
 
@@ -136,7 +101,7 @@ test("spliceBlock leaves a block that ends the file without a newline unchanged"
 });
 
 test("renderBlock refuses a forge path with a control character", () => {
-  assert.throws(() => renderBlock("/opt/a\nb/forge", { toasts: false }), (e: unknown) => e instanceof ForgeError && /control character/.test(e.message));
+  assert.throws(() => renderBlock("/opt/a\nb/forge"), (e: unknown) => e instanceof ForgeError && /control character/.test(e.message));
 });
 
 test("conflictingKeys finds keys outside the block only", () => {
@@ -174,7 +139,7 @@ test("ensureHerdrConfig creates the file and its directory, then reports unchang
   const c = fakeContext({ rules: [noHerdr] });
   await ensureHerdrConfig(c);
   assert.deepEqual(c.out_lines, [`herdr config ${path}: created`]);
-  assert.equal(readFileSync(path, "utf8"), TOAST_BLOCK);
+  assert.equal(readFileSync(path, "utf8"), BLOCK);
   assert.equal(statSync(path).mode & 0o777, 0o644);
   assert.equal(statSync(join(dir, "sub", "herdr")).mode & 0o777, 0o700);
   const before = statSync(path);
@@ -186,27 +151,15 @@ test("ensureHerdrConfig creates the file and its directory, then reports unchang
   assert.equal(after.ino, before.ino);
 });
 
-test("ensureHerdrConfig turns toasts on, unless the user sets [ui.toast]", async () => {
-  await ensureHerdrConfig(fakeContext({ rules: [noHerdr] }));
-  assert.match(readFileSync(path, "utf8"), /\[ui\.toast\]\ndelivery = "herdr"\n# <<< agent-forge <<<\n$/);
-
-  const mine = '[ui.toast]\ndelivery = "terminal"\n';
-  writeFileSync(path, mine);
-  await ensureHerdrConfig(fakeContext({ rules: [noHerdr] }));
-  const text = readFileSync(path, "utf8");
-  assert.ok(text.startsWith(mine), text);
-  assert.equal(text.split("[ui.toast]").length - 1, 1, text);
-});
-
 test("ensureHerdrConfig keeps an existing file's mode on update", async () => {
   mkdirSync(join(dir, "sub", "herdr"), { recursive: true });
-  writeFileSync(path, "x = 1\n" + "\n" + renderBlock("/old/forge", { toasts: false }));
+  writeFileSync(path, "x = 1\n" + "\n" + renderBlock("/old/forge"));
   chmodSync(path, 0o600);
   const c = fakeContext({ rules: [noHerdr] });
   await ensureHerdrConfig(c);
   assert.deepEqual(c.out_lines, [`herdr config ${path}: updated`]);
   assert.equal(statSync(path).mode & 0o777, 0o600);
-  assert.equal(readFileSync(path, "utf8"), "x = 1\n\n" + TOAST_BLOCK);
+  assert.equal(readFileSync(path, "utf8"), "x = 1\n\n" + BLOCK);
 });
 
 // stow and chezmoi link the config from a dotfiles directory, relatively.
@@ -221,7 +174,7 @@ test("ensureHerdrConfig keeps a symlinked config a symlink and updates the file 
   await ensureHerdrConfig(c);
   assert.deepEqual(c.out_lines, [`herdr config ${path}: created`]);
   assert.ok(lstatSync(path).isSymbolicLink(), "the link was replaced by a regular file");
-  assert.equal(readFileSync(real, "utf8"), "x = 1\n\n" + TOAST_BLOCK);
+  assert.equal(readFileSync(real, "utf8"), "x = 1\n\n" + BLOCK);
   assert.equal(statSync(real).mode & 0o777, 0o600);
   assert.deepEqual(readdirSync(join(dir, "dotfiles")), ["herdr.toml"]);
 });
