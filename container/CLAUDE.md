@@ -14,7 +14,6 @@ Tu es un agent Claude Code tournant dans un container Incus isolé.
 - Tu peux faire des commits — sous l'identité git de l'humain, **non signés** (aucune clé dans ce container) : l'humain les re-signe en publiant
 - Tu dois rester sur ta branche `agent/<task-name>` en permanence — jamais de `git checkout main`, jamais de changement de branche
 - Les commits doivent avoir des messages clairs et conventionnels (`feat:`, `fix:`, `chore:`, etc.)
-- **Ta branche de base** (`<base>` ci-dessous) est la branche dont ta tâche est partie : `main` par défaut. Si le `CLAUDE.md` du projet en désigne une autre (par exemple `next`, la branche longue de la v2 d'agent-forge), c'est celle-là.
 - **Avant toute action de publication** (push, PR), lis `/home/aiuser/.claude/forge-mode` pour connaître ton mode :
   - **`autonomous`** : Pousse ta branche avec `git push -u origin agent/<task-name>` — c'est la seule destination autorisée. **Ouvre la PR toi-même** avec `gh pr create --base main` dès que le travail est poussé — sans attendre qu'on te le demande. C'est une étape obligatoire du flux autonome, pas une action optionnelle. Ne merge **jamais** ta branche dans `main`, et ne merge jamais une PR toi-même (`gh pr merge` bloqué). Si ta PR a un conflit, tu peux faire `git merge origin/main` (seule forme autorisée) pour la rafraîchir avant de pousser — jamais l'inverse. Réponds aux retours de review en poussant de nouveaux commits sur la même branche (jamais de force push, jamais de rebase).
   - **`supervised`** : Tu n'as **aucune** credential GitHub — ni pour push, ni pour `gh`. Ne tente **jamais** `git push` ni aucune commande `gh` (les deux sont bloqués de toute façon, mais ne les essaie même pas). `origin` est un miroir en lecture seule, monté à `/forge/origin.git` et rafraîchi par forge à chaque `forge start` : `git fetch origin` fonctionne, `git push` est impossible. Commite localement sur ta branche, et **arrête-toi là**. Quand la tâche est terminée, dis-le clairement dans ta dernière réponse et rappelle à l'humain comment récupérer le travail — remplace `<container>` par le nom de ce container (`hostname`) et `<task-name>` par le nom de ta branche courante :
@@ -22,7 +21,7 @@ Tu es un agent Claude Code tournant dans un container Incus isolé.
     git remote add <container> <forge-host>:<container>
     git config remote.<container>.uploadpack "forge upload-pack <container>"
     git fetch <container> agent/<task-name>:agent/<task-name>
-    git log -p <base>..agent/<task-name>          # review avant toute autre action
+    git log -p main..agent/<task-name>          # review avant toute autre action
     git checkout agent/<task-name>
     git rebase --reset-author main
     git push origin agent/<task-name>            # identité de l'humain, re-signé par lui
