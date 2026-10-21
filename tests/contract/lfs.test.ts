@@ -17,14 +17,24 @@ const skip = !present && process.env.CI !== "true";
 let root = "";
 let mirror = "";
 
-// Every call runs with the temporary HOME: `git lfs install` writes the
-// global config there, never in the developer's own ~/.gitconfig.
-const run = (cmd: string, args: string[], cwd: string, env: NodeJS.ProcessEnv = {}) =>
-  execFileSync(cmd, args, {
+// Every call runs with the temporary HOME and global config: `git lfs install`
+// writes there, never in the developer's own config. No inherited GIT_*
+// variable survives (GIT_CONFIG_GLOBAL, GIT_LFS_SKIP_SMUDGE...), the identity
+// is a dummy one and the locale is fixed for the expected error message.
+const inherited = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("GIT_")));
+const run = (cmd: string, args: string[], cwd: string, env: NodeJS.ProcessEnv = {}) => {
+  const home = join(root, "home");
+  return execFileSync(cmd, args, {
     cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, HOME: join(root, "home"), XDG_CONFIG_HOME: join(root, "home", ".config"),
-      GIT_CONFIG_NOSYSTEM: "1", ...env },
+    env: {
+      ...inherited, HOME: home, XDG_CONFIG_HOME: join(home, ".config"), LC_ALL: "C",
+      GIT_CONFIG_GLOBAL: join(home, ".gitconfig"), GIT_CONFIG_NOSYSTEM: "1",
+      GIT_AUTHOR_NAME: "forge test", GIT_AUTHOR_EMAIL: "test@example.invalid",
+      GIT_COMMITTER_NAME: "forge test", GIT_COMMITTER_EMAIL: "test@example.invalid",
+      ...env,
+    },
   });
+};
 const git = (args: string[], cwd: string, env: NodeJS.ProcessEnv = {}) =>
   run("git", ["-c", "commit.gpgsign=false", ...args], cwd, env);
 const sh = (command: string, cwd: string) => run("sh", ["-c", command], cwd);
@@ -63,15 +73,31 @@ before(() => {
 
 after(() => { if (root) rmSync(root, { recursive: true, force: true }); });
 
+const POINTER = /^version https:\/\/git-lfs\.github\.com\/spec\/v1/;
+const addTask = (ws: string) => git(["worktree", "add", "-q", ".trees/t", "-b", "agent/t", "origin/main"], ws);
+
 test("git worktree add succeeds on an LFS repository, the file stays a pointer", { skip }, () => {
   const ws = workspace("ws", LFS_FILTERS_INSTALL, LFS_HOOKS_INSTALL);
-  git(["worktree", "add", "-q", ".trees/t", "-b", "agent/t", "origin/main"], ws);
-  const content = readFileSync(join(ws, ".trees", "t", "seed.bin"), "utf8");
-  assert.match(content, /^version https:\/\/git-lfs\.github\.com\/spec\/v1/);
+  addTask(ws);
+  assert.match(readFileSync(join(ws, ".trees", "t", "seed.bin"), "utf8"), POINTER);
+});
+
+// Each command alone keeps the pointers: the second rewrites the global
+// filters, so testing them only together would hide a first one without
+// --skip-smudge.
+test("the filters install alone keeps LFS files as pointers", { skip }, () => {
+  const ws = workspace("ws-filters", LFS_FILTERS_INSTALL, "true");
+  addTask(ws);
+  assert.match(readFileSync(join(ws, ".trees", "t", "seed.bin"), "utf8"), POINTER);
+});
+
+test("the hooks install alone, after plain filters, keeps LFS files as pointers", { skip }, () => {
+  const ws = workspace("ws-hooks", "git lfs install --skip-repo", LFS_HOOKS_INSTALL);
+  addTask(ws);
+  assert.match(readFileSync(join(ws, ".trees", "t", "seed.bin"), "utf8"), POINTER);
 });
 
 test("without --skip-smudge, the same worktree add fails (control)", { skip }, () => {
   const ws = workspace("ws-control", "git lfs install --skip-repo", "git lfs install");
-  assert.throws(() => git(["worktree", "add", "-q", ".trees/t", "-b", "agent/t", "origin/main"], ws),
-    /smudge filter lfs failed/);
+  assert.throws(() => addTask(ws), /smudge filter lfs failed/);
 });
