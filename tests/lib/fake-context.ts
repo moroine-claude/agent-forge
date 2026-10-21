@@ -19,6 +19,9 @@ export type FakeOptions = {
   incus?: FakeIncus;
   // Code de sortie rendu par attach (ansible-playbook, agent) ; 0 par défaut.
   attachCode?: number;
+  // Codes par commande : la première règle dont `match` est une sous-chaîne de
+  // l'argv joint donne son `code` (0 si absent) ; sinon attachCode.
+  attachRules?: ExecRule[];
 };
 
 export type FakeContext = Context & {
@@ -84,7 +87,13 @@ export function fakeContext(opts: FakeOptions = {}): FakeContext {
 
   const fake: FakeContext = {
     exec,
-    attach: async (argv, attachOpts) => { calls.push(argv); attachCalls.push({ argv, opts: attachOpts }); return opts.attachCode ?? 0; },
+    attach: async (argv, attachOpts) => {
+      calls.push(argv);
+      attachCalls.push({ argv, opts: attachOpts });
+      const joined = argv.join(" ");
+      const rule = (opts.attachRules ?? []).find((r) => joined.includes(r.match));
+      return rule ? rule.code ?? 0 : opts.attachCode ?? 0;
+    },
     prompt,
     out: (line) => out_lines.push(line),
     err: (line) => err_lines.push(line),
