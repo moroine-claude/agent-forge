@@ -93,3 +93,32 @@
   register: verify_smoke
   changed_when: false
   failed_when: "'incus-smoke: OK' not in verify_smoke.stdout"
+
+# GitHub's host keys: every key type GitHub publishes is in the forge user's
+# known_hosts, and no other github.com entry is left. ssh-keygen -F finds an
+# entry whether or not it is hashed.
+- name: Fetch GitHub's SSH host keys
+  ansible.builtin.uri:
+    url: https://api.github.com/meta
+    return_content: true
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: verify_github_meta
+
+- name: Look up github.com in the forge user's known_hosts
+  ansible.builtin.command:
+    cmd: "{{ verify_ssh_forge }} 'ssh-keygen -F github.com -f ~/.ssh/known_hosts'"
+  delegate_to: localhost
+  become: false
+  register: verify_github_known
+  changed_when: false
+
+- name: Check the forge user trusts exactly GitHub's published host keys
+  ansible.builtin.assert:
+    that:
+      - verify_github_meta.json.ssh_keys | length > 0
+      - >-
+        verify_github_known.stdout_lines
+        | reject('match', '^#') | map('regex_replace', '^\S+ ', '')
+        | sort == verify_github_meta.json.ssh_keys | sort

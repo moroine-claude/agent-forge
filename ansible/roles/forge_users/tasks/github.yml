@@ -1,0 +1,76 @@
+---
+# GitHub's host keys, verified instead of trusted on first use: they are
+# fetched over HTTPS from GitHub's API (the trust rests on TLS) and written
+# into the forge user's known_hosts, so the host's first `git clone` over SSH
+# never asks the user to compare a fingerprint. Each run refreshes them, which
+# follows a key rotation by GitHub. No key is stored in the repository.
+- name: Fetch GitHub's SSH host keys
+  ansible.builtin.uri:
+    url: https://api.github.com/meta
+    return_content: true
+  delegate_to: localhost
+  become: false
+  run_once: true
+  check_mode: false
+  register: forge_users_github_meta
+  # Never fall back to trust-on-first-use: a failed fetch stops the run.
+  failed_when: false
+
+- name: Check that the controller reached GitHub's API
+  ansible.builtin.assert:
+    that:
+      - forge_users_github_meta.status == 200
+      - forge_users_github_meta.json.ssh_keys | default([]) | length > 0
+    fail_msg: >-
+      The controller could not reach GitHub's API (https://api.github.com/meta)
+      or got no SSH host keys from it. Check the controller's network, then
+      run the playbook again.
+    quiet: true
+  run_once: true
+
+- name: Set the forge user's SSH directory
+  ansible.builtin.file:
+    path: "{{ forge_users_account.home }}/.ssh"
+    state: directory
+    mode: "0700"
+    owner: "{{ forge_user.name }}"
+    group: "{{ forge_user.name }}"
+
+- name: Write GitHub's host keys
+  # The host's SSH client configuration (devsec.hardening's ssh_hardening)
+  # does not set HashKnownHosts, so entries stay in clear, readable form.
+  ansible.builtin.known_hosts:
+    name: github.com
+    key: "github.com {{ item }}"
+    path: "{{ forge_users_account.home }}/.ssh/known_hosts"
+    hash_host: false
+    state: present
+  become: true
+  become_user: "{{ forge_user.name }}"
+  loop: "{{ forge_users_github_meta.json.ssh_keys }}"
+
+# state: present replaces an entry of the same key type but keeps one of a type
+# GitHub no longer publishes: drop the old github.com entries left over.
+- name: Read the forge user's known_hosts
+  ansible.builtin.slurp:
+    src: "{{ forge_users_account.home }}/.ssh/known_hosts"
+  register: forge_users_known_hosts
+
+- name: Select the github.com entries GitHub no longer publishes
+  ansible.builtin.set_fact:
+    forge_users_github_stale: >-
+      {{ (forge_users_known_hosts.content | b64decode).splitlines()
+         | select('match', '^(\S+,)*github\.com(,\S+)* ')
+         | reject('match', '^\S+ (' ~ (forge_users_github_meta.json.ssh_keys
+                                       | map('regex_escape') | join('|')) ~ ')( |$)')
+         | list }}
+
+- name: Remove the stale github.com entries
+  ansible.builtin.known_hosts:
+    name: github.com
+    key: "{{ item }}"
+    path: "{{ forge_users_account.home }}/.ssh/known_hosts"
+    state: absent
+  become: true
+  become_user: "{{ forge_user.name }}"
+  loop: "{{ forge_users_github_stale }}"

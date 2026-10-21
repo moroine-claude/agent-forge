@@ -166,6 +166,10 @@ Linux, it also needs QEMU and a writable `/dev/kvm`: be in the `kvm` group.
   - Agent forwarding is allowed for the forge user only, and
     `AllowStreamLocalForwarding no`.
   - The ed25519 host key is the only host key.
+- **GitHub's host keys.** The play fetches them from GitHub's API on the
+  controller and writes them into the forge user's `~/.ssh/known_hosts`,
+  replacing older `github.com` entries, so the first clone never asks to trust
+  a key. A failed fetch stops the run.
 
 ## Incus storage pool
 

@@ -435,10 +435,6 @@ Known limits:
   attached: with no client attached, the host has no agent.
 - **`herdr --remote` fails the first time:** run it in a real terminal; it
   asks before installing herdr on the host.
-- **The first clone of a repository stops on GitHub's host key:** the popup
-  shows GitHub's key fingerprint. Check it against GitHub's published SSH
-  fingerprints and answer `yes`; answering no ends in
-  `Host key verification failed`, and the next `prefix+f` asks again.
 - **`Too many authentication failures`** from `ssh forge-local` or
   `ssh forge-vm`: sshd allows two attempts, which an agent holding several
   keys uses up. Add `IdentityFile ~/.ssh/<your key>.pub` and

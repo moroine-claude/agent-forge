@@ -87,7 +87,7 @@ assert_contains 'Incus 7.0.2'
 assert_contains 'not published yet'
 assert_contains ".ssh.localPort = "
 assert_contains 'forge attach'
-assert_contains 'Host key verification failed'
+assert_not_contains 'Host key verification failed'
 assert_contains 'Too many authentication failures'
 assert_contains 'default branch'
 assert_not_contains 'or your laptop sleeps'
