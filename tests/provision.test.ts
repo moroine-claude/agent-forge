@@ -260,6 +260,17 @@ test("failing to install the LFS filters aborts provisioning, with git's message
   await assert.rejects(run, /git-lfs filters in agent-x failed: fatal: not in a git directory/);
 });
 
+// Le miroir n'a aucun objet LFS : les deux `git lfs install` (filtres globaux,
+// puis hooks du dépôt, qui réécrit aussi les filtres) gardent les pointeurs.
+// Sans --skip-smudge, `git worktree add` échoue sur le premier fichier LFS.
+test("every git lfs install keeps LFS files as pointers (--skip-smudge)", async () => {
+  const { ctx, run } = provision();
+  await run();
+  const installs = flat(ctx).filter((l) => l.includes("git lfs install"));
+  assert.equal(installs.length, 2, installs.join("\n"));
+  for (const l of installs) assert.ok(l.includes("--skip-smudge"), l);
+});
+
 const HOOKS_CONFLICT: ExecRule = {
   match: "cd /workspace && git lfs install",
   code: 2,
