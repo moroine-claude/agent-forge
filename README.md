@@ -59,7 +59,7 @@ its release archive (2.1.2 or newer, see https://github.com/lima-vm/lima/release
 and Ubuntu's own ansible is too old:
 
 ```bash
-sudo apt install qemu-system-x86 qemu-utils pipx
+sudo apt install qemu-system-x86 qemu-utils ovmf pipx   # ovmf: the UEFI firmware Lima boots the VM with
 sudo usermod -aG kvm "$USER"          # then log out and back in; /dev/kvm must be writable
 curl -fsSL https://github.com/lima-vm/lima/releases/download/v2.2.1/lima-2.2.1-Linux-x86_64.tar.gz \
   | sudo tar -C /usr/local -xz
@@ -294,6 +294,11 @@ agent in the foreground and say
   agent's code there.
 - **Large files:** Git LFS content is not available inside containers; files
   are checked out as pointers.
+- **Submodules:** not available inside containers either. The host mirrors
+  the repository alone, so `git submodule update` finds nothing, and a
+  relative URL (`../other.git`) resolves next to the read-only mirror, where
+  no repository lives. Scripts that rely on a submodule fail in the
+  container; the agent has to work around them.
 
 Inside the container, `origin` is a read-only mirror the host refreshes at
 each `forge start`: the agent can `git fetch origin`, never push.
