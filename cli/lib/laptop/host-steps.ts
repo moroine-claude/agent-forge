@@ -72,7 +72,9 @@ export async function imageDecision(
   const log = await git("log", "-1", "--format=%H", "--", "ansible/image.yml", "ansible/roles/forge_image", "cli/lib/commands/image.ts");
   const last = log.code === 0 ? log.stdout.trim() : "";
   if (!last) return "ask";
-  return (await git("merge-base", "--is-ancestor", last, image)).code === 0 ? "fresh" : "build";
+  // 0 = ancestor, 1 = not; anything else is a git error (shallow clone, ...).
+  const { code } = await git("merge-base", "--is-ancestor", last, image);
+  return code === 0 ? "fresh" : code === 1 ? "build" : "ask";
 }
 
 export async function ensureImage(ctx: Context, host: LaptopHost, checkout: string): Promise<"built" | "fresh"> {

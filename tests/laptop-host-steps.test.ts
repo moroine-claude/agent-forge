@@ -155,6 +155,17 @@ test("imageDecision rebuilds a stale image", async () => {
   } finally { r.clean(); }
 });
 
+test("imageDecision asks when merge-base fails with an error", async () => {
+  const r = repo();
+  try {
+    const ctx = withImageCommit(r.c[4]);
+    const inner = ctx.exec;
+    const wrapped: Context = { ...ctx, exec: (argv, o) =>
+      argv.includes("merge-base") ? Promise.resolve({ code: 128, stdout: "", stderr: "fatal" }) : inner(argv, o) };
+    assert.equal(await imageDecision(wrapped, host, r.dir), "ask");
+  } finally { r.clean(); }
+});
+
 test("an image commit unknown to the checkout asks", async () => {
   const r = repo();
   try {
