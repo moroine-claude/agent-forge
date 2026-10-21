@@ -143,6 +143,7 @@ test("when the notification fails, the popup falls back to waiting for Enter", (
   const r = forge(["finish", "alice/project", "cli"], "\n", popup("/bin/false"));
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stderr, /WARNING: closing the herdr tab of cli failed[\s\S]*Press Enter to close/);
+  assert.match(r.stderr, /herdr notification failed: /);
 });
 
 test("when herdr does not show the notification, the popup waits for Enter", () => {

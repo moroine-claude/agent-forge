@@ -27,3 +27,16 @@ export function noticeBody(lines: string[]): string {
   const kept = lines.slice(0, MAX_NOTICE_LINES - 1);
   return [...kept, `…and ${lines.length - kept.length} more`].join("\n");
 }
+
+// Décision après l'exécution : "close" (le processus se termine), "notify"
+// (notification herdr des lignes collectées) ou "wait" (Entrée). Une erreur
+// ou un code non nul attend dans la popup comme dans un pane d'attach ; une
+// exception n'envoie jamais de notification ; hors herdr, on ne fait rien.
+// `code` vaut null quand l'exécution a levé une exception.
+export function ackAfterRun(s: {
+  popup: boolean; attachPane: boolean; code: number | null; threw: boolean; notices: number;
+}): "close" | "notify" | "wait" {
+  if (!s.popup && !s.attachPane) return "close";
+  if (s.threw || (s.code ?? 0) !== 0) return "wait";
+  return s.popup && s.notices > 0 ? "notify" : "close";
+}

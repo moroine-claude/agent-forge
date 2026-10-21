@@ -3,7 +3,7 @@
 import { parseArgs } from "node:util";
 import { createInterface } from "node:readline";
 import { herdrEnv, showNotification } from "./lib/herdr.ts";
-import { collectNotices, noticeBody } from "./lib/popup.ts";
+import { ackAfterRun, collectNotices, noticeBody } from "./lib/popup.ts";
 import type { Context } from "./lib/context.ts";
 import { createContext, ForgeError } from "./lib/context.ts";
 import { cmdSetup } from "./lib/commands/setup.ts";
@@ -111,14 +111,14 @@ async function main(): Promise<number> {
     // Seul resume connaît --all : ailleurs, il serait ignoré en silence.
     if (values.all && cmd !== "resume") throw new ForgeError("--all only goes with resume: forge resume --all");
     const code = await dispatch(ctx, positionals, values.force === true, values.strict === true, values.all === true);
-    if (code !== 0 && attachInHerdrPane(cmd)) {
-      ctx.err(`the agent exited with code ${code}`);
+    const popup = !!herdrEnv()?.popup;
+    const attachPane = attachInHerdrPane(cmd);
+    const ack = ackAfterRun({ popup, attachPane, code, threw: false, notices: notices.length });
+    if (ack === "wait") {
+      if (code !== 0 && attachPane) ctx.err(`the agent exited with code ${code}`);
       ctx.err("Press Enter to close");
       await waitForLine();
-    } else if (herdrEnv()?.popup && code !== 0) {
-      ctx.err("Press Enter to close");
-      await waitForLine();
-    } else if (herdrEnv()?.popup && notices.length > 0) {
+    } else if (ack === "notify") {
       let shown = false;
       try {
         shown = await showNotification(ctx, herdrEnv()!, `forge ${cmd}`, noticeBody(notices));
@@ -138,7 +138,7 @@ async function main(): Promise<number> {
     ctx.err(`Error: ${e instanceof Error ? e.message : String(e)}`);
     // Dans la popup herdr, la fenêtre se ferme avec le processus : on laisse
     // le temps de lire l'erreur. De même pour un attach dans un pane herdr.
-    if (herdrEnv()?.popup || attachInHerdrPane(cmd)) {
+    if (ackAfterRun({ popup: !!herdrEnv()?.popup, attachPane: attachInHerdrPane(cmd), code: null, threw: true, notices: notices.length }) === "wait") {
       ctx.err("Press Enter to close");
       await waitForLine();
     }
