@@ -12,7 +12,7 @@ export const LIMA_DEFAULT_PORT = 60022;
 
 // L'alias sous lequel la clé d'hôte de la VM est enregistrée : l'inventaire
 // généré utilise le même, pour que le playbook retrouve la clé vue ici.
-const HOST_KEY_ALIAS = "forge-local-admin";
+export const HOST_KEY_ALIAS = "forge-local-admin";
 const SSH_TRIES = 60;
 const SSH_DELAY_MS = 5000;
 

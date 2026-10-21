@@ -86,9 +86,9 @@ test("the Claude login is attached with a tty when the credentials are missing",
   assert.deepEqual(ctx.attachCalls[0].argv, ["ssh", "-t", "forge-acme", "--", "'claude' 'auth' 'login'"]);
 });
 
-test("a failed Claude login says to re-run forge install", async () => {
+test("a failed Claude login names the step", async () => {
   const ctx = fakeContext({ rules: [{ match: "'test' '-e'", code: 1 }], attachCode: 1 });
-  await assert.rejects(ensureClaudeLogin(ctx, host), /forge install/);
+  await assert.rejects(ensureClaudeLogin(ctx, host), (e: Error) => e instanceof ForgeError && /claude auth login/.test(e.message));
 });
 
 test("runSetup attaches forge setup and fails on a non-zero code", async () => {
@@ -220,11 +220,11 @@ test("ensureImage rebuilds an unknown commit when the user says so", async () =>
   } finally { r.clean(); }
 });
 
-test("a failed image build says to re-run forge install", async () => {
+test("a failed image build names the step", async () => {
   const r = repo();
   try {
     const base = fakeContext({ rules: [{ match: "'forge' 'image' 'commit'", stdout: "" }], attachCode: 1 });
     const ctx: Context = { ...base, exec: (argv, o) => argv[0] === "ssh" ? base.exec(argv, o) : createContext().exec(argv, o) };
-    await assert.rejects(ensureImage(ctx, host, r.dir), /forge install/);
+    await assert.rejects(ensureImage(ctx, host, r.dir), (e: Error) => e instanceof ForgeError && /image build/.test(e.message));
   } finally { r.clean(); }
 });

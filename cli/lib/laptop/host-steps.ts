@@ -14,7 +14,7 @@ async function laptopIdentity(ctx: Context): Promise<Identity> {
     const v = trimmed(await ctx.exec(["git", "config", "--global", key]));
     if (v) return v;
     const answer = (await ctx.prompt.ask(`git ${label} for the commits of the agents`))?.trim();
-    if (!answer) throw new ForgeError(`git ${key} is not set on this machine: run git config --global ${key} <value>, then forge install again`);
+    if (!answer) throw new ForgeError(`git ${key} is not set on this machine: run git config --global ${key} <value>`);
     return answer;
   };
   return { name: await read("user.name", "name"), email: await read("user.email", "email") };
@@ -49,14 +49,14 @@ export async function ensureClaudeLogin(ctx: Context, host: LaptopHost): Promise
   // ssh lands in the forge user's home: the path is relative to it.
   if ((await remoteExec(ctx, host, ["test", "-e", ".claude/.credentials.json"])).code === 0) return "already";
   if ((await remoteAttach(ctx, host, ["claude", "auth", "login"], true)) !== 0) {
-    throw new ForgeError("claude auth login did not finish: run forge install again to retry");
+    throw new ForgeError("claude auth login did not finish");
   }
   return "logged-in";
 }
 
 export async function runSetup(ctx: Context, host: LaptopHost): Promise<void> {
   if ((await remoteAttach(ctx, host, ["forge", "setup"])) !== 0) {
-    throw new ForgeError("forge setup failed on the host: fix the error above, then run forge install again");
+    throw new ForgeError("forge setup failed on the host: fix the error above");
   }
 }
 
@@ -86,7 +86,7 @@ export async function ensureImage(ctx: Context, host: LaptopHost, checkout: stri
   }
   if (decision === "fresh") return "fresh";
   if ((await remoteAttach(ctx, host, ["forge", "image", "build"], true)) !== 0) {
-    throw new ForgeError("the image build failed: run forge install again, it resumes");
+    throw new ForgeError("the image build failed");
   }
   return "built";
 }

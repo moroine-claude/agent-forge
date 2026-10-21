@@ -1,0 +1,330 @@
+// forge install (spec "Sub-project 3: guided install"): installs or updates a
+// forge host from the laptop, the Lima VM forge-local or a remote VM
+// forge-<name>. Each step is recorded in hosts.json when it succeeds and
+// skipped on a re-run, which so picks up after a failure; a re-run of a
+// finished host is an update (playbook, setup and image again).
+import {
+  chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync,
+  statSync, symlinkSync, writeFileSync,
+} from "node:fs";
+import { userInfo } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { ForgeError, mustSucceed, type Context } from "../context.ts";
+import { forgeHome, laptopDataDir, limaHome, repoRoot, sshDir } from "../paths.ts";
+import { ensureClaudeLogin, ensureGitIdentity, ensureImage, runSetup } from "../laptop/host-steps.ts";
+import { renderInventory, writeInventoryOnce } from "../laptop/inventory.ts";
+import { chooseKey, githubAgent, keyLabel, listAgentKeys } from "../laptop/keys.ts";
+import {
+  ensureLimaVm, HOST_KEY_ALIAS, LIMA_DEFAULT_PORT, LIMA_NAME, limaInstance, type LimaInstance, type LimaOptions,
+} from "../laptop/lima.ts";
+import { checkPrerequisites } from "../laptop/prereqs.ts";
+import {
+  addInclude, forgeSshConfigDefines, hostDefinedElsewhere, includeState, renderForgeSshConfig, writeForgeSshConfig,
+} from "../laptop/ssh-config.ts";
+import {
+  forgeKeyPath, forgetHost, hostDir, inventoryPath, knownHostsPath, loadHosts, saveHost, selectHost, validHostName,
+  type InstallStep, type LaptopHost,
+} from "../laptop/state.ts";
+import { cmdOpen } from "./open.ts";
+
+// `lima` lets the tests skip ensureLimaVm's waits.
+export type InstallOptions = { remote?: string; host?: string; checkout?: string; lima?: LimaOptions };
+
+type Outcome = "done" | "already there";
+type Target = { kind: LaptopHost["kind"]; listed?: LaptopHost; address: string };
+
+const STEPS: InstallStep[] = ["vm", "inventory", "playbook", "ssh", "identity", "claude", "setup", "image"];
+// What a re-run of a finished host runs again: re-running is updating.
+const UPDATE: InstallStep[] = ["playbook", "setup", "image"];
+const LABELS: Record<InstallStep, string> = {
+  vm: "VM", inventory: "inventory", playbook: "playbook", ssh: "SSH configuration", identity: "git identity",
+  claude: "Claude login", setup: "forge setup", image: "agent-base image",
+};
+const USER_NAME = /^[a-z_][a-z0-9_-]*$/;
+// A host name or an IP address: never an ssh option, never user@host.
+const ADDRESS = /^[A-Za-z0-9][A-Za-z0-9.:-]*$/;
+
+// A remote's VM step is its first connection (it has no VM to create).
+const label = (step: InstallStep, kind: LaptopHost["kind"]): string =>
+  step === "vm" && kind === "remote" ? "first SSH connection" : LABELS[step];
+
+export async function cmdInstall(ctx: Context, opts: InstallOptions = {}): Promise<number> {
+  const checkout = opts.checkout ?? repoRoot();
+  // 1-3. Which host, the laptop's tools, the key GitHub accepts.
+  const target = await whichHost(ctx, opts);
+  await checkPrerequisites(ctx, target.kind);
+  const { key, agent } = await forgeKey(ctx, target.listed);
+  // 4-5. A new host is saved, with its key, before anything is created.
+  const { host, vm } = target.kind === "lima"
+    ? await limaHost(ctx, target.listed, key, agent)
+    : { host: target.listed ?? (await newRemoteHost(ctx, target.address, key, agent)), vm: null };
+
+  const finished = STEPS.every((s) => host.done.includes(s));
+  const resume = host.kind === "remote" ? `forge install --host ${host.name}` : "forge install";
+  const outcomes: [InstallStep, Outcome][] = [];
+  // Skipped when recorded (unless `always`), recorded when it succeeds. A
+  // failure names the step and the command that resumes there.
+  const step = async (s: InstallStep, run: () => Promise<Outcome>, always = false): Promise<void> => {
+    if (!always && host.done.includes(s)) { outcomes.push([s, "already there"]); return; }
+    let outcome: Outcome;
+    try {
+      outcome = await run();
+    } catch (e) {
+      if (!(e instanceof ForgeError)) throw e;
+      throw new ForgeError(`${e.message}\nThe ${label(s, host.kind)} step failed: run ${resume} to resume there.`);
+    }
+    host.done = STEPS.filter((x) => x === s || host.done.includes(x));
+    saveHost(host);
+    outcomes.push([s, outcome]);
+  };
+
+  // 5-6. The machine: the Lima VM (started again when it is stopped, after a
+  // reboot), or the remote's first connection.
+  await step("vm", () => (host.kind === "lima" ? limaVm(ctx, host, checkout, opts.lima) : firstConnection(ctx, host)),
+    vm !== null && vm.status !== "Running");
+  // 7. Written once: the developer's edits are kept.
+  await step("inventory", async () => {
+    const text = renderInventory(host, { forgeKey: key, adminKeyFile: host.adminKey, knownHosts: knownHostsPath() });
+    return writeInventoryOnce(inventoryPath(host.name), text) === "written" ? "done" : "already there";
+  });
+  // 8. On a finished host, the update's steps are run and recorded again.
+  if (finished) {
+    host.done = host.done.filter((s) => !UPDATE.includes(s));
+    saveHost(host);
+  }
+  await step("playbook", () => playbook(ctx, host, checkout));
+  // 9. Every run: forge's file follows the list of hosts.
+  await step("ssh", () => sshConfig(ctx, host), true);
+  // 10. The host's account and runtime, over the alias.
+  await step("identity", async () => ((await ensureGitIdentity(ctx, host)) === "set" ? "done" : "already there"));
+  await step("claude", async () => ((await ensureClaudeLogin(ctx, host)) === "logged-in" ? "done" : "already there"));
+  await step("setup", async () => { await runSetup(ctx, host); return "done"; });
+  await step("image", async () => ((await ensureImage(ctx, host, checkout)) === "built" ? "done" : "already there"));
+  // 11. Not a recorded step: asked while the link is missing.
+  await linkForge(ctx, checkout);
+
+  // 12. What was done, what was already there; then herdr.
+  ctx.out(`${host.name}:`);
+  for (const [s, outcome] of outcomes) ctx.out(`  ${label(s, host.kind)}: ${outcome}`);
+  return cmdOpen(ctx, { host: host.name });
+}
+
+// No option: forge-local. --host: an installed host. --remote: the installed
+// remote with that address, or a new one.
+async function whichHost(ctx: Context, opts: InstallOptions): Promise<Target> {
+  if (opts.remote !== undefined && opts.host !== undefined) {
+    throw new ForgeError("--remote and --host do not go together: --remote <address> for a new host, --host <name> for an installed one");
+  }
+  if (opts.host !== undefined) {
+    const listed = await selectHost(ctx, opts.host);
+    return { kind: listed.kind, listed, address: listed.address };
+  }
+  const hosts = loadHosts();
+  if (opts.remote !== undefined) {
+    if (!ADDRESS.test(opts.remote)) throw new ForgeError(`--remote takes a host name or an IP address, not ${opts.remote}`);
+    return { kind: "remote", listed: hosts.find((h) => h.kind === "remote" && h.address === opts.remote), address: opts.remote };
+  }
+  return { kind: "lima", listed: hosts.find((h) => h.name === LIMA_NAME), address: "127.0.0.1" };
+}
+
+// The key GitHub accepts, which is also the forge user's only key on the host.
+// A re-run reads it back from the host's directory and asks nothing.
+async function forgeKey(ctx: Context, listed?: LaptopHost): Promise<{ key: string; agent?: string }> {
+  if (listed) {
+    let saved = "";
+    try { saved = readFileSync(forgeKeyPath(listed.name), "utf8").trim(); } catch { /* chosen again below */ }
+    if (saved) return { key: saved, agent: listed.identityAgent };
+  }
+  const agent = listed ? listed.identityAgent : await githubAgent(ctx);
+  const key = await chooseKey(ctx, await listAgentKeys(ctx, agent));
+  if (listed) writeKey(listed.name, key);
+  return { key, agent };
+}
+
+// A public key: 0644, in the host's 0700 directory.
+function writeKey(name: string, key: string): void {
+  mkdirSync(hostDir(name), { recursive: true, mode: 0o700 });
+  writeFileSync(forgeKeyPath(name), `${key}\n`, { mode: 0o644 });
+  chmodSync(forgeKeyPath(name), 0o644); // the umask may have narrowed the mode above
+}
+
+function saveNewHost(host: LaptopHost, key: string): void {
+  saveHost(host);
+  writeKey(host.name, key);
+}
+
+// Only the forge-local forge created. A listed VM deleted by hand is, on
+// request, forgotten and installed again.
+async function limaHost(
+  ctx: Context, listed: LaptopHost | undefined, key: string, agent: string | undefined,
+): Promise<{ host: LaptopHost; vm: LimaInstance | null }> {
+  const vm = await limaInstance(ctx, LIMA_NAME);
+  if (!listed && vm) {
+    throw new ForgeError(
+      `a Lima VM named ${LIMA_NAME} exists, but forge install did not create it. Retrieve its work first ` +
+      `(its workspaces live inside it), then remove it with limactl delete ${LIMA_NAME} and run forge install again.`,
+    );
+  }
+  // A VM that was never created (its creation failed) is simply created.
+  if (listed && !vm && listed.done.includes("vm")) {
+    const i = await ctx.prompt.pick(`${LIMA_NAME}'s Lima VM is gone`, ["forget it and install a new one", "stop"]);
+    if (i !== 0) throw new ForgeError(`${LIMA_NAME} stays listed: run forge install again to forget it and start over`);
+    await forgetLimaHost(ctx, listed);
+    listed = undefined;
+  }
+  if (listed) return { host: listed, vm };
+  // Port and admin are placeholders until ensureLimaVm reads them back.
+  const host: LaptopHost = {
+    name: LIMA_NAME, kind: "lima", address: "127.0.0.1", port: LIMA_DEFAULT_PORT, user: "forge", admin: "",
+    adminKey: join(limaHome(), "_config", "user"), exposure: "local", ...(agent ? { identityAgent: agent } : {}),
+    done: [],
+  };
+  saveNewHost(host, key);
+  return { host, vm };
+}
+
+// Its entry, its directory (inventory and key) and its host keys: the new VM
+// has new ones, which accept-new would refuse under the old names.
+async function forgetLimaHost(ctx: Context, host: LaptopHost): Promise<void> {
+  forgetHost(host.name);
+  rmSync(hostDir(host.name), { recursive: true, force: true });
+  const knownHosts = knownHostsPath();
+  if (!existsSync(knownHosts)) return;
+  for (const entry of [host.name, HOST_KEY_ALIAS, `[${host.address}]:${host.port}`]) {
+    await mustSucceed(`ssh-keygen -R ${entry}`, ctx.exec(["ssh-keygen", "-R", entry, "-f", knownHosts]));
+  }
+}
+
+// What a remote host needs and forge cannot guess, asked once.
+async function newRemoteHost(ctx: Context, address: string, key: string, agent: string | undefined): Promise<LaptopHost> {
+  const answer = (await ctx.prompt.ask("Host name: forge-<name>"))?.trim();
+  if (!answer) throw new ForgeError("a remote host needs a name: forge-<name>, as forge-acme");
+  const name = answer.startsWith("forge-") ? answer : `forge-${answer}`;
+  if (!validHostName(name)) {
+    throw new ForgeError(`${name} is not a valid host name: forge- then lowercase letters, digits and dashes, as forge-acme`);
+  }
+  if (name === LIMA_NAME) throw new ForgeError(`${LIMA_NAME} is the local VM's name: choose another one`);
+  if (loadHosts().some((h) => h.name === name)) {
+    throw new ForgeError(`${name} is already installed: forge install --host ${name} updates it`);
+  }
+  const admin = (await ctx.prompt.ask("Admin account (default ubuntu)"))?.trim() || "ubuntu";
+  if (!USER_NAME.test(admin)) throw new ForgeError(`${admin} is not a valid account name`);
+  const exposure = await ctx.prompt.pick("Exposure", ["public: a cloud VM with a public address", "lan: a machine on your network"]);
+  if (exposure === null) throw new ForgeError("no exposure chosen: public or lan");
+  const login = userInfo().username;
+  const user = (await ctx.prompt.ask(`Forge user name (default ${login})`))?.trim() || login;
+  if (!USER_NAME.test(user)) throw new ForgeError(`${user} is not a valid user name: lowercase letters, digits, _ and -`);
+  if (user === admin) throw new ForgeError(`the forge user must differ from the admin account (${admin})`);
+  const host: LaptopHost = {
+    name, kind: "remote", address, port: 22, user, admin, adminKey: await adminKey(ctx, name, key),
+    exposure: exposure === 0 ? "public" : "lan", ...(agent ? { identityAgent: agent } : {}), done: [],
+  };
+  saveNewHost(host, key);
+  return host;
+}
+
+// The GitHub key (its public half, which IdentityFile names while the private
+// half stays in the agent), or a private key file the provider generated.
+async function adminKey(ctx: Context, name: string, key: string): Promise<string> {
+  const i = await ctx.prompt.pick("Key the admin account accepts", [keyLabel(key), "a private key file"]);
+  if (i !== 1) return forgeKeyPath(name);
+  const answer = (await ctx.prompt.ask("Private key file"))?.trim();
+  if (!answer) throw new ForgeError("no private key file given");
+  const path = resolve(answer.startsWith("~/") ? join(forgeHome(), answer.slice(2)) : answer);
+  if (!existsSync(path) || !statSync(path).isFile()) throw new ForgeError(`${path}: no such key file`);
+  return path;
+}
+
+async function limaVm(ctx: Context, host: LaptopHost, checkout: string, lima?: LimaOptions): Promise<Outcome> {
+  const vm = await ensureLimaVm(ctx, join(checkout, "ansible", "lima", "forge.yaml"), lima);
+  // Lima names its admin after the laptop login, which may be forge.
+  if (vm.admin === host.user) {
+    throw new ForgeError(`${LIMA_NAME}'s admin account is ${vm.admin}, the name of the forge user it would create: the two must differ`);
+  }
+  Object.assign(host, { port: vm.port, admin: vm.admin, adminKey: vm.adminKey });
+  return "done";
+}
+
+// ssh reads a `-o` value like a config line: one with a space is quoted.
+const sshOption = (name: string, value: string): string => (/\s/.test(value) ? `${name}="${value}"` : `${name}=${value}`);
+
+// In the terminal, so that OpenSSH asks about the new host's key once, in the
+// open; exactly one key is offered (sshd allows two attempts, fail2ban bans).
+async function firstConnection(ctx: Context, host: LaptopHost): Promise<Outcome> {
+  mkdirSync(dirname(knownHostsPath()), { recursive: true, mode: 0o700 });
+  const argv = ["ssh", "-o", sshOption("UserKnownHostsFile", knownHostsPath()), "-o", "IdentitiesOnly=yes"];
+  if (host.identityAgent) argv.push("-o", sshOption("IdentityAgent", host.identityAgent));
+  argv.push("-i", host.adminKey, `${host.admin}@${host.address}`, "true");
+  const code = await ctx.attach(argv);
+  if (code !== 0) {
+    throw new ForgeError(`ssh ${host.admin}@${host.address} failed (exit code ${code}): check the address, the admin account and its key`);
+  }
+  return "done";
+}
+
+// From the checkout, whose HEAD the playbook deploys; the collections live in
+// forge's data directory.
+async function playbook(ctx: Context, host: LaptopHost, checkout: string): Promise<Outcome> {
+  const collections = join(laptopDataDir(), "collections");
+  const env = { ANSIBLE_COLLECTIONS_PATH: collections };
+  const requirements = join(checkout, "ansible", "requirements.yml");
+  const galaxy = await ctx.attach(["ansible-galaxy", "collection", "install", "-r", requirements, "-p", collections], { env });
+  if (galaxy !== 0) throw new ForgeError(`ansible-galaxy collection install failed (exit code ${galaxy})`);
+  const play = await ctx.attach(["ansible-playbook", "-i", inventoryPath(host.name), join(checkout, "ansible", "site.yml")], { env });
+  if (play !== 0) throw new ForgeError(`ansible-playbook failed (exit code ${play})`);
+  return "done";
+}
+
+// forge's own file is rewritten freely; ~/.ssh/config only ever gains the one
+// Include, at its top, after a confirmation.
+async function sshConfig(ctx: Context, host: LaptopHost): Promise<Outcome> {
+  if (!forgeSshConfigDefines(host.name) && (await hostDefinedElsewhere(ctx, host.name))) {
+    throw new ForgeError(
+      `Host ${host.name} is already defined in your SSH configuration (~/.ssh/config or a file it includes), not by forge: remove that entry`,
+    );
+  }
+  writeForgeSshConfig(renderForgeSshConfig(loadHosts(), { knownHosts: knownHostsPath(), keyPath: forgeKeyPath }));
+  const path = join(sshDir(), "config");
+  const text = existsSync(path) ? readFileSync(path, "utf8") : "";
+  if (includeState(text) === "covered") return host.done.includes("ssh") ? "already there" : "done";
+  const yes = await ctx.prompt.pick("Add `Include config.d/*` at the top of ~/.ssh/config?", ["yes", "no"]);
+  if (yes !== 0) {
+    throw new ForgeError(`without Include config.d/* at the top of ~/.ssh/config, ssh never reads forge's file: the alias ${host.name} cannot work`);
+  }
+  writeKeepingMode(path, addInclude(text));
+  return "done";
+}
+
+// Atomic, next to the real file (a symlinked ~/.ssh/config stays a symlink),
+// with its mode kept; a new file is 0600.
+function writeKeepingMode(path: string, text: string): void {
+  const target = existsSync(path) ? realpathSync(path) : path;
+  const mode = existsSync(target) ? statSync(target).mode & 0o777 : 0o600;
+  const tmp = `${target}.forge-tmp`;
+  writeFileSync(tmp, text, { mode });
+  chmodSync(tmp, mode);
+  renameSync(tmp, target);
+}
+
+// ~/.local/bin/forge → the checkout's cli/forge, after a confirmation; any
+// other file there is left alone.
+async function linkForge(ctx: Context, checkout: string): Promise<void> {
+  const bin = join(forgeHome(), ".local", "bin");
+  const link = join(bin, "forge");
+  const target = join(checkout, "cli", "forge");
+  let present = true;
+  try { lstatSync(link); } catch { present = false; }
+  if (!present) {
+    if ((await ctx.prompt.pick(`Link ~/.local/bin/forge to ${target}?`, ["yes", "no"])) !== 0) return;
+    mkdirSync(bin, { recursive: true });
+    symlinkSync(target, link);
+  } else if (!lstatSync(link).isSymbolicLink() || resolve(bin, readlinkSync(link)) !== target) {
+    ctx.out(`~/.local/bin/forge is not a link to ${target}: left as it is`);
+    return;
+  }
+  const onPath = (process.env.PATH ?? "").split(":").some((d) => d !== "" && resolve(d) === bin);
+  if (!onPath) {
+    ctx.out("~/.local/bin is not on your PATH: add this line to your shell's rc file (~/.zshrc, ~/.bashrc):");
+    ctx.out('export PATH="$HOME/.local/bin:$PATH"');
+  }
+}

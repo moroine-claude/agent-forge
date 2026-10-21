@@ -38,7 +38,7 @@ export async function listAgentKeys(ctx: Context, agent: string | undefined): Pr
 }
 
 // Type + commentaire ; sans commentaire, le type et un préfixe de la clé.
-function label(key: string): string {
+export function keyLabel(key: string): string {
   const [type, blob, ...comment] = key.split(/\s+/);
   if (comment.length) return `${type} ${comment.join(" ")}`;
   return `${type} ${(blob ?? "").slice(0, 12)}…`;
@@ -50,7 +50,7 @@ export async function chooseKey(ctx: Context, keys: string[]): Promise<string> {
     throw new ForgeError("The SSH agent holds no key. Add the key GitHub accepts with ssh-add, then run forge install again.");
   }
   if (keys.length === 1) return keys[0];
-  const i = await ctx.prompt.pick("Key GitHub accepts", keys.map(label));
+  const i = await ctx.prompt.pick("Key GitHub accepts", keys.map(keyLabel));
   if (i === null || i < 0 || i >= keys.length) throw new ForgeError("No key chosen.");
   return keys[i];
 }
