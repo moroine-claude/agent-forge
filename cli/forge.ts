@@ -111,7 +111,8 @@ async function main(): Promise<number> {
     // - un succès sans rien à lire : elle se ferme aussitôt ;
     // - un succès qui a écrit des WARNING/NOTICE ou appelé ctx.notify : ces lignes
     //   partent en une notification herdr (voir cli/lib/popup.ts). On n'attend
-    //   Entrée que si herdr ne l'a pas affichée (toasts éteints) ou a échoué.
+    //   Entrée que si herdr répond shown:false (aucun client herdr attaché) ou a échoué ;
+    //   avec un client attaché elle répond shown:true, toast affiché ou non.
     const popup = !!herdrEnv()?.popup;
     const attachPane = attachInHerdrPane(cmd);
     const ack = ackAfterRun({ popup, attachPane, code, threw: false, notices: notices.length });

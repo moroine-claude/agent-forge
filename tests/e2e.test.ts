@@ -39,7 +39,7 @@ case "$1 $2" in
 esac
 `;
 
-// Answers like herdr 0.9.5 with its default config: toasts are off.
+// Answers like herdr 0.9.5 with no client attached: shown:false.
 const FAKE_HERDR_TOASTS_OFF = `#!/bin/sh
 case "$1 $2" in
   "notification show") echo '{"id":"1","result":{"shown":false,"reason":"disabled"}}' ;;
