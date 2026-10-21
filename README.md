@@ -75,7 +75,7 @@ repositories with it, through agent forwarding.
 ### 2. Create the VM
 
 ```bash
-git clone -b next https://github.com/moroine/agent-forge.git
+git clone https://github.com/moroine/agent-forge.git
 cd agent-forge
 limactl create --tty=false --name forge-local ansible/lima/forge.yaml
 limactl start forge-local
@@ -83,9 +83,6 @@ limactl start forge-local
 
 `--tty=false` skips `limactl create`'s question (proceed, edit the configuration, or pick another
 template): the template is meant to be used as is.
-
-Until v2 is released, it lives on the `next` branch; the default branch still
-holds v1.
 
 The template (`ansible/lima/forge.yaml`) runs Lima in plain mode: no shared
 folder, no port forwarding besides SSH on `127.0.0.1:60022`. Workspaces live
@@ -450,5 +447,4 @@ Known limits:
   reboots it and verifies again: `--lima` for a throwaway Lima VM, `--host`
   for a fresh cloud VM, or a VM on an Incus host with KVM. See
   `ansible/README.md`.
-- v2 is developed on the `next` branch; `main` holds v1 until the release.
-  Designs and plans live in `docs/superpowers/`.
+- Designs and plans live in `docs/superpowers/`.

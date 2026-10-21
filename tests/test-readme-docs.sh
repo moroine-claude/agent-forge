@@ -76,10 +76,12 @@ assert_contains 'incus --project agent-forge delete --force'
 assert_contains 'Host forge-vm'
 assert_not_contains 'Port 2222'
 
-# Corrections de la relecture finale : v2 vit sur next jusqu'à la sortie, le
-# mode strict dépend d'un Incus pas encore publié en lts-7.0, le port Lima se
-# change, et les pièges d'une première heure ont leur ligne de dépannage.
-assert_contains 'git clone -b next'
+# Corrections de la relecture finale : la v2 est sortie sur main (la branche
+# next est retirée, on clone la branche par défaut), le mode strict dépend
+# d'un Incus pas encore publié en lts-7.0, le port Lima se change, et les
+# pièges d'une première heure ont leur ligne de dépannage.
+assert_contains 'git clone https://github.com/moroine/agent-forge.git'
+assert_not_contains 'git clone -b next'
 assert_contains 'Incus 7.0.2'
 assert_contains 'not published yet'
 assert_contains ".ssh.localPort = "

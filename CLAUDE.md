@@ -3,7 +3,7 @@
 ## Contexte
 Tu travailles sur `agent-forge`, un repo d'infrastructure pour faire tourner des agents Claude Code dans des containers Incus isolés, sur un hôte provisionné par Ansible : une VM distante (cloud ou LAN), ou une VM Lima locale sur la machine de dev (mode local, macOS ou Ubuntu).
 
-Ce fichier décrit la v2, portée par la branche `next` (voir « Branche `next` » plus bas) ; `main` reste la v1 (LXD) jusqu'à la sortie. Les cinq sous-projets de la v2 sont livrés : hôte Ansible, runtime Incus, mode strict (liste blanche de sortie), orchestration herdr, mode local et docs. Le `README.md` est le guide d'installation par mode (local Lima, distant).
+Ce fichier décrit la v2, sortie sur `main` (la v1, LXD, n'est plus maintenue). Les cinq sous-projets de la v2 sont livrés : hôte Ansible, runtime Incus, mode strict (liste blanche de sortie), orchestration herdr, mode local et docs. Le `README.md` est le guide d'installation par mode (local Lima, distant).
 
 ## Stack
 - **Hôte** : Ubuntu 26.04 LTS, Incus 7.0 LTS (dépôt Zabbly), nftables (table `inet forge_host`), fail2ban (sauf en `forge_exposure: local`) — provisionné par `ansible/site.yml`. En local, la VM vient du template Lima `ansible/lima/forge.yaml`
@@ -32,21 +32,11 @@ Ce fichier décrit la v2, portée par la branche `next` (voir « Branche `next` 
   - le mainteneur récupère ton travail depuis sa machine avec `forge upload-pack`, le relit, le re-signe, le pousse et ouvre la PR.
 - **Sur la machine de dev** (une session Claude Code dans ce repo, dont `.claude/settings.json` applique `container/pre-bash.sh`) :
   - push uniquement vers `agent/<tâche>` : `git push -u origin agent/<tâche>` ;
-  - puis une PR vers la branche de base : `gh pr create --base next` pendant la v2, `--base main` après la sortie ;
+  - puis une PR vers `main` : `gh pr create --base main` ;
   - en mode `auto`, sans demander ; en session interactive, après confirmation, même vers `agent/<tâche>`.
-- Jamais : merger une PR toi-même, pousser vers `main` ou `next`, faire `git checkout main`.
-- La seule forme de `git merge` autorisée est `git merge origin/<base>` (ou `--no-edit`), pour rafraîchir ta branche `agent/*` depuis sa base avant de pousser — jamais l'inverse, jamais une autre branche. Sur `next`, `pre-bash.sh` n'accepte encore que `origin/main` : la règle `origin/next` est sur `main` (moroine/agent-forge#27) et arrivera quand un humain fusionnera `main` dans `next`.
-- Les règles du mode autonome des containers v1 (compte bot, PR ouverte depuis un container) restent sur `main`.
-
-### Branche `next` (v2 en cours)
-Cette branche porte la v2 d'agent-forge (Incus, hôte Ansible, herdr — spec
-cadre `docs/superpowers/specs/2026-10-15-v2-incus-ansible-herdr-design.md`).
-`main` reste la v1 jusqu'à la sortie de la v2 ; la PR `next` → `main` de la
-sortie retire cette section.
-- Les tâches v2 partent de `next` (`forge start` → « other branch… » →
-  `origin/next`) : ta branche de base est `next`.
-- Les PR visent `next` : `gh pr create --base next`, jamais `--base main`.
-- `main` est fusionnée dans `next` régulièrement, par un humain.
+- Jamais : merger une PR toi-même, pousser vers `main`, faire `git checkout main`.
+- La seule forme de `git merge` autorisée est `git merge origin/main` (ou `--no-edit`), pour rafraîchir ta branche `agent/*` depuis `main` avant de pousser — jamais l'inverse, jamais une autre branche. C'est ce que `container/pre-bash.sh` autorise.
+- La branche longue `next`, qui a porté la v2 jusqu'à sa sortie, est retirée.
 
 ### Runtime v2
 Specs : `docs/superpowers/specs/2026-10-15-v2-runtime-design.md` (runtime),
@@ -116,5 +106,5 @@ profil `agent-super`) n'existe que dans la v1, sur `main`.
 ## Ce que tu ne dois pas faire
 - Modifier les clés SSH ou credentials
 - Changer l'architecture de sécurité sans validation explicite
-- Push sur `main` ou `next`, ou merger une PR toi-même (même en mode autonome)
+- Push sur `main`, ou merger une PR toi-même (même en mode autonome)
 - Exécuter des commandes sur le système hôte en dehors de `/workspace`
