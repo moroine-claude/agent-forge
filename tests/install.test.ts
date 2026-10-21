@@ -43,6 +43,10 @@ const HERDR_LOCAL = ["herdr", "--remote", "forge-local", "--remote-keybindings",
 const INCLUDE = "Add `Include config.d/*` at the top of ~/.ssh/config?";
 const LINK = `Link ~/.local/bin/forge to ${CHECKOUT}/cli/forge?`;
 const RETRY = "forge-acme: the first connection never succeeded";
+const WHICH = "Install or update which host?";
+// The checkout's commit, which the playbook deploys.
+const HEAD = "1111111111111111111111111111111111111111";
+const HEAD2 = "2222222222222222222222222222222222222222";
 
 const BASE: ExecRule[] = [
   { match: "limactl --version", stdout: "limactl version 2.1.2\n" },
@@ -50,6 +54,7 @@ const BASE: ExecRule[] = [
   { match: "ssh-add -L", stdout: `${KEY}\n` },
   { match: "git config --global user.name", stdout: "Alice Example\n" },
   { match: "git config --global user.email", stdout: "alice@example.com\n" },
+  { match: `git -C ${CHECKOUT} rev-parse HEAD`, stdout: `${HEAD}\n` },
 ];
 const NO_LOGIN: ExecRule = { match: "'test' '-e' '.claude/.credentials.json'", code: 1 };
 
@@ -118,17 +123,20 @@ test("a first local install runs every step in order and ends in herdr", async (
   for (const a of ctx.attachCalls.filter((c) => c.argv[0].startsWith("ansible"))) {
     assert.deepEqual(a.opts, { env: { ANSIBLE_COLLECTIONS_PATH: collections }, cwd: CHECKOUT });
   }
-  // The SSH check comes after the playbook, the host's account steps after it.
+  // A hand-defined Host is looked for before anything is created, and again
+  // at the SSH step, after the playbook, before the host's account steps.
+  const sshChecks = called(ctx).flatMap((c, i) => (c === "ssh -G forge-local" ? [i] : []));
+  const create = firstIndex(ctx, "limactl create");
   const playbook = firstIndex(ctx, "ansible-playbook -i");
-  const sshCheck = firstIndex(ctx, "ssh -G forge-local");
   const identity = firstIndex(ctx, "forge-local -- 'git' 'config'");
-  assert.ok(playbook < sshCheck && sshCheck < identity, called(ctx).join("\n"));
+  assert.equal(sshChecks.length, 2, called(ctx).join("\n"));
+  assert.ok(sshChecks[0] < create && playbook < sshChecks[1] && sshChecks[1] < identity, called(ctx).join("\n"));
   assert.ok(called(ctx).some((c) => c.includes("forge-local -- 'git' 'config' '--global' 'user.name' 'Alice Example'")));
 
   const [h] = loadHosts();
   assert.deepEqual(h, {
     name: "forge-local", kind: "lima", address: "127.0.0.1", port: 60022, user: "forge", admin: "alice",
-    adminKey: join(home, ".lima/_config/user"), exposure: "local", done: ALL,
+    adminKey: join(home, ".lima/_config/user"), exposure: "local", done: ALL, deployed: HEAD,
   });
   assert.equal(readFileSync(forgeKeyPath("forge-local"), "utf8"), `${KEY}\n`);
   assert.equal(statSync(forgeKeyPath("forge-local")).mode & 0o777, 0o644);
@@ -239,6 +247,88 @@ test("an update that fails resumes at the failed step", async () => {
   assert.ok(attached(ctx).includes("ssh -o ForwardAgent=no forge-local -- 'forge' 'setup'"));
 });
 
+// An inventory deleted by hand would let ansible-playbook -i <missing> exit 0
+// having deployed nothing.
+test("a deleted inventory is written again on the next run", async () => {
+  const world: World = { vm: null };
+  await finishedLocal(world);
+  const inventory = readFileSync(inventoryPath("forge-local"), "utf8");
+  rmSync(inventoryPath("forge-local"));
+  const ctx = laptop(world);
+  assert.equal(await cmdInstall(ctx, OPTS), 0);
+  assert.equal(readFileSync(inventoryPath("forge-local"), "utf8"), inventory);
+  assert.ok(ctx.out_lines.includes("  inventory: done"), ctx.out_lines.join("\n"));
+  const again = laptop(world);
+  assert.equal(await cmdInstall(again, OPTS), 0);
+  assert.ok(again.out_lines.includes("  inventory: already there"), again.out_lines.join("\n"));
+});
+
+// After `git pull`, a resume deploys the new forge, not only the failed step.
+async function failedAtSetup(world: World): Promise<void> {
+  const first = laptop(world, { answers: [0, 0], attachRules: [{ match: "'forge' 'setup'", code: 1 }] });
+  await assert.rejects(cmdInstall(first, OPTS), /forge setup/);
+  assert.deepEqual(loadHosts()[0].done, ["vm", "inventory", "playbook", "ssh", "identity", "claude"]);
+  assert.equal(loadHosts()[0].deployed, HEAD);
+}
+
+test("a resume after a setup failure with the same checkout skips the playbook", async () => {
+  const world: World = { vm: null };
+  await failedAtSetup(world);
+  const ctx = laptop(world);
+  assert.equal(await cmdInstall(ctx, OPTS), 0);
+  assert.deepEqual(attached(ctx), [
+    "ssh -o ForwardAgent=no forge-local -- 'forge' 'setup'",
+    "ssh -o ForwardAgent=no -t forge-local -- 'forge' 'image' 'build'",
+    HERDR_LOCAL.join(" "),
+  ]);
+});
+
+test("a resume after a setup failure with a new checkout commit re-runs playbook, setup and image", async () => {
+  // A new commit, or a HEAD that cannot be read: either way, deployed again.
+  for (const rule of [
+    { match: "rev-parse HEAD", stdout: `${HEAD2}\n` },
+    { match: "rev-parse HEAD", code: 128, stderr: "fatal: not a git repository" },
+  ]) {
+    const world: World = { vm: null };
+    await failedAtSetup(world);
+    const ctx = laptop(world, { rules: [rule] });
+    assert.equal(await cmdInstall(ctx, OPTS), 0);
+    assert.deepEqual(attached(ctx), [
+      `ansible-galaxy collection install -r ${CHECKOUT}/ansible/requirements.yml -p ${join(home, ".local/share/agent-forge/collections")}`,
+      `ansible-playbook -i ${inventoryPath("forge-local")} ${CHECKOUT}/ansible/site.yml`,
+      "ssh -o ForwardAgent=no forge-local -- 'forge' 'setup'",
+      "ssh -o ForwardAgent=no -t forge-local -- 'forge' 'image' 'build'",
+      HERDR_LOCAL.join(" "),
+    ], rule.stdout ?? rule.stderr);
+    assert.ok(!called(ctx).some((c) => c.includes("'git' 'config'") || c.includes("'test' '-e'")));
+    const h = loadHosts()[0];
+    assert.deepEqual(h.done, ALL);
+    assert.equal(h.deployed, rule.code ? undefined : HEAD2);
+    rmSync(join(home, ".config/agent-forge"), { recursive: true, force: true });
+    rmSync(join(home, ".ssh/config.d"), { recursive: true, force: true });
+    rmSync(join(home, ".ssh/config"), { force: true });
+    rmSync(join(home, ".local/bin"), { recursive: true, force: true });
+  }
+});
+
+// A first install stopped after the SSH wait (the VM's key is stored), then
+// the VM deleted by hand: the new VM's key must not meet the old one.
+test("a VM created again after a failed first install is not refused for its new host key", async () => {
+  const world: World = { vm: null };
+  const first = laptop(world, { rules: [{ match: "cloud-init status --wait", code: 1 }] });
+  await assert.rejects(cmdInstall(first, OPTS), /cloud-init/);
+  assert.deepEqual(loadHosts()[0].done, []);
+  writeFileSync(knownHostsPath(), "forge-local-admin ssh-ed25519 AAAAold\n");
+  world.vm = null;
+  const ctx = laptop(world, { answers: [0, 1] });
+  assert.equal(await cmdInstall(ctx, OPTS), 0);
+  const kh = knownHostsPath();
+  const create = firstIndex(ctx, "limactl create");
+  assert.deepEqual(called(ctx).slice(create - 2, create), [
+    `ssh-keygen -R forge-local -f ${kh}`, `ssh-keygen -R forge-local-admin -f ${kh}`,
+  ]);
+});
+
 test("a stopped Lima VM is started on a re-run, not recreated", async () => {
   const world: World = { vm: null };
   await finishedLocal(world);
@@ -272,13 +362,16 @@ test("a listed Lima VM that is gone is offered to be forgotten", async () => {
   assert.match(asked(ctx)[0], /forge-local.*gone/);
   const kh = knownHostsPath();
   const forget = ctx.calls.filter((c) => c[0] === "ssh-keygen");
+  // Forgetting the VM, then (as before any creation) the VM's aliases again.
   assert.deepEqual(forget, [
     ["ssh-keygen", "-R", "forge-local", "-f", kh],
     ["ssh-keygen", "-R", "forge-local-admin", "-f", kh],
     ["ssh-keygen", "-R", "[127.0.0.1]:60022", "-f", kh],
+    ["ssh-keygen", "-R", "forge-local", "-f", kh],
+    ["ssh-keygen", "-R", "forge-local-admin", "-f", kh],
   ]);
   // Then a fresh install: a new VM and a new inventory, nothing else asked.
-  assert.ok(firstIndex(ctx, "ssh-keygen") < firstIndex(ctx, "limactl create"));
+  assert.ok(called(ctx).findLastIndex((c) => c.startsWith("ssh-keygen")) < firstIndex(ctx, "limactl create"));
   assert.deepEqual(asked(ctx).length, 1);
   assert.doesNotMatch(readFileSync(inventoryPath("forge-local"), "utf8"), /an edit for the old VM/);
   assert.equal(readFileSync(forgeKeyPath("forge-local"), "utf8"), `${KEY}\n`);
@@ -368,10 +461,11 @@ test("a remote install asks its questions once and saves them first", async () =
 // tried again or forgotten, until it has succeeded once.
 const FAILED_FIRST = { match: "ubuntu@203.0.113.10", code: 255 };
 
-async function remoteFailedAtFirstConnection(world: World): Promise<void> {
+async function remoteFailedAtFirstConnection(world: World, listed = ["forge-acme"]): Promise<void> {
   const first = laptop(world, { answers: ["acme", "ubuntu", 0, "alice", null], attachRules: [FAILED_FIRST] });
   await assert.rejects(cmdInstall(first, REMOTE), ForgeError);
-  assert.deepEqual(loadHosts().map((h) => [h.name, h.done]), [["forge-acme", []]]);
+  assert.deepEqual(loadHosts().map((h) => h.name), listed);
+  assert.deepEqual(loadHosts().find((h) => h.name === "forge-acme")?.done, []);
 }
 
 test("the retry offer comes only for a remote whose first connection never succeeded", async () => {
@@ -485,16 +579,114 @@ test("--remote and --host together are refused", async () => {
   await assert.rejects(cmdInstall(laptop({ vm: null }), { ...REMOTE, host: "forge-acme" }), ForgeError);
 });
 
+// With no option, forge install never creates a VM nobody asked for.
+async function finishedRemote(world: World): Promise<void> {
+  assert.equal(await cmdInstall(laptop(world, { answers: ["acme", "", 0, "alice", null, 0, 1] }), REMOTE), 0);
+}
+
+test("no option updates forge-local when it is listed, without asking", async () => {
+  const world: World = { vm: null };
+  await finishedLocal(world);
+  await finishedRemote(world);
+  const ctx = laptop(world);
+  assert.equal(await cmdInstall(ctx, OPTS), 0);
+  assert.ok(!asked(ctx).includes(WHICH));
+  assert.deepEqual(ctx.attachCalls.at(-1)?.argv, HERDR_LOCAL);
+});
+
+test("no option and only remote hosts listed asks which host", async () => {
+  const world: World = { vm: null };
+  await finishedRemote(world);
+  const update = laptop(world, { answers: [0] });
+  assert.equal(await cmdInstall(update, OPTS), 0);
+  assert.equal(update.err_lines.find((l) => l.startsWith(WHICH)), `${WHICH}> [forge-acme | a new local VM (forge-local)]`);
+  assert.ok(!called(update).some((c) => c.startsWith("limactl")));
+  assert.equal(update.attachCalls.at(-1)?.argv[2], "forge-acme");
+
+  const local = laptop(world, { answers: [1, 1] });
+  assert.equal(await cmdInstall(local, OPTS), 0);
+  assert.ok(attached(local).some((a) => a.startsWith("limactl create")));
+  assert.deepEqual(loadHosts().map((h) => h.name), ["forge-acme", "forge-local"]);
+});
+
+test("no option, only remote hosts and no answer stops and names --host and --remote", async () => {
+  const world: World = { vm: null };
+  await finishedRemote(world);
+  const before = readFileSync(join(home, ".config/agent-forge/hosts.json"), "utf8");
+  const ctx = laptop(world, { answers: [null] });
+  await assert.rejects(cmdInstall(ctx, OPTS), (e: Error) =>
+    e instanceof ForgeError && /--host <name>/.test(e.message) && /--remote <address>/.test(e.message));
+  assert.deepEqual(ctx.attachCalls, []);
+  assert.equal(readFileSync(join(home, ".config/agent-forge/hosts.json"), "utf8"), before);
+});
+
+const forgeSshFile = () => readFileSync(join(home, ".ssh/config.d/agent-forge"), "utf8");
+
+test("forge's SSH file lists only the hosts whose machine was reached", async () => {
+  const world: World = { vm: null };
+  await finishedLocal(world);
+  await remoteFailedAtFirstConnection(world, ["forge-local", "forge-acme"]);
+  assert.equal(await cmdInstall(laptop(world), OPTS), 0);
+  assert.match(forgeSshFile(), /^Host forge-local$/m);
+  assert.doesNotMatch(forgeSshFile(), /^Host forge-acme$/m);
+});
+
+test("forgetting a gone Lima VM rewrites forge's SSH file", async () => {
+  const world: World = { vm: null };
+  await finishedLocal(world);
+  world.vm = null;
+  // The new VM's creation fails: the run stops after the forget.
+  const ctx = laptop(world, { answers: [0], attachRules: [{ match: "limactl create", code: 1 }] });
+  await assert.rejects(cmdInstall(ctx, OPTS), /limactl create failed/);
+  assert.doesNotMatch(forgeSshFile(), /^Host forge-local$/m);
+});
+
+test("forgetting a remote's answers rewrites forge's SSH file", async () => {
+  const world: World = { vm: null };
+  await finishedLocal(world);
+  await remoteFailedAtFirstConnection(world, ["forge-local", "forge-acme"]);
+  // A block left by an earlier run.
+  appendFileSync(join(home, ".ssh/config.d/agent-forge"), "\nHost forge-acme\n  HostName 203.0.113.10\n");
+  await assert.rejects(cmdInstall(laptop(world, { answers: [1] }), REMOTE), /forgotten/);
+  assert.match(forgeSshFile(), /^Host forge-local$/m);
+  assert.doesNotMatch(forgeSshFile(), /^Host forge-acme$/m);
+});
+
+// forge never touches a host it did not create: the check comes as soon as the
+// name is known, before anything is saved or connected to.
 test("a remote host defined by hand in ~/.ssh/config stops the install", async () => {
   const world: World = { vm: null };
   const rules: ExecRule[] = [{ match: "ssh -G forge-acme", stdout: "host forge-acme\nhostname 198.51.100.7\nport 22\n" }];
   const ctx = laptop(world, { rules, answers: ["acme", "ubuntu", 0, "alice", null] });
   await assert.rejects(cmdInstall(ctx, REMOTE), (e: Error) =>
     e instanceof ForgeError && /Host forge-acme/.test(e.message) && /remove/.test(e.message));
+  assert.deepEqual(asked(ctx), ["Host name: forge-<name>"]);
+  assert.deepEqual(loadHosts(), []);
+  assert.equal(existsSync(join(home, ".config/agent-forge/hosts")), false);
+  assert.deepEqual(ctx.attachCalls, []);
   assert.equal(existsSync(join(home, ".ssh/config.d/agent-forge")), false);
   assert.equal(existsSync(join(home, ".ssh/config")), false);
-  assert.ok(!attached(ctx).some((a) => a.startsWith("herdr")));
+});
+
+test("a forge-local defined by hand in ~/.ssh/config stops the install before the VM", async () => {
+  const rules: ExecRule[] = [{ match: "ssh -G forge-local", stdout: "host forge-local\nhostname 192.0.2.5\nport 22\n" }];
+  const ctx = laptop({ vm: null }, { rules });
+  await assert.rejects(cmdInstall(ctx, OPTS), (e: Error) => e instanceof ForgeError && /Host forge-local/.test(e.message));
+  assert.deepEqual(loadHosts(), []);
+  assert.equal(existsSync(join(home, ".config/agent-forge/hosts")), false);
+  assert.deepEqual(ctx.attachCalls, []);
+});
+
+test("a host defined by hand after its install still stops at the SSH step", async () => {
+  const world: World = { vm: null };
+  const failed = laptop(world, { attachRules: [{ match: "ansible-playbook -i", code: 2 }] });
+  await assert.rejects(cmdInstall(failed, OPTS), ForgeError);
+  // Added by hand since: forge's file has no block for it yet.
+  const rules: ExecRule[] = [{ match: "ssh -G forge-local", stdout: "hostname 192.0.2.5\n" }];
+  const ctx = laptop(world, { rules });
+  await assert.rejects(cmdInstall(ctx, OPTS), (e: Error) => e instanceof ForgeError && /Host forge-local/.test(e.message));
   assert.deepEqual(loadHosts()[0].done, ["vm", "inventory", "playbook"]);
+  assert.equal(existsSync(join(home, ".ssh/config.d/agent-forge")), false);
 });
 
 test("declining the Include stops the install, ~/.ssh/config unchanged", async () => {

@@ -55,8 +55,8 @@ test("loadHosts returns [] when there is no file", () => {
   assert.deepEqual(loadHosts(), []);
 });
 
-test("two hosts round-trip, with the optional identityAgent", () => {
-  const a = host("forge-acme");
+test("two hosts round-trip, with the optional identityAgent and deployed commit", () => {
+  const a = host("forge-acme", { deployed: "0123456789abcdef0123456789abcdef01234567" });
   const b = host("forge-local", { kind: "lima", exposure: "local", identityAgent: "/run/agent.sock", done: [] });
   saveHost(a);
   saveHost(b);
@@ -110,6 +110,7 @@ test("an invalid schema is a ForgeError naming the file", () => {
     [{ ...good, port: "22" }],
     [{ ...good, adminKey: undefined }],
     [{ ...good, identityAgent: 3 }],
+    [{ ...good, deployed: 3 }],
     // A name that is a path would turn hostDir(name) into the state directory or outside it.
     [{ ...good, name: ".." }],
     [{ ...good, name: "../x" }],

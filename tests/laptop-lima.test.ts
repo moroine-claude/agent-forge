@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:net";
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fakeContext, type ExecRule, type FakeContext } from "./lib/fake-context.ts";
 import { ForgeError } from "../cli/lib/context.ts";
 import { ensureLimaVm, freePort, limaInstance, LIMA_DEFAULT_PORT, LIMA_NAME } from "../cli/lib/laptop/lima.ts";
@@ -117,6 +117,36 @@ test("ensureLimaVm creates then starts an absent VM with the chosen port", () =>
   assert.equal(r.port, 61234);
   assert.equal(r.admin, "alice");
   assert.equal(r.adminKey, join(process.env.LIMA_HOME!, "_config", "user"));
+}));
+
+// A first install stopped after the SSH wait, then `limactl delete`: the new VM
+// has new host keys, which accept-new would refuse under the old aliases.
+test("ensureLimaVm forgets forge-local's host keys before creating the VM", () => withTmpEnv(async () => {
+  const kh = join(process.env.XDG_CONFIG_HOME!, "agent-forge", "known_hosts");
+  mkdirSync(dirname(kh), { recursive: true });
+  writeFileSync(kh, "forge-local-admin ssh-ed25519 AAAAold\n");
+  const ctx = statefulCtx({ status: "Stopped", port: 61234 });
+  await ensureLimaVm(ctx, TEMPLATE, { sleep: noSleep, freePort: fixedPort(61234) });
+  const joined = ctx.calls.map((c) => c.join(" "));
+  const create = joined.findIndex((c) => c.startsWith("limactl create"));
+  assert.deepEqual(joined.slice(create - 2, create), [
+    `ssh-keygen -R forge-local -f ${kh}`, `ssh-keygen -R forge-local-admin -f ${kh}`,
+  ]);
+}));
+
+test("ensureLimaVm without known_hosts creates the VM without ssh-keygen", () => withTmpEnv(async () => {
+  const ctx = statefulCtx({ status: "Stopped", port: 61234 });
+  await ensureLimaVm(ctx, TEMPLATE, { sleep: noSleep, freePort: fixedPort(61234) });
+  assert.ok(!ctx.calls.some((c) => c[0] === "ssh-keygen"));
+}));
+
+test("ensureLimaVm keeps the host keys of an existing VM", () => withTmpEnv(async () => {
+  const kh = join(process.env.XDG_CONFIG_HOME!, "agent-forge", "known_hosts");
+  mkdirSync(dirname(kh), { recursive: true });
+  writeFileSync(kh, "forge-local-admin ssh-ed25519 AAAAcurrent\n");
+  const ctx = fakeContext({ rules: [{ match: "limactl list --json", stdout: inst("Stopped", 60022) }] });
+  await ensureLimaVm(ctx, TEMPLATE, { sleep: noSleep });
+  assert.ok(!ctx.calls.some((c) => c[0] === "ssh-keygen"));
 }));
 
 test("ensureLimaVm only starts a stopped VM, on its own port", () => withTmpEnv(async () => {

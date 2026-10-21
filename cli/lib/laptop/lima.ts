@@ -1,9 +1,9 @@
 // La VM Lima locale `forge-local` : création, démarrage, attente de SSH et de
 // cloud-init. Reprend le flux de ansible/tests/vm-test.sh (--lima).
 import { createServer } from "node:net";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { ForgeError, type Context } from "../context.ts";
+import { ForgeError, mustSucceed, type Context } from "../context.ts";
 import { limaHome } from "../paths.ts";
 import { sshOption } from "./ssh-config.ts";
 import { knownHostsPath } from "./state.ts";
@@ -87,6 +87,10 @@ export async function ensureLimaVm(
     // démarrage, et known_hosts, indexé par port, accepterait en silence une
     // clé d'hôte changée.
     expected = await pick(LIMA_DEFAULT_PORT);
+    // Une VM neuve a des clés d'hôte neuves, qu'accept-new refuserait sous les
+    // anciens alias (une première installation arrêtée après l'attente SSH,
+    // puis limactl delete) : on les oublie avant de la créer.
+    await forgetHostKeys(ctx, [LIMA_NAME, HOST_KEY_ALIAS]);
     await run(ctx, "limactl create", ["limactl", "create", "--tty=false", "--name", LIMA_NAME, "--set", `.ssh.localPort = ${expected}`, template]);
   } else {
     if (existing.port === 0) {
@@ -129,6 +133,16 @@ export async function ensureLimaVm(
     throw new ForgeError(`cloud-init failed in ${LIMA_NAME} (exit ${ci.code})`);
   }
   return { port: vm.port, admin: vm.user, adminKey };
+}
+
+// Retire ces entrées du known_hosts de forge (une entrée absente n'est pas une
+// erreur pour ssh-keygen -R ; un fichier absent, si : rien à faire alors).
+export async function forgetHostKeys(ctx: Context, entries: string[]): Promise<void> {
+  const knownHosts = knownHostsPath();
+  if (!existsSync(knownHosts)) return;
+  for (const entry of entries) {
+    await mustSucceed(`ssh-keygen -R ${entry}`, ctx.exec(["ssh-keygen", "-R", entry, "-f", knownHosts]));
+  }
 }
 
 // Longue et bavarde (téléchargement de l'image à la première création) : elle

@@ -24,6 +24,9 @@ export type LaptopHost = {
   adminKey: string;
   exposure: "local" | "public" | "lan";
   identityAgent?: string;
+  // The checkout commit the playbook last deployed: another one, after a git
+  // pull, is deployed again on the next forge install.
+  deployed?: string;
   done: InstallStep[];
 };
 
@@ -61,6 +64,7 @@ function isHost(h: unknown): h is LaptopHost {
     str("kind") && KINDS.includes(o.kind as string) &&
     str("exposure") && EXPOSURES.includes(o.exposure as string) &&
     (o.identityAgent === undefined || typeof o.identityAgent === "string") &&
+    (o.deployed === undefined || typeof o.deployed === "string") &&
     Array.isArray(o.done) && o.done.every((s) => typeof s === "string" && STEPS.includes(s));
 }
 

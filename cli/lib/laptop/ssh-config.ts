@@ -8,7 +8,7 @@ import type { LaptopHost } from "./state.ts";
 
 const HEADER = "# Managed by forge install: edits are overwritten.";
 
-function forgeFile(): string {
+export function forgeSshConfigPath(): string {
   return join(sshDir(), "config.d", "agent-forge");
 }
 
@@ -54,7 +54,7 @@ export function renderForgeSshConfig(
 // Atomic write: temp file next to the target, then rename; 0600 file in 0700
 // directories. The temp file is a dotfile, which `Include config.d/*` skips.
 export function writeForgeSshConfig(text: string): void {
-  const path = forgeFile();
+  const path = forgeSshConfigPath();
   for (const dir of [sshDir(), join(sshDir(), "config.d")]) {
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
@@ -68,7 +68,7 @@ export function writeForgeSshConfig(text: string): void {
 export function forgeSshConfigDefines(name: string): boolean {
   let text: string;
   try {
-    text = readFileSync(forgeFile(), "utf8");
+    text = readFileSync(forgeSshConfigPath(), "utf8");
   } catch {
     return false;
   }
