@@ -341,7 +341,11 @@ failure:
    `~/.ssh/config` that matches forge's file (OpenSSH's glob: `config.d/*`,
    `~/.ssh/config.d/*.config`, …) and applies to every host (at the top level,
    under `Match all`, or under `Host *`) is enough: `~/.ssh/config` is not
-   edited. Otherwise `install` asks, then adds `Include
+   edited. ssh keeps the first value it reads, so settings placed before that
+   `Include` would win over forge's block: `install` checks with `ssh -G
+   <alias>` that forge's values are in effect, and when one of the
+   developer's wins it names it and asks for the top-of-file `Include` below
+   (review of #86, 2026-10-22). Otherwise `install` asks, then adds `Include
    config.d/agent-forge.config` **at the top** of `~/.ssh/config` (an
    `Include` below a `Host` line would only apply to that host). The
    maintainer, 2026-10-21: "c'est tout le point du config.d". forge rewrites

@@ -92,15 +92,19 @@ It asks little:
 - which key is your GitHub key, only when your agent holds several (it uses
   the agent ssh uses for `github.com`);
 - whether to add `Include config.d/agent-forge.config` at the top of
-  `~/.ssh/config`, so that ssh reads forge's own file; only when no `Include`
-  there reads it already for every host (`Include config.d/*` at the top, or
-  `Include ~/.ssh/config.d/*.config` under `Match all` or `Host *`, is
-  enough);
+  `~/.ssh/config`, so that ssh reads forge's own file. It is not asked when an
+  `Include` there already reads that file for every host
+  (`Include config.d/*` at the top, or `Include ~/.ssh/config.d/*.config`
+  under `Match all` or `Host *`) and forge's values are in effect. Settings
+  placed before such an `Include` win over forge's (ssh keeps the first value
+  it reads), so forge checks what `ssh -G` resolves for the alias, names each
+  setting of yours that wins, and then asks;
 - whether to link `~/.local/bin/forge` to the checkout, so `forge` works from
   anywhere (a refusal is asked again on every run);
 - whether to turn herdr's notifications on in `~/.config/herdr/config.toml`,
-  on your machine, unless that file sets `ui` or `[ui.toast]` itself (a
-  refusal is asked again on every run);
+  on your machine, unless that file sets `[ui.toast]` or an inline
+  `ui = {…}` itself (a `[ui]` table alone does not stop forge; a refusal is
+  asked again on every run);
 - the Claude login, once: `claude auth login` prints a URL, you open it and
   paste the code back.
 
@@ -157,13 +161,14 @@ touches: one per SSH connection.
 | `~/.config/agent-forge/known_hosts` | forge's own `known_hosts`: the hosts' keys, for the alias and for Ansible | Written by ssh | No |
 | `~/.local/share/agent-forge/collections` | The Ansible collections the playbook needs | Written by `ansible-galaxy` | No |
 | `~/.ssh/config.d/agent-forge.config` | forge's own SSH file: one block per host, rewritten on every run | 0600; 0700 for a directory forge creates | No |
-| `~/.ssh/config` | One line at the top, `Include config.d/agent-forge.config`, only when no `Include` there reads forge's file for every host. Nothing else changes | Kept; 0600 if forge creates it | Yes |
-| `~/.config/herdr/config.toml` | A block of forge's own at the end, `[ui.toast]` then `delivery = "herdr"`, only when the file sets neither `ui` nor `[ui.toast]` | Kept; 0644 if forge creates it, 0700 for a directory forge creates | Yes |
+| `~/.ssh/config` | One line at the top, `Include config.d/agent-forge.config`, and a blank line before your own first line, only when no `Include` there reads forge's file for every host with forge's values in effect. Nothing else changes | Kept; 0600 if forge creates it | Yes |
+| `~/.config/herdr/config.toml` | A block of forge's own at the end, `[ui.toast]` then `delivery = "herdr"`, only when the file sets neither `[ui.toast]` nor an inline `ui = {…}` | Kept; 0644 if forge creates it, 0700 for a directory forge creates | Yes |
 | `~/.local/bin/forge` | A link to the checkout's `cli/forge` | A link | Yes |
 
 forge creates `~/.config/agent-forge` 0700. A `~/.ssh/config.d/agent-forge` that
-an earlier forge wrote (it starts with forge's header line) is removed; any
-other file of that name stays.
+an earlier forge wrote (it starts with forge's header line) counts as forge's
+own, and is removed once ssh reads the new file: until then it keeps the alias
+working. Any other file of that name stays.
 
 forge's SSH file, for `forge-local`:
 
@@ -204,18 +209,21 @@ Fetch the work you want first: the local VM's workspaces live inside it.
 ```bash
 limactl stop forge-local                 # if it is running
 limactl delete forge-local
-rm -f ~/.config/agent-forge/hosts.json ~/.config/agent-forge/known_hosts \
-  ~/.ssh/config.d/agent-forge.config
-rm -r ~/.config/agent-forge/hosts ~/.local/share/agent-forge/collections
+limactl prune                            # Lima's cache of downloaded images, for every VM
+rm -r ~/.config/agent-forge ~/.local/share/agent-forge
+rm ~/.ssh/config.d/agent-forge.config
 rm ~/.local/bin/forge                    # if it is forge's link
 ```
 
-Then remove what forge added to your own files, if it did: the
-`Include config.d/agent-forge.config` line at the top of `~/.ssh/config`, and
-the block from `# >>> agent-forge laptop >>>` to `# <<< agent-forge laptop <<<`
-in `~/.config/herdr/config.toml`. A remote VM is deleted at your provider.
-`~/.lima/_config` and `~/.ansible` belong to Lima and Ansible, which may use
-them for other things.
+`~/.config/agent-forge` also holds `known_hosts.old`, which `ssh-keygen -R`
+leaves when forge forgets a VM's keys. Then remove what forge added to your
+own files, if it did: the `Include config.d/agent-forge.config` line at the
+top of `~/.ssh/config` (and an `Include config.d/agent-forge` line left by a
+pre-release run, with `~/.ssh/config.d/agent-forge` if it is still there),
+and the block from `# >>> agent-forge laptop >>>` to
+`# <<< agent-forge laptop <<<` in `~/.config/herdr/config.toml`. A remote VM
+is deleted at your provider. `~/.lima/_config` and `~/.ansible` belong to
+Lima and Ansible, which may use them for other things.
 
 ### 3. Start a task from herdr
 
@@ -244,9 +252,10 @@ notification. After an error it stays open until you press Enter.
 Those notifications only show if herdr has toasts turned on on your machine,
 in `~/.config/herdr/config.toml`: `forge install` offers to add `[ui.toast]`
 then `delivery = "herdr"` there, in a block of its own. If you said no, or if
-that file sets `ui` or `[ui.toast]` itself (forge then leaves it alone), set
-them there yourself. Otherwise herdr still reports the notification as shown,
-and the popup's warnings go unseen.
+that file sets `[ui.toast]` or an inline `ui = {…}` itself (forge then leaves
+it alone; a `[ui]` table alone does not stop it), set them there yourself.
+Otherwise herdr still reports the notification as shown, and the popup's
+warnings go unseen.
 
 ### 4. Get the work back
 

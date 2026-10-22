@@ -155,12 +155,19 @@ block.
 A file of yours in `~/.ssh/config.d/` works too, but OpenSSH reads that
 directory only through an `Include` that applies to every host: at the top of
 `~/.ssh/config`, before any `Host` or `Match` line, or under `Match all` or
-`Host *`. `forge install` writes the same blocks (with
-`UserKnownHostsFile`, `IdentityFile` and `IdentitiesOnly` added) to its own
-file, `~/.ssh/config.d/agent-forge.config`, and adds
+`Host *`. Settings placed before that `Include` (in a `Host *` above it, say)
+win over the block, since ssh keeps the first value it reads: `ssh -G
+forge-local` shows what is in effect.
+
+`forge install` writes the same blocks to its own file,
+`~/.ssh/config.d/agent-forge.config`, with `UserKnownHostsFile`,
+`IdentityFile` and `IdentitiesOnly` added (and, for `forge-local`,
+`StrictHostKeyChecking accept-new`). It adds
 `Include config.d/agent-forge.config` at the top of `~/.ssh/config` when no
-`Include` there reads it already. Leave that name to forge: it rewrites the
-file on every run.
+`Include` there reads that file. When one does, forge checks with `ssh -G`
+that its values are in effect, and offers the top-of-file `Include` when a
+setting of yours wins. Leave that file name to forge: it rewrites the file on
+every run.
 
 ### Log in and build the image
 
@@ -179,8 +186,8 @@ host, your alias: `herdr --remote forge-vm --remote-keybindings server`).
 
 On your machine, turn herdr's notifications on, or the start popup's warnings
 go unseen: put `[ui.toast]` then `delivery = "herdr"` in
-`~/.config/herdr/config.toml`, unless that file already sets `ui` or
-`[ui.toast]`. It is a setting of the client: the host's herdr config changes
+`~/.config/herdr/config.toml`, unless that file already sets `[ui.toast]` or
+an inline `ui = {…}`. It is a setting of the client: the host's herdr config changes
 nothing. `forge install` adds those two lines in a block of its own, after
 asking.
 

@@ -48,6 +48,9 @@ assert_contains 'Host forge-vm'
 assert_contains '~/.ssh/config.d/agent-forge.config'
 assert_contains 'Include config.d/agent-forge.config'
 assert_contains 'Match all'
+assert_contains 'StrictHostKeyChecking accept-new'
+assert_contains 'ssh keeps the first value'
+assert_contains 'ssh -G'
 # Sur l'hôte.
 assert_contains 'claude auth login'
 assert_contains 'forge setup'
@@ -56,6 +59,7 @@ assert_contains 'herdr --remote forge-local --remote-keybindings server'
 # Les toasts herdr, réglage de la machine de l'utilisateur.
 assert_contains '~/.config/herdr/config.toml'
 assert_contains 'delivery = "herdr"'
+assert_contains 'ui = {…}'
 # Dépannage du parcours manuel.
 assert_contains 'REMOTE HOST IDENTIFICATION HAS CHANGED'
 assert_contains 'Too many authentication failures'
