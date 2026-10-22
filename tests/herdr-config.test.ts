@@ -143,6 +143,21 @@ test("the laptop block and forge setup's block are spliced independently", () =>
   assert.throws(() => spliceBlock("# >>> agent-forge laptop >>>\nx = 1\n", LAPTOP_BLOCK, LAPTOP_MARKERS), /agent-forge laptop block/);
 });
 
+// The user's own toasts already delivered by herdr: nothing to say about them.
+test("laptopToasts tells when the user's own toasts already deliver to herdr", () => {
+  for (const mine of [
+    '[ui.toast]\ndelivery = "herdr"\n',
+    "[ui.toast]\ndelivery = 'herdr' # mine\n",
+    '[ui]\ntoast.delivery = "herdr"\n',
+    'ui.toast.delivery = "herdr"\n',
+    '["ui"."toast"]\n"delivery" = "herdr"\n',
+  ]) assert.equal(laptopToasts(mine), "user-on", mine);
+  // Another delivery, or "herdr" for another key: the user owns them, off.
+  for (const mine of ['[ui.toast]\ndelivery = "terminal"\n', '[ui.toast]\nposition = "herdr"\n', "ui = { sidebar_width = 30 }\n"]) {
+    assert.equal(laptopToasts(mine), "user", mine);
+  }
+});
+
 test("laptopToasts tells forge's block, the user's own ui or [ui.toast], or neither", () => {
   assert.equal(laptopToasts(""), "none");
   assert.equal(laptopToasts("x = 1\n\n" + LAPTOP_BLOCK), "forge");

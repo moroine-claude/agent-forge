@@ -5,7 +5,7 @@ import {
   chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import type { Context } from "../context.ts";
+import { ForgeError, type Context } from "../context.ts";
 import { forgeHome, sshDir } from "../paths.ts";
 import type { LaptopHost } from "./state.ts";
 
@@ -33,29 +33,23 @@ export function sshOption(name: string, v: string): string {
   return `${name}=${value(v)}`;
 }
 
-export function renderForgeSshConfig(
-  hosts: LaptopHost[],
-  o: { knownHosts: string; keyPath: (name: string) => string },
-): string {
-  const blocks = hosts.map((h) => {
-    const lines = [
-      `Host ${h.name}`,
-      `  HostName ${h.address}`,
-      `  Port ${h.port}`,
-      `  User ${h.user}`,
-    ];
-    // Lima's port and host key change when the VM is recreated: pin the key
-    // under a stable alias and accept the first one.
-    if (h.kind === "lima") lines.push(`  HostKeyAlias ${h.name}`, "  StrictHostKeyChecking accept-new");
-    lines.push(
-      `  UserKnownHostsFile ${value(o.knownHosts)}`,
-      `  IdentityFile ${value(o.keyPath(h.name))}`,
-      "  IdentitiesOnly yes",
-    );
-    if (h.identityAgent) lines.push(`  IdentityAgent ${value(h.identityAgent)}`);
-    lines.push("  ForwardAgent yes");
-    return lines.join("\n");
-  });
+type SshPaths = { knownHosts: string; keyPath: (name: string) => string };
+
+// A host's block, setting by setting, unquoted: what the file says and what
+// `ssh -G` must resolve.
+function settings(h: LaptopHost, o: SshPaths): [string, string][] {
+  const s: [string, string][] = [["HostName", h.address], ["Port", String(h.port)], ["User", h.user]];
+  // Lima's port and host key change when the VM is recreated: pin the key
+  // under a stable alias and accept the first one.
+  if (h.kind === "lima") s.push(["HostKeyAlias", h.name], ["StrictHostKeyChecking", "accept-new"]);
+  s.push(["UserKnownHostsFile", o.knownHosts], ["IdentityFile", o.keyPath(h.name)], ["IdentitiesOnly", "yes"]);
+  if (h.identityAgent) s.push(["IdentityAgent", h.identityAgent]);
+  s.push(["ForwardAgent", "yes"]);
+  return s;
+}
+
+export function renderForgeSshConfig(hosts: LaptopHost[], o: SshPaths): string {
+  const blocks = hosts.map((h) => [`Host ${h.name}`, ...settings(h, o).map(([k, v]) => `  ${k} ${value(v)}`)].join("\n"));
   return [HEADER, ...blocks].join("\n\n") + "\n";
 }
 
@@ -70,36 +64,73 @@ export function writeForgeSshConfig(text: string): void {
   writeFileSync(tmp, text, { mode: 0o600 });
   chmodSync(tmp, 0o600); // the umask may have narrowed the mode above
   renameSync(tmp, path);
-  removeOldFile();
 }
 
-// config.d/agent-forge, which earlier versions wrote, goes only when forge
-// wrote it (its first line is forge's header): any other file, link or
-// directory of that name is the developer's.
-function removeOldFile(): void {
-  const old = join(sshDir(), "config.d", OLD_FILE);
-  let text: string;
+// config.d/agent-forge, the name earlier versions wrote, when forge wrote it
+// (its first line is forge's header): any other file, link or directory of
+// that name is the developer's. Null otherwise.
+function oldForgeFile(): { path: string; text: string } | null {
+  const path = join(sshDir(), "config.d", OLD_FILE);
   try {
-    if (!lstatSync(old).isFile()) return;
-    text = readFileSync(old, "utf8");
+    if (!lstatSync(path).isFile()) return null;
+    const text = readFileSync(path, "utf8");
+    return text.split("\n", 1)[0].trimEnd() === HEADER ? { path, text } : null;
   } catch {
-    return;
+    return null;
   }
-  if (text.split("\n", 1)[0].trimEnd() === HEADER) unlinkSync(old);
 }
 
-// True when forge's own file exists and defines `Host <name>`.
+// Removed by install once ssh is known to read the new file (an Include that
+// covers it, checked, or the one install adds): until then the old file keeps
+// an alias that used to work.
+export function removeOldForgeSshConfig(): void {
+  const old = oldForgeFile();
+  if (old) unlinkSync(old.path);
+}
+
+// True when forge's own file, or the old one forge wrote, defines `Host <name>`.
 export function forgeSshConfigDefines(name: string): boolean {
-  let text: string;
-  try {
-    text = readFileSync(forgeSshConfigPath(), "utf8");
-  } catch {
-    return false;
-  }
-  return text.split("\n").some((l) => {
+  const texts: string[] = [];
+  try { texts.push(readFileSync(forgeSshConfigPath(), "utf8")); } catch { /* not written yet */ }
+  const old = oldForgeFile();
+  if (old) texts.push(old.text);
+  return texts.some((text) => text.split("\n").some((l) => {
     const m = /^\s*host(?:\s*=\s*|\s+)(.*)$/i.exec(l);
     return m !== null && m[1].split(/\s+/).includes(name);
-  });
+  }));
+}
+
+// ssh keeps the first value it reads for a setting, and offers identity files
+// in the order read: an Include that reads forge's file after settings of the
+// developer's (under `Match all`, say) lets theirs win. `ssh -G <alias>` shows
+// what is in effect; each setting of forge's block that is not gives a line.
+export async function overriddenSettings(ctx: Context, host: LaptopHost, o: SshPaths): Promise<string[]> {
+  const r = await ctx.exec(["ssh", "-G", host.name]);
+  if (r.code !== 0) {
+    throw new ForgeError(`ssh -G ${host.name} failed (exit code ${r.code}): ${r.stderr.trim()}`);
+  }
+  // `ssh -G` prints one `key value` per line, keys in lowercase, values
+  // unquoted; identityfile once per file, userknownhostsfile as a list.
+  const resolved = new Map<string, string[]>();
+  for (const line of r.stdout.split("\n")) {
+    const m = /^(\S+)[ \t]+(.*?)\s*$/.exec(line);
+    if (m) resolved.set(m[1].toLowerCase(), [...(resolved.get(m[1].toLowerCase()) ?? []), m[2]]);
+  }
+  const lines: string[] = [];
+  for (const [key, ours] of settings(host, o)) {
+    const theirs = resolved.get(key.toLowerCase())?.[0];
+    if (theirs === undefined) {
+      lines.push(`forge's \`${key} ${ours}\` is not in effect`);
+      continue;
+    }
+    const same = key === "HostName" ? theirs.toLowerCase() === ours.toLowerCase()
+      : key === "UserKnownHostsFile" ? theirs === ours || theirs.startsWith(`${ours} `)
+      : theirs === ours;
+    if (same) continue;
+    const wins = key === "IdentityFile" ? "is offered before" : "wins over";
+    lines.push(`\`${key} ${theirs}\` from your ~/.ssh/config ${wins} forge's \`${key} ${ours}\``);
+  }
+  return lines;
 }
 
 // The words of a config line's arguments, as ssh splits them (argv_split in
@@ -141,8 +172,9 @@ function includePath(arg: string): string {
 const regexChar = (c: string): string => c.replace(/[\\^$.*+?()[\]{}|\/-]/g, "\\$&");
 
 // One path component of a glob(3) pattern as a regular expression: `*`, `?`,
-// `[...]` (`[!...]` negated, ranges), a backslash escaping the next character.
-// An unclosed `[` is a plain character. Null when it cannot match anything.
+// `[...]` (`[!...]` negated, ranges; `^` is a plain character there, as in
+// macOS's glob), a backslash escaping the next character. An unclosed `[` is
+// a plain character. Null when it cannot match anything.
 function componentRegex(p: string): RegExp | null {
   let re = "";
   for (let i = 0; i < p.length; i++) {
@@ -152,7 +184,7 @@ function componentRegex(p: string): RegExp | null {
     else if (c === "?") re += ".";
     else if (c === "[") {
       let j = i + 1;
-      const negate = p[j] === "!" || p[j] === "^";
+      const negate = p[j] === "!";
       if (negate) j++;
       let set = "";
       for (let first = true; j < p.length && (p[j] !== "]" || first); first = false) {

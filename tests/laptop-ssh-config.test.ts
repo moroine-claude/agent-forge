@@ -5,9 +5,10 @@ import { existsSync, mkdirSync, mkdtempSync, statSync, readFileSync, readdirSync
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
-  addInclude, forgeSshConfigDefines, hostDefinedElsewhere, includeState, renderForgeSshConfig, sshOption,
-  writeForgeSshConfig,
+  addInclude, forgeSshConfigDefines, hostDefinedElsewhere, includeState, overriddenSettings,
+  removeOldForgeSshConfig, renderForgeSshConfig, sshOption, writeForgeSshConfig,
 } from "../cli/lib/laptop/ssh-config.ts";
+import { ForgeError } from "../cli/lib/context.ts";
 import type { LaptopHost } from "../cli/lib/laptop/state.ts";
 import { fakeContext } from "./lib/fake-context.ts";
 
@@ -108,24 +109,38 @@ test("the temp file is a dotfile, outside the Include glob", () => {
 });
 
 // Earlier versions wrote config.d/agent-forge: it goes when forge wrote it
-// (its header line), any other file of that name stays.
+// (its header line), any other file of that name stays. Writing forge's file
+// leaves it: install removes it once ssh is known to read the new one.
 test("an old config.d/agent-forge written by forge is removed, any other one kept", () => {
   withSshDir((dir) => {
     const old = join(dir, "config.d", "agent-forge");
     mkdirSync(dirname(old), { recursive: true });
     writeFileSync(old, renderForgeSshConfig([lima], o));
     writeForgeSshConfig("new\n");
+    assert.equal(existsSync(old), true);
+    removeOldForgeSshConfig();
     assert.equal(existsSync(old), false);
     assert.equal(readFileSync(join(dir, "config.d", "agent-forge.config"), "utf8"), "new\n");
 
     writeFileSync(old, "Host mine\n  HostName 192.0.2.1\n");
-    writeForgeSshConfig("new\n");
+    removeOldForgeSshConfig();
     assert.equal(readFileSync(old, "utf8"), "Host mine\n  HostName 192.0.2.1\n");
   });
   withSshDir((dir) => {
     mkdirSync(join(dir, "config.d", "agent-forge"), { recursive: true });
-    writeForgeSshConfig("new\n");
+    removeOldForgeSshConfig();
     assert.ok(statSync(join(dir, "config.d", "agent-forge")).isDirectory());
+  });
+});
+
+test("forgeSshConfigDefines counts an old config.d/agent-forge that forge wrote", () => {
+  withSshDir((dir) => {
+    const old = join(dir, "config.d", "agent-forge");
+    mkdirSync(dirname(old), { recursive: true });
+    writeFileSync(old, renderForgeSshConfig([lima], o));
+    assert.equal(forgeSshConfigDefines("forge-local"), true);
+    writeFileSync(old, "Host forge-local\n  HostName 192.0.2.1\n");
+    assert.equal(forgeSshConfigDefines("forge-local"), false);
   });
 });
 
@@ -172,6 +187,7 @@ test("an Include that covers forge's file for every host is detected", () => {
       "Include config.d/agent-forge.confi?\n",
       "Include config.d/[a-c]gent-forge.config\n",
       "Include config.d/agent-forge.[!x]onfig\n",
+      "Include config.d/[^a]gent-forge.config\n",
       "Include */agent-forge.config\n",
       "Include ~/.*/config.d/*\n",
     ]) assert.equal(includeState(text), "covered", text);
@@ -191,6 +207,8 @@ test("an Include that misses forge's file, or applies to some hosts only, is not
       "Match host gh\n  Include config.d/*\n",
       "Match all\nHost gh\n  Include config.d/*\n",
       "Include config.d/[!a]gent-forge.config\n",
+      // macOS's glob reads `^` as a plain character, not a negation.
+      "Include config.d/[^x]gent-forge.config\n",
       "Include config.d/agent-forge.conf[a-f]?\n",
       // A wildcard never matches a leading dot: not ~/.ssh.
       "Include ~/*/config.d/*\n",
@@ -212,6 +230,55 @@ test("the Include goes above the first Host line", () => {
   assert.equal(addInclude(input), `Include config.d/agent-forge.config\n\n${input}`);
   assert.equal(addInclude(""), "Include config.d/agent-forge.config\n");
   assert.equal(includeState(addInclude(input)), "covered");
+});
+
+// What ssh resolves for the alias, against forge's block: a value read before
+// forge's file wins (ssh keeps the first), and identity files are offered in
+// the order read.
+const KEY_PATH = "/state/forge-local/forge-key.pub";
+const inEffect = [
+  "user forge", "hostname 127.0.0.1", "port 60022", "identitiesonly yes", "stricthostkeychecking accept-new",
+  "hostkeyalias forge-local", "identityagent /run/agent.sock", `identityfile ${KEY_PATH}`,
+  "identityfile ~/.ssh/id_ed25519", "userknownhostsfile /state/known_hosts /home/a/.ssh/known_hosts2",
+  "forwardagent yes",
+].join("\n") + "\n";
+const withAgent: LaptopHost = { ...lima, identityAgent: "/run/agent.sock" };
+
+test("overriddenSettings is empty when forge's values are in effect", async () => {
+  const ctx = fakeContext({ rules: [{ match: "ssh -G forge-local", stdout: inEffect }] });
+  assert.deepEqual(await overriddenSettings(ctx, withAgent, o), []);
+  // A host name compares without case.
+  const upper = fakeContext({ rules: [{ match: "ssh -G forge-acme", stdout: "hostname host.example\nport 22\nuser forge\n" +
+    "userknownhostsfile /state/known_hosts\nidentityfile /state/forge-acme/forge-key.pub\nidentitiesonly yes\nforwardagent yes\n" }] });
+  assert.deepEqual(await overriddenSettings(upper, { ...remote, address: "Host.Example", identityAgent: undefined }, o), []);
+});
+
+test("overriddenSettings names each setting of the developer's that wins over forge's", async () => {
+  // The review's probe: Host * with these values, then Match all and the Include.
+  const probe = [
+    "user me", "hostname 127.0.0.1", "port 60022", "identitiesonly yes", "stricthostkeychecking yes",
+    "hostkeyalias forge-local", "identityagent /run/other.sock", "identityfile ~/.ssh/id1", "identityfile ~/.ssh/id2",
+    `identityfile ${KEY_PATH}`, "userknownhostsfile /home/a/.ssh/other /state/known_hosts", "forwardagent no",
+  ].join("\n") + "\n";
+  const ctx = fakeContext({ rules: [{ match: "ssh -G forge-local", stdout: probe }] });
+  assert.deepEqual(await overriddenSettings(ctx, withAgent, o), [
+    "`User me` from your ~/.ssh/config wins over forge's `User forge`",
+    "`StrictHostKeyChecking yes` from your ~/.ssh/config wins over forge's `StrictHostKeyChecking accept-new`",
+    "`UserKnownHostsFile /home/a/.ssh/other /state/known_hosts` from your ~/.ssh/config wins over forge's `UserKnownHostsFile /state/known_hosts`",
+    `\`IdentityFile ~/.ssh/id1\` from your ~/.ssh/config is offered before forge's \`IdentityFile ${KEY_PATH}\``,
+    "`IdentityAgent /run/other.sock` from your ~/.ssh/config wins over forge's `IdentityAgent /run/agent.sock`",
+    "`ForwardAgent no` from your ~/.ssh/config wins over forge's `ForwardAgent yes`",
+  ]);
+});
+
+test("overriddenSettings: forge's file not read at all, or ssh -G failing", async () => {
+  const unread = fakeContext({ rules: [{ match: "ssh -G forge-local", stdout: "hostname forge-local\nport 22\nuser alice\n" }] });
+  const lines = await overriddenSettings(unread, lima, o);
+  assert.ok(lines.includes("`HostName forge-local` from your ~/.ssh/config wins over forge's `HostName 127.0.0.1`"), lines.join("\n"));
+  assert.ok(lines.includes("forge's `HostKeyAlias forge-local` is not in effect"), lines.join("\n"));
+  const failing = fakeContext({ rules: [{ match: "ssh -G forge-local", code: 255, stderr: "line 3: Bad configuration option" }] });
+  await assert.rejects(overriddenSettings(failing, lima, o), (e: Error) =>
+    e instanceof ForgeError && /ssh -G forge-local/.test(e.message) && /Bad configuration option/.test(e.message));
 });
 
 test("hostDefinedElsewhere compares the resolved hostname", async () => {

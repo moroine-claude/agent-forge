@@ -22,7 +22,7 @@ import {
 import { checkPrerequisites } from "../laptop/prereqs.ts";
 import {
   addInclude, forgeSshConfigDefines, forgeSshConfigPath, hostDefinedElsewhere, INCLUDE_LINE, includeState,
-  renderForgeSshConfig, sshOption, writeForgeSshConfig,
+  overriddenSettings, removeOldForgeSshConfig, renderForgeSshConfig, sshOption, writeForgeSshConfig,
 } from "../laptop/ssh-config.ts";
 import {
   forgeKeyPath, forgetHost, hostDir, inventoryPath, knownHostsPath, loadHosts, saveHost, selectHost, validHostName,
@@ -342,24 +342,45 @@ async function playbook(ctx: Context, host: LaptopHost, checkout: string): Promi
 }
 
 // forge's own file is rewritten freely. ~/.ssh/config is left alone when an
-// Include of the developer's already reads that file for every host;
-// otherwise it gains the one Include, at its top, after a confirmation.
+// Include of the developer's already reads that file for every host and
+// `ssh -G` shows forge's values in effect; otherwise it gains the one Include,
+// at its top, after a confirmation. The old config.d/agent-forge goes only
+// once ssh is known to read the new file: until then it keeps the alias
+// working.
 async function sshConfig(ctx: Context, host: LaptopHost): Promise<Outcome> {
   // Checked again: a block may have been written by hand since the install began.
   await refuseHandDefined(ctx, host.name);
   writeSshFile();
   const path = join(sshDir(), "config");
   const text = existsSync(path) ? readFileSync(path, "utf8") : "";
-  if (includeState(text) === "covered") return host.done.includes("ssh") ? "already there" : "done";
-  const yes = await ctx.prompt.pick(`Add \`${INCLUDE_LINE}\` at the top of ~/.ssh/config?`, ["yes", "no"]);
-  if (yes !== 0) {
-    throw new ForgeError(
+  if (includeState(text) === "covered") {
+    const overridden = await overriddenSettings(ctx, host, { knownHosts: knownHostsPath(), keyPath: forgeKeyPath });
+    if (overridden.length === 0) {
+      removeOldForgeSshConfig();
+      return host.done.includes("ssh") ? "already there" : "done";
+    }
+    // Settings read before forge's file win over its block (ssh keeps the
+    // first value): with the Include at the top, forge's values come first.
+    for (const line of overridden) ctx.out(line);
+    ctx.out(`With ${INCLUDE_LINE} at the top of ~/.ssh/config, ssh reads forge's file first and forge's values win.`);
+    await addIncludeOrStop(ctx, path, text,
+      `the alias ${host.name} would not work as installed: settings of your SSH configuration win over forge's (above). ` +
+      `Add ${INCLUDE_LINE} at the top of ~/.ssh/config, or answer yes on the next forge install`);
+  } else {
+    await addIncludeOrStop(ctx, path, text,
       `without ${INCLUDE_LINE} at the top of ~/.ssh/config (or an Include of yours that reads it for every host), ` +
-      `ssh never reads forge's file: the alias ${host.name} cannot work`,
-    );
+      `ssh never reads forge's file: the alias ${host.name} cannot work`);
   }
-  writeKeepingMode(path, addInclude(text));
+  removeOldForgeSshConfig();
   return "done";
+}
+
+// The one Include, at the top of ~/.ssh/config, after a confirmation; a
+// refusal stops the run with `refusal`.
+async function addIncludeOrStop(ctx: Context, path: string, text: string, refusal: string): Promise<void> {
+  const yes = await ctx.prompt.pick(`Add \`${INCLUDE_LINE}\` at the top of ~/.ssh/config?`, ["yes", "no"]);
+  if (yes !== 0) throw new ForgeError(refusal);
+  writeKeepingMode(path, addInclude(text));
 }
 
 // Atomic, next to the real file (a symlinked ~/.ssh/config stays a symlink),
@@ -389,8 +410,10 @@ async function herdrToasts(ctx: Context): Promise<string> {
     return "left as they are";
   }
   if (state === "forge") return "already there";
+  // The developer's own toasts, already delivered by herdr: nothing to say.
+  if (state === "user-on") return "set in your config";
   if (state === "user") {
-    ctx.out(`${path} sets ui or [ui.toast]: forge leaves it alone. herdr's toasts must be on ` +
+    ctx.out(`${path} sets [ui.toast] or ui = {…}: forge leaves it alone. herdr's toasts must be on ` +
       `(delivery = "herdr") for the start popup's warnings to show.`);
     return "set in your config";
   }

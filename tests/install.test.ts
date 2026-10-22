@@ -2,8 +2,8 @@ import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import {
-  appendFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync,
-  statSync, symlinkSync, writeFileSync,
+  appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync,
+  renameSync, rmSync, statSync, symlinkSync, writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
@@ -67,6 +67,25 @@ const NO_LOGIN: ExecRule = { match: "'test' '-e' '.claude/.credentials.json'", c
 // `limactl create` and `limactl start` change.
 type World = { vm: { status: string; port: number; user: string } | null };
 
+// `ssh -G <alias>` as ssh answers it when forge's values are in effect: the
+// alias's block in forge's file (its current name, else the old one), or the
+// alias itself when no block names it. A test's own rule comes first.
+function sshG(name: string): string {
+  for (const file of [".ssh/config.d/agent-forge.config", ".ssh/config.d/agent-forge"]) {
+    let text: string;
+    try { text = readFileSync(join(home, file), "utf8"); } catch { continue; }
+    const block = text.split(/\n(?=Host )/).find((b) => b.startsWith(`Host ${name}\n`));
+    if (!block) continue;
+    return block.split("\n").slice(1).flatMap((l) => {
+      const m = /^\s+(\S+)\s+(.*)$/.exec(l);
+      if (!m) return [];
+      const v = m[2].startsWith('"') ? m[2].slice(1, -1).replace(/\\(["\\])/g, "$1") : m[2];
+      return [`${m[1].toLowerCase()} ${m[1] === "HostName" ? v.toLowerCase() : v}`];
+    }).join("\n") + "\n";
+  }
+  return `hostname ${name}\nport 22\nuser alice\n`;
+}
+
 function laptop(
   world: World,
   o: { rules?: ExecRule[]; answers?: (number | string | null)[]; attachRules?: ExecRule[] } = {},
@@ -74,6 +93,11 @@ function laptop(
   const ctx = fakeContext({ rules: [...(o.rules ?? []), ...BASE], answers: o.answers, attachRules: o.attachRules });
   const { exec, attach } = ctx;
   ctx.exec = async (argv, opts) => {
+    if (argv[0] === "ssh" && argv[1] === "-G" && !(o.rules ?? []).some((r) => argv.join(" ").includes(r.match))) {
+      ctx.calls.push(argv);
+      ctx.execOptions.push(opts);
+      return { code: 0, stdout: sshG(argv[2]), stderr: "" };
+    }
     if (argv[0] === "limactl" && argv[1] === "list") {
       ctx.calls.push(argv);
       ctx.execOptions.push(opts);
@@ -726,6 +750,81 @@ test("an existing Include under Match all covers forge's file: ~/.ssh/config unt
   assert.equal(readFileSync(config, "utf8"), text);
   assert.equal(statSync(config).mode & 0o777, 0o644);
   assert.match(forgeSshFile(), /^Host forge-local$/m);
+  // Checked with ssh -G once forge's file is written: before the VM, at the
+  // SSH step, and the check of what ssh resolves.
+  const checks = called(ctx).flatMap((c, i) => (c === "ssh -G forge-local" ? [i] : []));
+  assert.equal(checks.length, 3, called(ctx).join("\n"));
+  assert.ok(checks[2] > firstIndex(ctx, "ansible-playbook -i"), called(ctx).join("\n"));
+});
+
+// ssh keeps the first value it reads: settings before the Include win over
+// forge's block. Then the Include goes at the top, after the same question.
+const overridden = (): ExecRule => ({
+  match: "ssh -G forge-local",
+  stdout: [
+    "user me", "hostname 127.0.0.1", "port 60022", "identitiesonly yes", "stricthostkeychecking accept-new",
+    "hostkeyalias forge-local", `identityfile ${forgeKeyPath("forge-local")}`, `userknownhostsfile ${knownHostsPath()}`,
+    "forwardagent no",
+  ].join("\n") + "\n",
+});
+const LATE_INCLUDE = "Host *\n  User me\n  ForwardAgent no\n\nMatch all\nInclude config.d/*.config\n";
+
+test("settings of ~/.ssh/config that win over forge's are named, and the Include offered at the top", async () => {
+  const world: World = { vm: null };
+  await finishedLocal(world);
+  const config = join(home, ".ssh/config");
+  writeFileSync(config, LATE_INCLUDE);
+  const ctx = laptop(world, { rules: [overridden()], answers: [0] });
+  assert.equal(await cmdInstall(ctx, OPTS), 0);
+  assert.ok(ctx.out_lines.includes("`User me` from your ~/.ssh/config wins over forge's `User forge`"), ctx.out_lines.join("\n"));
+  assert.ok(ctx.out_lines.includes("`ForwardAgent no` from your ~/.ssh/config wins over forge's `ForwardAgent yes`"), ctx.out_lines.join("\n"));
+  assert.ok(!ctx.out_lines.some((l) => l.startsWith("`HostName") || l.startsWith("`Port")), ctx.out_lines.join("\n"));
+  assert.deepEqual(asked(ctx), [INCLUDE]);
+  assert.equal(readFileSync(config, "utf8"), `Include config.d/agent-forge.config\n\n${LATE_INCLUDE}`);
+});
+
+test("declining the Include when settings win over forge's stops: the alias would not work as installed", async () => {
+  const world: World = { vm: null };
+  await finishedLocal(world);
+  const config = join(home, ".ssh/config");
+  writeFileSync(config, LATE_INCLUDE);
+  const ctx = laptop(world, { rules: [overridden()], answers: [1] });
+  await assert.rejects(cmdInstall(ctx, OPTS), (e: Error) =>
+    e instanceof ForgeError && /would not work as installed/.test(e.message) && /Include config\.d\/agent-forge\.config/.test(e.message));
+  assert.deepEqual(asked(ctx), [INCLUDE]);
+  assert.equal(readFileSync(config, "utf8"), LATE_INCLUDE);
+  assert.ok(!ctx.attachCalls.some((a) => a.argv[0] === "herdr"));
+});
+
+// A host installed by an earlier forge: its block is in config.d/agent-forge,
+// which ~/.ssh/config still reads, so ssh -G resolves the alias already.
+function installedBefore(): void {
+  renameSync(join(home, ".ssh/config.d/agent-forge.config"), join(home, ".ssh/config.d/agent-forge"));
+  writeFileSync(join(home, ".ssh/config"), "Include config.d/agent-forge\n");
+}
+const RESOLVED: ExecRule = { match: "ssh -G forge-local", stdout: "hostname 127.0.0.1\nport 60022\nuser forge\n" };
+
+test("an alias in the old config.d/agent-forge is forge's own: moved to the new file once ssh reads it", async () => {
+  const world: World = { vm: null };
+  await finishedLocal(world);
+  installedBefore();
+  const ctx = laptop(world, { rules: [RESOLVED], answers: [0] });
+  assert.equal(await cmdInstall(ctx, OPTS), 0);
+  assert.deepEqual(asked(ctx), [INCLUDE]);
+  assert.match(forgeSshFile(), /^Host forge-local$/m);
+  assert.equal(existsSync(join(home, ".ssh/config.d/agent-forge")), false);
+  assert.equal(readFileSync(join(home, ".ssh/config"), "utf8"), "Include config.d/agent-forge.config\n\nInclude config.d/agent-forge\n");
+});
+
+test("declining the Include keeps the old config.d/agent-forge, so the alias still works", async () => {
+  const world: World = { vm: null };
+  await finishedLocal(world);
+  installedBefore();
+  const old = readFileSync(join(home, ".ssh/config.d/agent-forge"), "utf8");
+  const ctx = laptop(world, { rules: [RESOLVED], answers: [1] });
+  await assert.rejects(cmdInstall(ctx, OPTS), (e: Error) => e instanceof ForgeError && /Include config\.d\/agent-forge\.config/.test(e.message));
+  assert.equal(readFileSync(join(home, ".ssh/config.d/agent-forge"), "utf8"), old);
+  assert.equal(readFileSync(join(home, ".ssh/config"), "utf8"), "Include config.d/agent-forge\n");
 });
 
 test("an install removes the config.d/agent-forge an earlier forge wrote", async () => {
@@ -856,6 +955,49 @@ test("a no, or no answer, leaves herdr's config alone, says the warnings go unse
     assert.ok(ctx.out_lines.includes("  herdr notifications: declined"), ctx.out_lines.join("\n"));
     assert.deepEqual(ctx.attachCalls.at(-1)?.argv, HERDR_LOCAL);
   }
+});
+
+test("a broken laptop block, or a config forge cannot write, leaves herdr's notifications as they are", async () => {
+  writeFileSync(join(home, ".ssh/config"), "Include config.d/*\n");
+  mkdirSync(join(home, ".config/herdr"));
+  const broken = '# >>> agent-forge laptop >>>\n[ui.toast]\ndelivery = "herdr"\n';
+  writeFileSync(herdrConfig(), broken);
+  const world: World = { vm: null };
+  const ctx = laptop(world, { answers: [1] });
+  assert.equal(await cmdInstall(ctx, OPTS), 0);
+  assert.deepEqual(asked(ctx), [LINK]);
+  const line = ctx.out_lines.find((l) => l.startsWith(`${herdrConfig()}: `));
+  assert.ok(line && /without an end marker/.test(line) && /left as they are/.test(line), ctx.out_lines.join("\n"));
+  assert.equal(readFileSync(herdrConfig(), "utf8"), broken);
+  assert.ok(ctx.out_lines.includes("  herdr notifications: left as they are"), ctx.out_lines.join("\n"));
+  assert.deepEqual(ctx.attachCalls.at(-1)?.argv, HERDR_LOCAL);
+
+  // A yes, but the directory refuses the write.
+  rmSync(herdrConfig());
+  chmodSync(join(home, ".config/herdr"), 0o500);
+  try {
+    const denied = laptop(world, { answers: [1, 0] });
+    assert.equal(await cmdInstall(denied, OPTS), 0);
+    assert.ok(denied.out_lines.some((l) => l.startsWith(`${herdrConfig()}: `) && /left as they are/.test(l)), denied.out_lines.join("\n"));
+    assert.ok(denied.out_lines.includes("  herdr notifications: left as they are"), denied.out_lines.join("\n"));
+    assert.equal(existsSync(herdrConfig()), false);
+    assert.deepEqual(denied.attachCalls.at(-1)?.argv, HERDR_LOCAL);
+  } finally {
+    chmodSync(join(home, ".config/herdr"), 0o700);
+  }
+});
+
+test("a laptop herdr config whose own [ui.toast] already delivers to herdr needs no line", async () => {
+  writeFileSync(join(home, ".ssh/config"), "Include config.d/*\n");
+  mkdirSync(join(home, ".config/herdr"));
+  const mine = '[ui.toast]\ndelivery = "herdr"\n';
+  writeFileSync(herdrConfig(), mine);
+  const ctx = laptop({ vm: null }, { answers: [1] });
+  assert.equal(await cmdInstall(ctx, OPTS), 0);
+  assert.deepEqual(asked(ctx), [LINK]);
+  assert.equal(readFileSync(herdrConfig(), "utf8"), mine);
+  assert.ok(!ctx.out_lines.some((l) => l.includes("leaves it alone")), ctx.out_lines.join("\n"));
+  assert.ok(ctx.out_lines.includes("  herdr notifications: set in your config"), ctx.out_lines.join("\n"));
 });
 
 test("a laptop herdr config that sets [ui.toast] or ui itself is left alone, without a question", async () => {

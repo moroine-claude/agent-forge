@@ -153,40 +153,44 @@ function bareName(name: string): string {
   return name.replaceAll(/["']/g, "").replaceAll(/\s*\.\s*/g, ".").trim();
 }
 
-// True when the user's own settings, outside forge's laptop block, set the
-// toasts: a `[ui.toast]` (or `[ui.toast.*]`) table, a `ui.toast...` key at
-// the top level, a `toast...` key under `[ui]`, or a top-level `ui = ...` key
-// (an inline table, which a `[ui.toast]` header cannot extend). forge's
-// `[ui.toast]` would then override their choice or break the file (herdr
-// rejects a table defined twice). Quoted names count as unquoted ones.
-function userSetsToasts(text: string): boolean {
+// What the user's own settings, outside forge's laptop block, say about
+// toasts. They set them with a `[ui.toast]` (or `[ui.toast.*]`) table, a
+// `ui.toast...` key at the top level, a `toast...` key under `[ui]`, or a
+// top-level `ui = ...` key (an inline table, which a `[ui.toast]` header
+// cannot extend); forge's `[ui.toast]` would then override their choice or
+// break the file (herdr rejects a table defined twice). "herdr" when they set
+// `ui.toast.delivery = "herdr"` (as a table key or a dotted key). Quoted
+// names count as unquoted ones.
+function userToasts(text: string): "herdr" | "set" | "unset" {
   const found = findBlock(text, LAPTOP_MARKERS);
   const outside = found ? text.slice(0, found.from) + text.slice(found.to) : text;
   let table = "";
+  let set = false;
+  let herdr = false;
   for (const l of lines(outside)) {
     const header = /^\s*\[\[?\s*([^\]]*?)\s*\]\]?\s*(?:#.*)?$/.exec(l.text);
     if (header) {
       table = bareName(header[1]);
-      if (table === "ui.toast" || table.startsWith("ui.toast.")) return true;
+      if (table === "ui.toast" || table.startsWith("ui.toast.")) set = true;
       continue;
     }
     const eq = l.text.indexOf("=");
     if (eq === -1) continue;
     const key = bareName(l.text.slice(0, eq));
-    if (table === "") {
-      if (key === "ui" || key === "ui.toast" || key.startsWith("ui.toast.")) return true;
-    } else if (table === "ui") {
-      if (key === "toast" || key.startsWith("toast.")) return true;
-    }
+    const full = table === "" ? key : `${table}.${key}`;
+    if (full === "ui" || full === "ui.toast" || full.startsWith("ui.toast.")) set = true;
+    if (full === "ui.toast.delivery" && /^\s*(?:"herdr"|'herdr')\s*(?:#.*)?$/.test(l.text.slice(eq + 1))) herdr = true;
   }
-  return false;
+  return herdr ? "herdr" : set ? "set" : "unset";
 }
 
 // What the laptop's herdr config says about toasts: forge's laptop block is
-// there, the user sets them, or neither. A broken laptop block throws.
-export function laptopToasts(text: string): "forge" | "user" | "none" {
+// there; the user sets them, already delivered by herdr ("user-on") or not
+// ("user"); or neither. A broken laptop block throws.
+export function laptopToasts(text: string): "forge" | "user-on" | "user" | "none" {
   if (findBlock(text, LAPTOP_MARKERS)) return "forge";
-  return userSetsToasts(text) ? "user" : "none";
+  const user = userToasts(text);
+  return user === "herdr" ? "user-on" : user === "set" ? "user" : "none";
 }
 
 // The laptop block added at the end of the config, which is created when
