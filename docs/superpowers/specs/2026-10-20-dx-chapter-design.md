@@ -345,7 +345,8 @@ failure:
    `Include` would win over forge's block: `install` checks with `ssh -G
    <alias>` that forge's values are in effect, and when one of the
    developer's wins it names it and asks for the top-of-file `Include` below
-   (review of #86, 2026-10-22). Otherwise `install` asks, then adds `Include
+   (review of #86, 2026-10-22). When no `Include` covers forge's file, or when
+   one of the developer's settings wins, `install` asks, then adds `Include
    config.d/agent-forge.config` **at the top** of `~/.ssh/config` (an
    `Include` below a `Host` line would only apply to that host). The
    maintainer, 2026-10-21: "c'est tout le point du config.d". forge rewrites
@@ -355,7 +356,8 @@ failure:
    for it *(implementer's call on how it is detected or asked)*.
    `install` also turns herdr's toasts on in the laptop's herdr config
    (`~/.config/herdr/config.toml`): a block of its own, delimited, after
-   confirmation, unless the laptop's config already sets `ui` or `[ui.toast]`
+   confirmation, unless the laptop's config already sets `[ui.toast]` or an
+   inline `ui = {…}` table (a `[ui]` table alone does not count)
    (see sub-project 1, Finding).
 7. **The host's account.** Over SSH, as the forge user:
    - the git identity: the laptop's `git config --global user.name` and
