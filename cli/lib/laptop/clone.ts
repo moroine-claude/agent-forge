@@ -21,7 +21,9 @@ export async function openClone(
     throw new ForgeError("not inside a git repository: run this from your clone of the GitHub repository");
   }
   const root = top.stdout.trim();
-  const origin = await ctx.exec(["git", "remote", "get-url", "origin"], { cwd: root });
+  // The URL as configured, not `git remote get-url`: that one applies the
+  // user's url.<base>.insteadOf rewrites, which can hide the GitHub address.
+  const origin = await ctx.exec(["git", "config", "--get", "remote.origin.url"], { cwd: root });
   if (origin.code !== 0) {
     throw new ForgeError(`${root} has no "origin" remote: add your GitHub repository with git remote add origin <url>`);
   }

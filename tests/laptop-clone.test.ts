@@ -7,8 +7,10 @@ import { createContext, ForgeError } from "../cli/lib/context.ts";
 import {
   ensureForgeRemote, forgeRemoteHost, openClone, parseGithubUrl,
 } from "../cli/lib/laptop/clone.ts";
+// Imported for its side effect: git ignores the caller's global and system config.
+import "./lib/git-layout.ts";
 
-// A real temporary repository; the caller's global git config is never used.
+// A real temporary repository.
 async function withRepo(origin: string | null, fn: (dir: string) => Promise<void>): Promise<void> {
   const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "forge-clone-")));
   try {

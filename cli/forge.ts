@@ -21,6 +21,7 @@ import { cmdUploadPack } from "./lib/commands/upload-pack.ts";
 import { cmdCompletion } from "./lib/commands/completion.ts";
 import { cmdInstall } from "./lib/commands/install.ts";
 import { cmdOpen } from "./lib/commands/open.ts";
+import { cmdFetch } from "./lib/commands/fetch.ts";
 import { currentSide, requireSide } from "./lib/side.ts";
 
 const USAGE = `Usage: forge <command> [args]
@@ -54,6 +55,7 @@ On your laptop:
                                     Install or update a forge host: the local Lima VM by default, a new
                                     remote VM with --remote, an installed host with --host
   open [--host <name>]              Open herdr on a forge host
+  fetch [--host <name>]             Fetch the agents' branches into this clone and list the tasks
 
 A bracketed argument is asked for when you leave it out, as a numbered menu.
 With no terminal on stdin (scripts, CI) nothing is asked and the command
@@ -83,6 +85,7 @@ function dispatch(
     case "completion": return cmdCompletion(ctx, a, b);
     case "install": return cmdInstall(ctx, laptop);
     case "open": return cmdOpen(ctx, { host: laptop.host });
+    case "fetch": return cmdFetch(ctx, { host: laptop.host });
     default: throw new ForgeError(`unknown command '${cmd}'\n${USAGE}`);
   }
 }
@@ -131,8 +134,8 @@ async function main(): Promise<number> {
     if (values.remote !== undefined && cmd !== "install") {
       throw new ForgeError("--remote only goes with install: forge install --remote <address>");
     }
-    if (values.host !== undefined && cmd !== "install" && cmd !== "open") {
-      throw new ForgeError("--host only goes with install and open: forge install --host <name>, forge open --host <name>");
+    if (values.host !== undefined && cmd !== "install" && cmd !== "open" && cmd !== "fetch") {
+      throw new ForgeError("--host only goes with install, open and fetch: forge install --host <name>, forge open --host <name>");
     }
     const laptop = { remote: values.remote, host: values.host };
     const code = await dispatch(ctx, positionals, values.force === true, values.strict === true, values.all === true, laptop);
