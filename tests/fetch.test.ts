@@ -89,3 +89,41 @@ test("the host of the clone's forge remote is used without asking", async () => 
   assert.ok(ssh?.includes("forge-b"));
   assert.equal(ctx.out_lines.length, 1);
 });
+
+test("a base that no longer exists is reported and the other tasks still list", async () => {
+  saveHost(host("forge-local"));
+  layout.commit(layout.container, "agent/login", "a.txt");
+  layout.commit(layout.container, "agent/docs", "b.txt");
+  const ctx = hybridContext({ rules: [taskBase("docs\torigin/main\nlogin\torigin/gone-branch\n")] });
+  assert.equal(await cmdFetch(ctx, { cwd: layout.clone }), 0);
+  assert.deepEqual(ctx.out_lines, [
+    "agent/docs  1 commits on origin/main",
+    "agent/login  base origin/gone-branch is gone",
+  ]);
+});
+
+test("--host wins over the clone's remote, which is repointed", async () => {
+  saveHost(host("forge-a"));
+  saveHost(host("forge-b"));
+  git(layout.clone, "remote", "add", C, `forge-a:${C}`);
+  const ctx = hybridContext({ rules: [taskBase("")] });
+  assert.equal(await cmdFetch(ctx, { host: "forge-b", cwd: layout.clone }), 0);
+  assert.equal(git(layout.clone, "config", `remote.${C}.url`), `forge-b:${C}`);
+  assert.ok(ctx.calls.find((c) => c[0] === "ssh")?.includes("forge-b"));
+});
+
+test("a remote host that hosts.json does not list falls back to the only host", async () => {
+  saveHost(host("forge-b"));
+  git(layout.clone, "remote", "add", C, `forge-old:${C}`);
+  const ctx = hybridContext({ rules: [taskBase("")] });
+  assert.equal(await cmdFetch(ctx, { cwd: layout.clone }), 0);
+  assert.ok(!ctx.err_lines.some((l) => l.startsWith("Host>")), "no host question");
+  assert.equal(git(layout.clone, "config", `remote.${C}.url`), `forge-b:${C}`);
+});
+
+test("a container without agent branches says so", async () => {
+  saveHost(host("forge-local"));
+  const ctx = hybridContext({ rules: [taskBase("")] });
+  assert.equal(await cmdFetch(ctx, { cwd: layout.clone }), 0);
+  assert.deepEqual(ctx.out_lines, ["no agent branches yet"]);
+});

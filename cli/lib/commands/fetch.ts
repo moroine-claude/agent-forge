@@ -56,13 +56,17 @@ export async function cmdFetch(ctx: Context, opts: { host?: string; cwd?: string
     const head = `${container}/agent/${task}`;
     const recorded = bases.get(task);
     const limit = baseRef(container, recorded ?? "main");
-    const count = (await git("rev-list", "--count", head, `^${limit}`)).trim();
-    let line = `agent/${task}  ${count} commits on ${recorded ?? "main (assumed)"}`;
+    const has = async (ref: string) =>
+      (await ctx.exec(["git", "rev-parse", "-q", "--verify", `${ref}^{commit}`], { cwd: root })).code === 0;
+    // A base can vanish: a merged GitHub branch deleted, then pruned above.
+    const baseGone = !(await has(limit));
+    let line = baseGone
+      ? `agent/${task}  base ${recorded} is gone`
+      : `agent/${task}  ${(await git("rev-list", "--count", head, `^${limit}`)).trim()} commits on ${recorded ?? "main (assumed)"}`;
     // Shipped = a patch-equivalent commit is already on origin/agent/<task>.
     const shipped = `origin/agent/${task}`;
-    const exists = await ctx.exec(["git", "rev-parse", "-q", "--verify", `refs/remotes/${shipped}`], { cwd: root });
-    if (exists.code === 0) {
-      const cherry = await git("cherry", shipped, head, limit);
+    if (await has(`refs/remotes/${shipped}`)) {
+      const cherry = await git("cherry", shipped, head, ...(baseGone ? [] : [limit]));
       line += `, ${cherry.split("\n").filter((l) => l.startsWith("+")).length} not shipped`;
     }
     ctx.out(line);
