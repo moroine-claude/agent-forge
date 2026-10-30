@@ -16,6 +16,7 @@ import { cmdList } from "./lib/commands/list.ts";
 import { cmdEgress } from "./lib/commands/egress.ts";
 import { cmdImage } from "./lib/commands/image.ts";
 import { cmdAttach } from "./lib/commands/attach.ts";
+import { cmdTaskBase } from "./lib/commands/task-base.ts";
 import { cmdUploadPack } from "./lib/commands/upload-pack.ts";
 import { cmdCompletion } from "./lib/commands/completion.ts";
 import { cmdInstall } from "./lib/commands/install.ts";
@@ -41,6 +42,7 @@ On the forge host:
                                     wrong container: addresses are reused)
   attach <container> <task>         Run a task's agent in this terminal (what herdr tabs run)
   upload-pack <container> [<path>]  Serve a container's repository to git fetch (see the README, "Get the work back")
+  task-base <container> [<task>]    Print the ref a task started from (every task, tab-separated, without <task>)
   image build                       Build the agent-base image (Ansible, through Incus)
   image commit                      Print the commit agent-base was built from (nothing if no image)
   completion bash                   Print a bash completion function (eval it in ~/.bashrc)
@@ -76,6 +78,7 @@ function dispatch(
     case "egress": return cmdEgress(ctx, a, b);
     case "attach": return cmdAttach(ctx, a, b);
     case "upload-pack": return cmdUploadPack(ctx, a);
+    case "task-base": return cmdTaskBase(ctx, a, b);
     case "image": return cmdImage(ctx, a, b);
     case "completion": return cmdCompletion(ctx, a, b);
     case "install": return cmdInstall(ctx, laptop);

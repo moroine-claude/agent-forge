@@ -309,6 +309,41 @@ test("other branch… branches agent/<task> from the named ref", async () => {
   assert.ok(added(c).includes("worktree add .trees/thing -b agent/thing origin/feature/thing"), added(c));
 });
 
+const baseSets = (c: ReturnType<typeof fakeContext>) =>
+  c.calls.map((x) => x.join(" ")).filter((l) => l.includes("config set"));
+
+test("a new task records origin/main as its base", async () => {
+  const c = fakeContext({ rules: rules() });
+  await cmdStart(c, "alice/project", "fresh");
+  const lines = c.calls.map((x) => x.join(" "));
+  const add = lines.findIndex((l) => l.includes("worktree add"));
+  const set = lines.findIndex((l) => l.endsWith("config set agent-alice-project user.forge.base.fresh origin/main"));
+  assert.ok(add >= 0 && set > add, lines.join("\n"));
+});
+
+test("other branch… records the ref typed as the base", async () => {
+  const c = fakeContext({ rules: rules(), answers: [3, "origin/feature/thing", "thing"] });
+  await cmdStart(c, "alice/project", undefined);
+  const lines = c.calls.map((x) => x.join(" "));
+  const add = lines.findIndex((l) => l.includes("worktree add"));
+  const set = lines.findIndex((l) =>
+    l.endsWith("config set agent-alice-project user.forge.base.thing origin/feature/thing"));
+  assert.ok(add >= 0 && set > add, lines.join("\n"));
+});
+
+test("a resumed branch records no base", async () => {
+  const local = fakeContext({ rules: rules([{ match: "show-ref --verify --quiet refs/heads/agent/old", code: 0 }]) });
+  await cmdStart(local, "alice/project", "old");
+  const remote = fakeContext({
+    rules: rules([{ match: "show-ref --verify --quiet refs/remotes/origin/agent/old", code: 0 }]),
+  });
+  await cmdStart(remote, "alice/project", "old");
+  assert.ok(added(local).includes("worktree add"), added(local));
+  assert.ok(added(remote).includes("-b agent/old origin/agent/old"), added(remote));
+  assert.deepEqual(baseSets(local), []);
+  assert.deepEqual(baseSets(remote), []);
+});
+
 test("other branch… refuses to overwrite an existing agent branch", async () => {
   const c = fakeContext({
     rules: rules([{ match: "show-ref --verify --quiet refs/heads/agent/thing", code: 0 }]),
