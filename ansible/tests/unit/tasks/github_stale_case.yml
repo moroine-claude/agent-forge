@@ -1,0 +1,14 @@
+---
+- name: Select the stale entries for {{ unit_case.name }}
+  block:
+    - name: Include the selection for {{ unit_case.name }}
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../roles/forge_users/tasks/github_stale.yml"
+      vars:
+        forge_users_known_hosts_lines: "{{ unit_case.lines }}"
+        forge_users_github_keys: "{{ unit_published }}"
+
+- name: Check the selection for {{ unit_case.name }}
+  ansible.builtin.assert:
+    that:
+      - forge_users_github_stale == unit_case.expect
+    fail_msg: "Case {{ unit_case.name }}: expected {{ unit_case.expect }}, got {{ forge_users_github_stale }}"

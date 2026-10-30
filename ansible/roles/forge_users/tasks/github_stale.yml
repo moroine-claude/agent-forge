@@ -1,0 +1,12 @@
+---
+# Sets forge_users_github_stale: the "<type> <key>" of every github.com entry
+# in forge_users_known_hosts_lines that is not in forge_users_github_keys.
+# Comments, @cert-authority / @revoked markers and other hosts never match.
+- name: Select the github.com entries GitHub no longer publishes
+  ansible.builtin.set_fact:
+    forge_users_github_stale: >-
+      {{ forge_users_known_hosts_lines
+         | select('match', '^(\S+,)*github\.com(,\S+)* ')
+         | map('regex_replace', '^\S+ (\S+ \S+).*$', '\1')
+         | reject('in', forge_users_github_keys)
+         | unique | list }}

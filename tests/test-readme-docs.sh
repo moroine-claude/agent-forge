@@ -27,23 +27,23 @@ assert_not_contains() {
   fi
 }
 
-# Mode local : VM Lima, inventaire d'exemple, playbook, alias SSH.
-# --tty=false : limactl create poserait sinon une question interactive.
-assert_contains 'limactl create --tty=false --name forge-local ansible/lima/forge.yaml'
-assert_not_contains 'limactl create --name'
-assert_contains 'limactl start forge-local'
-assert_contains 'ansible/inventory.lima.example.yml'
-assert_contains 'ansible-galaxy collection install -r ansible/requirements.yml'
-assert_contains 'ansible-playbook -i'
-assert_contains 'Host forge-local'
-assert_contains 'Port 60022'
-assert_contains 'User forge'
-assert_contains 'HostKeyAlias forge-local'
-assert_contains 'ForwardAgent yes'
-assert_contains 'IdentityAgent'
+# Mode local : forge install fait le travail ; les étapes manuelles sont dans
+# ansible/README.md (tests/test-ansible-readme-docs.sh).
+assert_contains './cli/forge install'
+assert_contains 'forge install --remote'
+assert_contains 'forge install --host'
+assert_contains 'forge open'
+assert_contains '~/.ssh/config.d/agent-forge.config'
+assert_contains 'Installing by hand'
 assert_contains 'brew install lima'
 assert_contains 'pipx install ansible-core'
 assert_contains '/dev/kvm'
+assert_contains 'IdentityAgent'
+assert_contains 'ForwardAgent'
+assert_not_contains 'limactl create'
+assert_not_contains 'ansible/inventory.lima.example.yml'
+assert_not_contains 'ansible-playbook -i'
+assert_not_contains 'accepts GitHub'
 # Le parcours Ubuntu reste à valider sur une vraie machine.
 assert_contains 'not yet validated'
 
@@ -51,6 +51,7 @@ assert_contains 'not yet validated'
 assert_contains 'claude auth login'
 assert_contains 'forge setup'
 assert_contains 'forge image build'
+assert_contains 'known_hosts'
 # La sortie attendue de forge setup sur un hôte neuf, notices comprises.
 assert_contains 'is too old for strict mode'
 assert_contains 'herdr is not installed on this host yet'
@@ -73,8 +74,8 @@ assert_contains 'forge completion bash'
 assert_not_contains 'incus --project agent-forge delete --force'
 assert_contains 'offers to recreate it'
 
-# Mode distant : alias SSH, port 22 par défaut.
-assert_contains 'Host forge-vm'
+# Mode distant : forge install --remote écrit l'alias SSH.
+assert_not_contains 'Host forge-vm'
 assert_not_contains 'Port 2222'
 
 # Corrections de la relecture finale : la v2 est sortie sur main (la branche
@@ -85,12 +86,51 @@ assert_contains 'git clone https://github.com/moroine/agent-forge.git'
 assert_not_contains 'git clone -b next'
 assert_contains 'Incus 7.0.2'
 assert_contains 'not published yet'
-assert_contains ".ssh.localPort = "
 assert_contains 'forge attach'
-assert_contains 'Host key verification failed'
-assert_contains 'Too many authentication failures'
+assert_not_contains 'Host key verification failed'
+assert_contains 'REMOTE HOST IDENTIFICATION HAS CHANGED'
+assert_contains 'ssh-keygen -R'
+assert_contains '-f ~/.config/agent-forge/known_hosts'
+assert_contains 'ssh forge-acme true'
+assert_contains 'Include config.d/agent-forge.config'
+assert_not_contains 'Too many authentication failures'
 assert_contains 'default branch'
 assert_not_contains 'or your laptop sleeps'
+
+# Ce que forge install change sur la machine, et comment le défaire : chaque
+# chemin, le fichier SSH de forge pour forge-local, le bloc herdr du laptop.
+assert_contains "What \`forge install\` changes on your machine"
+assert_contains 'To undo'
+assert_contains '~/.config/agent-forge/hosts.json'
+assert_contains '~/.config/agent-forge/hosts/<name>/'
+assert_contains 'forge-key.pub'
+assert_contains '~/.local/share/agent-forge/collections'
+assert_contains '~/.config/herdr/config.toml'
+assert_contains '~/.local/bin/forge'
+assert_contains '~/.lima/forge-local'
+assert_contains '~/.ansible'
+assert_contains 'limactl delete forge-local'
+assert_contains 'limactl prune'
+assert_contains 'rm -r ~/.config/agent-forge ~/.local/share/agent-forge'
+assert_contains 'known_hosts.old'
+assert_contains 'Include config.d/agent-forge` line left by a'
+assert_contains 'HostKeyAlias forge-local'
+assert_contains 'StrictHostKeyChecking accept-new'
+assert_contains 'UserKnownHostsFile ~/.config/agent-forge/known_hosts'
+assert_contains 'IdentityFile ~/.config/agent-forge/hosts/forge-local/forge-key.pub'
+assert_contains 'IdentitiesOnly yes'
+assert_contains 'ForwardAgent yes'
+assert_contains '# >>> agent-forge laptop >>>'
+# Les toasts herdr se règlent sur le laptop : forge install les active après
+# confirmation, forge setup ne s'en occupe plus.
+assert_contains '[ui.toast]'
+assert_contains 'delivery = "herdr"'
+assert_not_contains 'in-app notifications'
+assert_contains 'ui = {…}'
+assert_contains 'a `[ui]` table alone does not stop'
+# Les réglages placés avant l'Include gagnent : forge vérifie avec ssh -G.
+assert_contains 'ssh keeps the first value'
+assert_contains 'ssh -G'
 
 # Rien de la v1 ni du mode Linux direct.
 assert_not_contains 'lxc '

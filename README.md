@@ -34,8 +34,9 @@ what it does not.
 | Best for | Trying agent-forge, working on one machine | Agents that keep running while your laptop is off |
 | Guide | [Quick start: local](#quick-start-local) | [Remote host](#remote-host) |
 
-Both end the same way: you SSH to the host once to log in and build the
-image, then you work from herdr on your machine.
+Both are one command, `forge install`, run from a checkout of this
+repository on your machine. It provisions the host, logs Claude Code in and
+builds the image, then opens herdr.
 
 ## Quick start: local
 
@@ -69,129 +70,194 @@ pipx install ansible-core             # 2.20 or newer
 Install herdr from its releases (https://herdr.dev).
 
 **Both:** you need git, and an SSH key that GitHub accepts, loaded in the
-agent that ssh uses by default (`ssh-add -L` lists it). The host clones your
-repositories with it, through agent forwarding.
+agent that ssh uses for `github.com` (`ssh-add -L` lists it). The host clones
+your repositories with it, through agent forwarding. If that key lives in
+another agent (a hardware key's, a password manager's), point `IdentityAgent`
+at it in your `~/.ssh/config`, in a `Host github.com` block.
 
-### 2. Create the VM
+### 2. Install
 
 ```bash
 git clone https://github.com/moroine/agent-forge.git
 cd agent-forge
-limactl create --tty=false --name forge-local ansible/lima/forge.yaml
-limactl start forge-local
+./cli/forge install
 ```
 
-`--tty=false` skips `limactl create`'s question (proceed, edit the configuration, or pick another
-template): the template is meant to be used as is.
+With no option, and no host installed yet, `forge install` sets up the local
+VM `forge-local`. It never installs anything on your machine: when a tool is
+missing it prints the command to run and stops. Run it again afterwards.
 
-The template (`ansible/lima/forge.yaml`) runs Lima in plain mode: no shared
-folder, no port forwarding besides SSH on `127.0.0.1:60022`. Workspaces live
-inside the VM. If port 60022 is taken, create the VM with another one, then
-use that port as `ansible_port` in the inventory and as `Port` in the SSH
-block below:
+It asks little:
 
-```bash
-limactl create --tty=false --name forge-local --set '.ssh.localPort = 60122' ansible/lima/forge.yaml
+- which key is your GitHub key, only when your agent holds several (it uses
+  the agent ssh uses for `github.com`);
+- whether to add `Include config.d/agent-forge.config` at the top of
+  `~/.ssh/config`, so that ssh reads forge's own file. It is not asked when an
+  `Include` there already reads that file for every host
+  (`Include config.d/*` at the top, or `Include ~/.ssh/config.d/*.config`
+  under `Match all` or `Host *`) and forge's values are in effect. Settings
+  placed before such an `Include` win over forge's (ssh keeps the first value
+  it reads), so forge checks what `ssh -G` resolves for the alias, names each
+  setting of yours that wins, and then asks;
+- whether to link `~/.local/bin/forge` to the checkout, so `forge` works from
+  anywhere (a refusal is asked again on every run);
+- whether to turn herdr's notifications on in `~/.config/herdr/config.toml`,
+  on your machine, unless that file sets `[ui.toast]` or an inline
+  `ui = {…}` itself (a `[ui]` table alone does not stop forge; a refusal is
+  asked again on every run);
+- the Claude login, once: `claude auth login` prints a URL, you open it and
+  paste the code back.
+
+In between it does, in order:
+
+1. checks the prerequisites;
+2. creates and starts the Lima VM from `ansible/lima/forge.yaml` (plain mode:
+   no shared folder, no port forwarding besides SSH on `127.0.0.1:60022`, or
+   a free port if that one is taken; workspaces live inside the VM);
+3. writes the inventory, once, to
+   `~/.config/agent-forge/hosts/forge-local/inventory.yml` (your edits are
+   kept) and runs the playbook from the checkout;
+4. writes the SSH alias `forge-local` to `~/.ssh/config.d/agent-forge.config`,
+   a file that is forge's own, with forge's own `known_hosts`
+   (`~/.config/agent-forge/known_hosts`);
+5. gives the host your git identity (`user.name`, `user.email`), the one the
+   agents' commits carry;
+6. runs `claude auth login` on the host, unless it is already logged in; every
+   new container reuses those credentials;
+7. runs `forge setup` there: forge's Incus objects, the egress proxy and its
+   allowlist when Incus is recent enough (see
+   [Strict egress mode](#strict-egress-mode)), and forge's herdr key bindings
+   on the host;
+8. builds `agent-base` (about 10 minutes) when it is missing or older than the
+   checkout's image inputs;
+9. turns herdr's notifications on in your machine's herdr config if you say
+   yes: they are a setting of the client, not of the host (see
+   [step 3](#3-start-a-task-from-herdr));
+10. prints a summary and opens herdr.
+
+A run that fails stops with the step to fix; run `forge install` again and it
+resumes. `forge install` refuses a `forge-local` Lima VM or a `Host` entry it
+did not create, and says what to remove.
+
+On a fresh host, `forge setup` prints two notices:
+
+```
+NOTICE: Incus 7.0.1 is too old for strict mode, which needs 7.0.2 or later on the 7.0 LTS line ...
+NOTICE: herdr is not installed on this host yet, which is expected before your first attach ...
 ```
 
-### 3. Provision it
+The first goes away once Zabbly publishes Incus 7.0.2 and you update (see
+[Updating](#updating)); the second at your first `herdr --remote`.
 
-```bash
-cp ansible/inventory.lima.example.yml ~/forge-local-inventory.yml
+With a touch-to-use hardware key, a first install asks for about a dozen
+touches: one per SSH connection.
+
+#### What `forge install` changes on your machine
+
+| Path | What | Mode | Asked |
+|---|---|---|---|
+| `~/.config/agent-forge/hosts.json` | The hosts this machine installed | 0600 | No |
+| `~/.config/agent-forge/hosts/<name>/` | Per host: `inventory.yml`, the generated inventory, written once (your edits are kept), and `forge-key.pub`, the public half of your GitHub key | 0700; 0600 and 0644 | No |
+| `~/.config/agent-forge/known_hosts` | forge's own `known_hosts`: the hosts' keys, for the alias and for Ansible | Written by ssh | No |
+| `~/.local/share/agent-forge/collections` | The Ansible collections the playbook needs | Written by `ansible-galaxy` | No |
+| `~/.ssh/config.d/agent-forge.config` | forge's own SSH file: one block per host, rewritten on every run | 0600; 0700 for a directory forge creates | No |
+| `~/.ssh/config` | One line at the top, `Include config.d/agent-forge.config`, and a blank line before your own first line, only when no `Include` there reads forge's file for every host with forge's values in effect. Nothing else changes | Kept; 0600 if forge creates it | Yes |
+| `~/.config/herdr/config.toml` | A block of forge's own at the end, `[ui.toast]` then `delivery = "herdr"`, only when the file sets neither `[ui.toast]` nor an inline `ui = {…}` | Kept; 0644 if forge creates it, 0700 for a directory forge creates | Yes |
+| `~/.local/bin/forge` | A link to the checkout's `cli/forge` | A link | Yes |
+
+forge creates `~/.config/agent-forge` 0700. A `~/.ssh/config.d/agent-forge` that
+an earlier forge wrote (it starts with forge's header line) counts as forge's
+own, and is removed once ssh reads the new file: until then it keeps the alias
+working. Any other file of that name stays.
+
+forge's SSH file, for `forge-local`:
+
 ```
+# Managed by forge install: edits are overwritten.
 
-Edit `~/forge-local-inventory.yml`:
-
-- `ansible_user`: your login name on this machine (`whoami`); Lima created
-  that account in the VM;
-- `ssh_keys`: the public key you use for GitHub (`ssh-add -L`).
-
-Then run the playbook from the checkout (it deploys `forge` from its HEAD):
-
-```bash
-ansible-galaxy collection install -r ansible/requirements.yml
-ansible-playbook -i ~/forge-local-inventory.yml ansible/site.yml
-```
-
-A second run must report `changed=0`. `ansible/README.md` covers the
-playbook's options and what it hardens.
-
-### 4. Reach the VM over SSH
-
-Add this to `~/.ssh/config`:
-
-```
 Host forge-local
   HostName 127.0.0.1
   Port 60022
   User forge
   HostKeyAlias forge-local
+  StrictHostKeyChecking accept-new
+  UserKnownHostsFile ~/.config/agent-forge/known_hosts
+  IdentityFile ~/.config/agent-forge/hosts/forge-local/forge-key.pub
+  IdentitiesOnly yes
   ForwardAgent yes
 ```
 
-`forge` is the forge user the playbook created. `ForwardAgent yes` lets the
-host clone your repositories with your key. OpenSSH forwards the agent it
-uses for that host, the one named by `IdentityAgent` (or `SSH_AUTH_SOCK`):
-if your GitHub key lives in another agent (a hardware key's, a password
-manager's), set `IdentityAgent` to it in this block.
+- forge writes your home's full path where this shows `~`.
+- `HostKeyAlias` and `accept-new`: the VM's port and host key change when it
+  is recreated, so its key is pinned under a stable name. A remote host's
+  block has neither: OpenSSH asked about its key at the first connection.
+- `IdentityFile` names the public half of your GitHub key, which stays in
+  your agent; `IdentitiesOnly` offers only that key.
+- An `IdentityAgent` line comes before `ForwardAgent` when your ssh uses
+  another agent than `SSH_AUTH_SOCK`'s for `github.com`.
+- `ForwardAgent yes`: the host clones and fetches your repositories with your
+  agent. Containers never get it.
 
-### 5. Log in and build the image
+The tools write their own files: Lima keeps the VM in `~/.lima/forge-local`
+(and its SSH key, which the inventory uses, in `~/.lima/_config`), and
+Ansible its own in `~/.ansible`.
 
-```bash
-ssh forge-local                        # accept the host key once
-claude auth login
-git config --global user.name "Alice Example"
-git config --global user.email "alice@example.com"
-forge setup
-forge image build                      # about 10 minutes
-exit
-```
+#### To undo
 
-- `claude auth login` logs Claude Code in on the host; every new container
-  reuses those credentials.
-- The git identity is the one the agents' commits carry.
-- `forge setup` creates forge's Incus objects, the egress proxy and its
-  allowlist when Incus is recent enough (see
-  [Strict egress mode](#strict-egress-mode)), and forge's herdr key bindings.
-  Run it again after changing forge's configuration. On a fresh host, two
-  notices are expected:
-
-  ```
-  NOTICE: Incus 7.0.1 is too old for strict mode, which needs 7.0.2 or later on the 7.0 LTS line ...
-  NOTICE: herdr is not installed on this host yet, which is expected before your first attach ...
-  ```
-
-  The first goes away once Zabbly publishes Incus 7.0.2 and you re-run the
-  playbook; the second at your first `herdr --remote` (step 6).
-- `forge image build` builds `agent-base`, the image every container starts
-  from.
-
-### 6. Start a task from herdr
-
-In a real terminal (the first attach asks to install herdr on the host):
+Fetch the work you want first: the local VM's workspaces live inside it.
 
 ```bash
-herdr --remote forge-local --remote-keybindings server
+limactl stop forge-local                 # if it is running
+limactl delete forge-local
+limactl prune                            # Lima's cache of downloaded images, for every VM
+rm -r ~/.config/agent-forge ~/.local/share/agent-forge
+rm ~/.ssh/config.d/agent-forge.config
+rm ~/.local/bin/forge                    # if it is forge's link
 ```
 
-`--remote-keybindings server` is required: forge's keys live on the host.
+`~/.config/agent-forge` also holds `known_hosts.old`, which `ssh-keygen -R`
+leaves when forge forgets a VM's keys. Then remove what forge added to your
+own files, if it did: the `Include config.d/agent-forge.config` line at the
+top of `~/.ssh/config` (and an `Include config.d/agent-forge` line left by a
+pre-release run, with `~/.ssh/config.d/agent-forge` if it is still there),
+and the block from `# >>> agent-forge laptop >>>` to
+`# <<< agent-forge laptop <<<` in `~/.config/herdr/config.toml`. A remote VM
+is deleted at your provider. `~/.lima/_config` and `~/.ansible` belong to
+Lima and Ansible, which may use them for other things.
+
+### 3. Start a task from herdr
+
+`forge install` ends by opening herdr. Later:
+
+```bash
+./cli/forge open
+```
+
+It runs `herdr --remote forge-local --remote-keybindings server` for you, and
+starts the VM first if it is stopped. In a real terminal: the first attach
+asks to install herdr on the host. `--remote-keybindings server` is required:
+forge's keys live on the host.
+
 Press `prefix+f` (herdr's prefix is `ctrl+b`). A popup asks for the repository
 (`owner/repo`, the first time) and the task:
 
-- the first `prefix+f` on a repository creates its container, clones it on the
-  host and accepts GitHub's host key once, in the popup;
+- the first `prefix+f` on a repository creates its container and clones it on
+  the host;
 - each task gets a worktree, `/workspace/.trees/<task>` on branch
   `agent/<task>`, and its own tab running Claude Code.
 
 On success the popup closes by itself; warnings show up as a herdr
 notification. After an error it stays open until you press Enter.
 
-Those notifications only show if herdr has toasts turned on on your machine:
-put `[ui.toast]` then `delivery = "herdr"` in `~/.config/herdr/config.toml`.
+Those notifications only show if herdr has toasts turned on on your machine,
+in `~/.config/herdr/config.toml`: `forge install` offers to add `[ui.toast]`
+then `delivery = "herdr"` there, in a block of its own. If you said no, or if
+that file sets `[ui.toast]` or an inline `ui = {…}` itself (forge then leaves
+it alone; a `[ui]` table alone does not stop it), set them there yourself.
 Otherwise herdr still reports the notification as shown, and the popup's
 warnings go unseen.
 
-### 7. Get the work back
+### 4. Get the work back
 
 On your machine, in your own clone of the repository:
 
@@ -210,44 +276,48 @@ it yourself.
 ### The local VM day to day
 
 - `limactl stop forge-local` / `limactl start forge-local`. Agents stop with
-  the VM; after a start, attach again and press `prefix+shift+f` to bring them
-  back with their conversation.
+  the VM; after a start, `forge open` (it starts a stopped VM too) and press
+  `prefix+shift+f` to bring them back with their conversation.
 - To start over: fetch every branch you want first (workspaces live in the
-  VM), then `limactl delete forge-local`, and
-  `ssh-keygen -R forge-local; ssh-keygen -R forge-local-admin` for the old host
-  keys.
+  VM), then `limactl delete forge-local`. The next `forge install` offers to
+  forget the old VM and installs a new one.
 
 ## Remote host
 
-The same steps, on a VM that you create:
+The same install, on a VM that you create:
 
 1. **The VM.** Ubuntu 26.04, at least 2 vCPU, 4 GB of memory and a 40 GB disk
-   (more for several agents), with a sudo account Ansible can log in to with
-   your key (`ubuntu` on most cloud images). Let SSH (port 22) through the
-   provider's firewall.
-2. **The inventory.** Copy `ansible/inventory.example.yml` outside the
-   repository and set:
-   - the VM's address, and the admin account as `ansible_user`;
-   - `forge_exposure: public` for a cloud VM, `lan` for a machine on your
+   (more for several agents), with an admin account that has passwordless
+   sudo and that your key can log in to (`ubuntu` on most cloud images). Let
+   SSH (port 22) through the provider's firewall.
+2. **The install**, from a checkout, with the VM's address:
+
+   ```bash
+   ./cli/forge install --remote 203.0.113.10
+   ```
+
+   The prerequisites are the local ones, without Lima. It asks:
+   - the host's name, `forge-<name>` (as `forge-acme`), which is also its SSH
+     alias;
+   - the admin account (default `ubuntu`);
+   - the exposure: `public` for a cloud VM, `lan` for a machine on your
      network;
-   - your forge user: a name of your choice and your GitHub public key.
+   - your forge user on the host (default: your login on this machine);
+   - the key the admin account accepts: your GitHub key, or a private key
+     file.
 
-   Then run the playbook, as in [step 3](#3-provision-it).
-   `ansible/README.md` covers the options (SSH sources, storage pool, a sudo
-   password).
-3. **The SSH alias.** The port stays 22 unless you set `forge_ssh_port`:
+   Then it follows the steps of the local install. The first connection shows
+   OpenSSH's own host-key question: check the fingerprint with your provider
+   before you answer. If that first connection never succeeds, the next
+   `forge install --host forge-acme` offers to retry or to forget your
+   answers. An admin account with a sudo password, or other playbook options:
+   see "Installing by hand" in `ansible/README.md`.
 
-   ```
-   Host forge-vm
-     HostName 203.0.113.10
-     User alice
-     ForwardAgent yes
-   ```
-
-Then follow steps [5](#5-log-in-and-build-the-image) to
-[7](#7-get-the-work-back) with `forge-vm` in place of `forge-local`:
-`herdr --remote forge-vm --remote-keybindings server`, and
-`git remote add <container> forge-vm:<container>`.
+`forge open --host forge-acme` opens herdr on it, and
+`git remote add <container> forge-acme:<container>` fetches its work (step
+[4](#4-get-the-work-back)). With several hosts installed, `forge open` asks which one. `forge install`
+with no option goes to `forge-local` when it is listed, and asks which host
+only when just remote hosts are listed.
 
 ## Daily use
 
@@ -262,6 +332,14 @@ Agents keep running when you detach. In remote mode they also run while
 your laptop sleeps; in local mode they pause with the VM.
 
 ### Commands
+
+Run on your machine, from the checkout (or through the `~/.local/bin/forge`
+link):
+
+| Command | What it does |
+|---|---|
+| `forge install [--remote <address>] [--host <name>]` | Install or update a host: the local VM by default, a new remote VM with `--remote`, an installed host with `--host` |
+| `forge open [--host <name>]` | Open herdr on a host |
 
 Run on the host (in a herdr pane, or over `ssh`):
 
@@ -290,7 +368,7 @@ agent in the foreground and say
 - **Never run git yourself in `~/workspaces/<container>` on the host,** and do
   not `cd` there with a git-aware prompt. The agent controls that repository,
   hooks and `.git/config` included, and host git would run its commands as
-  you. Fetch from your machine, as in step 7.
+  you. Fetch from your machine, as in step 4.
 - **Review agent code before running it on your machine.** Checking out an
   agent branch and running its scripts (`npm install`, test runners) runs the
   agent's code there.
@@ -358,12 +436,13 @@ From your machine, in the agent-forge checkout:
 
 ```bash
 git pull
-ansible-playbook -i ~/forge-local-inventory.yml ansible/site.yml
+./cli/forge install
 ```
 
-The playbook deploys the checkout's `forge` and upgrades Incus within its
-channel. Then on the host run `forge setup`, and `forge image build` when the
-image changed.
+For a remote host, `forge install --host forge-acme`. On a finished host,
+`forge install` updates it: the playbook (which deploys the checkout's
+`forge` and upgrades Incus within its channel), `forge setup`, and the image
+build when the image's inputs changed (it asks when it cannot tell).
 
 ## Configuration
 
@@ -427,22 +506,21 @@ Known limits:
 - **Provisioning says the security hook refuses a harmless command:** the
   image predates a change to it. Run `forge image build`, then recreate the
   container.
-- **`REMOTE HOST IDENTIFICATION HAS CHANGED`** after recreating the VM:
-  `ssh-keygen -R forge-local` (and `forge-local-admin` for Ansible).
+- **`REMOTE HOST IDENTIFICATION HAS CHANGED`** after recreating a remote VM
+  at the same address: a host forge installed keeps its key in forge's own
+  file. Remove the old key, then record the new one yourself:
+  `ssh-keygen -R 203.0.113.10 -f ~/.config/agent-forge/known_hosts` (the VM's
+  address), then `ssh forge-acme true` once in a terminal. Check the
+  fingerprint OpenSSH shows against your provider's console and answer yes:
+  the alias and the playbook's admin connection read the same file, and
+  nothing else records the key. Then `forge install --host forge-acme`. For
+  the local VM, `forge install` handles it when it recreates the VM.
 - **The host cannot clone** (`Permission denied (publickey)` or
   `Error connecting to agent`): the agent is not forwarded. Check
   `ForwardAgent yes` and `IdentityAgent` in your SSH config, and that you are
   attached: with no client attached, the host has no agent.
 - **`herdr --remote` fails the first time:** run it in a real terminal; it
   asks before installing herdr on the host.
-- **The first clone of a repository stops on GitHub's host key:** the popup
-  shows GitHub's key fingerprint. Check it against GitHub's published SSH
-  fingerprints and answer `yes`; answering no ends in
-  `Host key verification failed`, and the next `prefix+f` asks again.
-- **`Too many authentication failures`** from `ssh forge-local` or
-  `ssh forge-vm`: sshd allows two attempts, which an agent holding several
-  keys uses up. Add `IdentityFile ~/.ssh/<your key>.pub` and
-  `IdentitiesOnly yes` to the Host block.
 - **`forge start` stops on `smudge filter lfs failed`** (a repository with
   Git LFS files): the container was provisioned by an older forge, whose
   git-lfs configuration downloads LFS objects the mirror does not hold. Fix it

@@ -15,10 +15,15 @@ export type FakeOptions = {
   rules?: ExecRule[];
   answers?: (number | string | null)[];
   tty?: boolean;
-  // Faux incus à état : reçoit tout appel `incus …` qu'aucune règle n'a pris.
+  // Faux incus à état : reçoit tout appel `incus …` qu'aucune règle n'a pris,
+  // par exec comme par attach.
   incus?: FakeIncus;
   // Code de sortie rendu par attach (ansible-playbook, agent) ; 0 par défaut.
   attachCode?: number;
+  // Codes par commande : la première règle dont `match` est une sous-chaîne de
+  // l'argv joint donne son `code` (0 si absent) ; sinon le faux incus pour un
+  // appel `incus …`, sinon attachCode.
+  attachRules?: ExecRule[];
 };
 
 export type FakeContext = Context & {
@@ -84,7 +89,15 @@ export function fakeContext(opts: FakeOptions = {}): FakeContext {
 
   const fake: FakeContext = {
     exec,
-    attach: async (argv, attachOpts) => { calls.push(argv); attachCalls.push({ argv, opts: attachOpts }); return opts.attachCode ?? 0; },
+    attach: async (argv, attachOpts) => {
+      calls.push(argv);
+      attachCalls.push({ argv, opts: attachOpts });
+      const joined = argv.join(" ");
+      const rule = (opts.attachRules ?? []).find((r) => joined.includes(r.match));
+      if (rule) return rule.code ?? 0;
+      if (opts.incus && argv[0] === "incus") return opts.incus.run(argv.slice(1)).code;
+      return opts.attachCode ?? 0;
+    },
     prompt,
     out: (line) => out_lines.push(line),
     err: (line) => err_lines.push(line),

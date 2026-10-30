@@ -1,4 +1,4 @@
-// forge image build (spec "Image → forge image build"). forge drives the
+// forge image build | commit (spec "Image → forge image build"). forge drives the
 // lifecycle (launch, publish, stamp); ansible/image.yml only configures the
 // one instance it is given. Ansible's output streams live, as v1's
 // v1's image script did.
@@ -7,7 +7,7 @@ import { join } from "node:path";
 import type { Context } from "../context.ts";
 import { ForgeError, mustSucceed } from "../context.ts";
 import { loadConfig } from "../config.ts";
-import { BASE_IMAGE } from "../containers.ts";
+import { BASE_IMAGE, latestImageCommit } from "../containers.ts";
 import { checkHost, checkIpForward, checkStoragePool, type ProcPaths } from "../host.ts";
 import {
   deleteInstance, forgeProject, imageExists, imageFingerprint, incus, instanceExists, listObjects, waitReady,
@@ -25,14 +25,21 @@ export const BUILD_INSTANCE = "forge-image-build";
 // No cloud-init: with it, every instance would recreate the ubuntu account and
 // its passwordless sudo (spec "Decisions").
 export const SOURCE_IMAGE = "images:ubuntu/26.04";
-const USAGE = "Usage: forge image build";
+const USAGE = "Usage: forge image build | commit";
 
 export type ImageOptions = { proc?: ProcPaths; root?: string };
 
 export async function cmdImage(
   ctx: Context, sub: string | undefined, extra?: string, opts: ImageOptions = {},
 ): Promise<number> {
-  if (sub !== "build" || extra !== undefined) throw new ForgeError(USAGE);
+  if ((sub !== "build" && sub !== "commit") || extra !== undefined) throw new ForgeError(USAGE);
+  if (sub === "commit") {
+    // Read-only query, which the laptop's `forge install` runs over SSH: the
+    // commit agent-base was built from, nothing when there is no image.
+    const commit = await latestImageCommit(ctx);
+    if (commit) ctx.out(commit);
+    return 0;
+  }
   const root = opts.root ?? repoRoot();
   const project = forgeProject();
 
@@ -87,10 +94,17 @@ export async function cmdImage(
   // held the alias; the probe below covers an Incus that keeps it. Either way
   // the previous image goes only once the new one carries the alias and the
   // stamp, so an agent-base exists at every moment.
+  // The publish lasts minutes: attached, not captured, Incus shows on a
+  // terminal the packed size and the throughput, where exec would leave the
+  // screen silent after the PLAY RECAP.
   const previous = await imageFingerprint(ctx, BASE_IMAGE);
+  ctx.out(`Publishing ${BASE_IMAGE}: Incus stops ${BUILD_INSTANCE}, then packs and compresses ` +
+    "its filesystem (several minutes)...");
   await mustSucceed(`stop ${BUILD_INSTANCE}`, ctx.exec(incus("stop", BUILD_INSTANCE)));
-  await mustSucceed(`publish ${BASE_IMAGE}`,
-    ctx.exec(incus("publish", BUILD_INSTANCE, "--alias", BASE_IMAGE, "--reuse")));
+  const published = await ctx.attach(incus("publish", BUILD_INSTANCE, "--alias", BASE_IMAGE, "--reuse"));
+  if (published !== 0) {
+    throw new ForgeError(`publish ${BASE_IMAGE} failed (exit code ${published}). ${keptHint(project)}`);
+  }
   await mustSucceed(`stamp ${BASE_IMAGE}`,
     ctx.exec(incus("image", "set-property", BASE_IMAGE, "user.forge.commit", commit)));
   const current = await imageFingerprint(ctx, BASE_IMAGE);

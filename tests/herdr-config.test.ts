@@ -6,7 +6,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fakeContext } from "./lib/fake-context.ts";
-import { BLOCK_START, BLOCK_END, renderBlock, spliceBlock, conflictingKeys, ensureHerdrConfig } from "../cli/lib/herdr-config.ts";
+import {
+  BLOCK_START, BLOCK_END, renderBlock, spliceBlock, conflictingKeys, ensureHerdrConfig, LAPTOP_MARKERS, laptopToasts,
+  renderLaptopBlock,
+} from "../cli/lib/herdr-config.ts";
 import { ForgeError } from "../cli/lib/context.ts";
 
 const FORGE = "/usr/local/bin/forge";
@@ -113,6 +116,67 @@ test("conflictingKeys finds keys outside the block only", () => {
 test("conflictingKeys reads single-quoted keys and keys followed by a comment", () => {
   const text = "key = \"prefix+f\" # mine\nkey = 'prefix+shift+f'\n\n" + BLOCK;
   assert.deepEqual(conflictingKeys(text).sort(), ["prefix+f", "prefix+shift+f"]);
+});
+
+// The laptop's block (forge install): herdr draws a notification only if the
+// attached client's config turns toasts on (spec, sub-project 1, Finding).
+const LAPTOP_BLOCK = [
+  "# >>> agent-forge laptop >>>",
+  "# Added by `forge install`: herdr draws its notifications, among them the",
+  "# warnings of forge's start popup. Remove this block to turn them off again.",
+  "# Keep your own settings above it.",
+  "[ui.toast]",
+  'delivery = "herdr"',
+  "# <<< agent-forge laptop <<<",
+  "",
+].join("\n");
+
+test("renderLaptopBlock renders herdr's toasts between the laptop block's own markers", () => {
+  assert.equal(renderLaptopBlock(), LAPTOP_BLOCK);
+});
+
+test("the laptop block and forge setup's block are spliced independently", () => {
+  const both = spliceBlock("x = 1\n" + BLOCK, LAPTOP_BLOCK, LAPTOP_MARKERS);
+  assert.deepEqual(both, { text: "x = 1\n" + BLOCK + "\n" + LAPTOP_BLOCK, outcome: "created" });
+  assert.deepEqual(spliceBlock(both.text, BLOCK), { text: both.text, outcome: "unchanged" });
+  assert.deepEqual(spliceBlock(both.text, LAPTOP_BLOCK, LAPTOP_MARKERS), { text: both.text, outcome: "unchanged" });
+  assert.throws(() => spliceBlock("# >>> agent-forge laptop >>>\nx = 1\n", LAPTOP_BLOCK, LAPTOP_MARKERS), /agent-forge laptop block/);
+});
+
+// The user's own toasts already delivered by herdr: nothing to say about them.
+test("laptopToasts tells when the user's own toasts already deliver to herdr", () => {
+  for (const mine of [
+    '[ui.toast]\ndelivery = "herdr"\n',
+    "[ui.toast]\ndelivery = 'herdr' # mine\n",
+    '[ui]\ntoast.delivery = "herdr"\n',
+    'ui.toast.delivery = "herdr"\n',
+    '["ui"."toast"]\n"delivery" = "herdr"\n',
+  ]) assert.equal(laptopToasts(mine), "user-on", mine);
+  // Another delivery, or "herdr" for another key: the user owns them, off.
+  for (const mine of ['[ui.toast]\ndelivery = "terminal"\n', '[ui.toast]\nposition = "herdr"\n', "ui = { sidebar_width = 30 }\n"]) {
+    assert.equal(laptopToasts(mine), "user", mine);
+  }
+});
+
+test("laptopToasts tells forge's block, the user's own ui or [ui.toast], or neither", () => {
+  assert.equal(laptopToasts(""), "none");
+  assert.equal(laptopToasts("x = 1\n\n" + LAPTOP_BLOCK), "forge");
+  for (const mine of [
+    '[ui.toast]\ndelivery = "terminal"\n',
+    '[ui.toast.herdr]\nposition = "top"\n',
+    '[ui]\ntoast.delivery = "off"\n',
+    '[ui]\ntoast = { delivery = "off" }\n',
+    'ui.toast.delivery = "off"\n',
+    "ui = { sidebar_width = 30 }\n",
+    '"ui" = { sidebar_width = 30 }\n',
+    '["ui"."toast"]\ndelivery = "off"\n',
+    '["ui"]\ntoast.delivery = "off"\n',
+  ]) assert.equal(laptopToasts(mine), "user", mine);
+  // A [ui] table without toasts, a commented header, unrelated keys, forge
+  // setup's block: forge's [ui.toast] can still go in.
+  for (const other of ["[ui]\nsidebar = true\n", "# [ui.toast]\n", "[other]\nui = 1\ntoast = 1\n", BLOCK]) {
+    assert.equal(laptopToasts(other), "none", other);
+  }
 });
 
 let dir: string;

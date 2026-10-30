@@ -18,10 +18,13 @@ import { cmdImage } from "./lib/commands/image.ts";
 import { cmdAttach } from "./lib/commands/attach.ts";
 import { cmdUploadPack } from "./lib/commands/upload-pack.ts";
 import { cmdCompletion } from "./lib/commands/completion.ts";
+import { cmdInstall } from "./lib/commands/install.ts";
+import { cmdOpen } from "./lib/commands/open.ts";
+import { currentSide, requireSide } from "./lib/side.ts";
 
 const USAGE = `Usage: forge <command> [args]
 
-Commands:
+On the forge host:
   setup                             Create or update forge's Incus project, bridge, ACLs and profiles,
                                     the egress proxy (forge-proxy) and its allowlist
   start [--strict] [<owner/repo>] [<task>]
@@ -39,15 +42,26 @@ Commands:
   attach <container> <task>         Run a task's agent in this terminal (what herdr tabs run)
   upload-pack <container> [<path>]  Serve a container's repository to git fetch (see the README, "Get the work back")
   image build                       Build the agent-base image (Ansible, through Incus)
+  image commit                      Print the commit agent-base was built from (nothing if no image)
   completion bash                   Print a bash completion function (eval it in ~/.bashrc)
   completion repos                  List managed owner/repo, one per line (machine-readable)
   completion tasks <owner/repo>     List a repo's task names, one per line (machine-readable)
+
+On your laptop:
+  install [--remote <address>] [--host <name>]
+                                    Install or update a forge host: the local Lima VM by default, a new
+                                    remote VM with --remote, an installed host with --host
+  open [--host <name>]              Open herdr on a forge host
 
 A bracketed argument is asked for when you leave it out, as a numbered menu.
 With no terminal on stdin (scripts, CI) nothing is asked and the command
 exits with this usage instead.`;
 
-function dispatch(ctx: Context, positionals: string[], force: boolean, strict: boolean, all: boolean): Promise<number> {
+type LaptopOptions = { remote?: string; host?: string };
+
+function dispatch(
+  ctx: Context, positionals: string[], force: boolean, strict: boolean, all: boolean, laptop: LaptopOptions,
+): Promise<number> {
   const [cmd, a, b] = positionals;
   // --strict ne vaut que pour `start` (création d'un container strict).
   if (strict && cmd !== "start") throw new ForgeError(`--strict only applies to 'forge start'\n${USAGE}`);
@@ -64,6 +78,8 @@ function dispatch(ctx: Context, positionals: string[], force: boolean, strict: b
     case "upload-pack": return cmdUploadPack(ctx, a);
     case "image": return cmdImage(ctx, a, b);
     case "completion": return cmdCompletion(ctx, a, b);
+    case "install": return cmdInstall(ctx, laptop);
+    case "open": return cmdOpen(ctx, { host: laptop.host });
     default: throw new ForgeError(`unknown command '${cmd}'\n${USAGE}`);
   }
 }
@@ -94,6 +110,7 @@ async function main(): Promise<number> {
       args: process.argv.slice(2),
       options: {
         force: { type: "boolean" }, strict: { type: "boolean" }, all: { type: "boolean" },
+        remote: { type: "string" }, host: { type: "string" },
         help: { type: "boolean", short: "h" },
       },
       allowPositionals: true,
@@ -103,9 +120,19 @@ async function main(): Promise<number> {
       return 0;
     }
     cmd = positionals[0];
+    // Chaque commande a son côté : la mauvaise machine reçoit une ligne qui dit où aller.
+    requireSide(cmd, currentSide());
     // Seul resume connaît --all : ailleurs, il serait ignoré en silence.
     if (values.all && cmd !== "resume") throw new ForgeError("--all only goes with resume: forge resume --all");
-    const code = await dispatch(ctx, positionals, values.force === true, values.strict === true, values.all === true);
+    // De même pour les options des commandes du laptop.
+    if (values.remote !== undefined && cmd !== "install") {
+      throw new ForgeError("--remote only goes with install: forge install --remote <address>");
+    }
+    if (values.host !== undefined && cmd !== "install" && cmd !== "open") {
+      throw new ForgeError("--host only goes with install and open: forge install --host <name>, forge open --host <name>");
+    }
+    const laptop = { remote: values.remote, host: values.host };
+    const code = await dispatch(ctx, positionals, values.force === true, values.strict === true, values.all === true, laptop);
     // Politique d'acquittement de la popup herdr, qui se ferme avec le processus :
     // - un code de sortie non nul, ou une exception : on attend Entrée ;
     // - un succès sans rien à lire : elle se ferme aussitôt ;

@@ -50,6 +50,25 @@ export function herdrConfigPath(): string {
     join(process.env.XDG_CONFIG_HOME || join(forgeHome(), ".config"), "herdr", "config.toml");
 }
 
+// The laptop-side record of installed hosts lives next to the config.
+export function laptopStateDir(): string {
+  return configDir();
+}
+
+export function laptopDataDir(): string {
+  return dataDir();
+}
+
+// The directory forge keeps its own SSH files in on the laptop (FORGE_SSH_DIR
+// is for tests), and Lima's home (LIMA_HOME is Lima's own variable).
+export function sshDir(): string {
+  return process.env.FORGE_SSH_DIR ?? join(forgeHome(), ".ssh");
+}
+
+export function limaHome(): string {
+  return process.env.LIMA_HOME ?? join(forgeHome(), ".lima");
+}
+
 // Données de forge (miroirs git). Un XDG_DATA_HOME vide compte comme absent.
 function dataDir(): string {
   const base = process.env.XDG_DATA_HOME || join(forgeHome(), ".local", "share");

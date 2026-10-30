@@ -50,6 +50,10 @@ test("attach reports a child killed by a signal as 128 + the signal number", asy
   assert.equal(await createContext().attach(["sh", "-c", "kill -TERM $$"]), 143);
 });
 
+test("attach runs in the given working directory", async () => {
+  assert.equal(await createContext().attach(["sh", "-c", '[ "$(pwd)" = / ]'], { cwd: "/" }), 0);
+});
+
 test("exec runs in the given working directory", async () => {
   const r = await createContext().exec(["pwd"], { cwd: "/" });
   assert.equal(r.stdout, "/\n");

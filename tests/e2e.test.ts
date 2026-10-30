@@ -79,7 +79,7 @@ function forge(args: string[], input = "", extraEnv: Record<string, string> = {}
   return spawnSync("node", [ENTRY, ...args], {
     encoding: "utf8",
     input,
-    env: { ...env, PATH: `${bin}:${process.env.PATH}`, ...extraEnv },
+    env: { ...env, FORGE_SIDE: "host", PATH: `${bin}:${process.env.PATH}`, ...extraEnv },
   });
 }
 
@@ -245,6 +245,21 @@ test("--all with another command than resume is refused", () => {
   }
 });
 
+// --remote ne vaut que pour install, --host pour install et open.
+test("--remote and --host are refused outside the laptop commands that take them", () => {
+  for (const cmd of ["list", "start"]) {
+    const remote = forge([cmd, "--remote", "203.0.113.10"]);
+    assert.equal(remote.status, 1, `${cmd}: ${remote.stderr}`);
+    assert.match(remote.stderr, /^Error: --remote only goes with install/m, cmd);
+    const host = forge([cmd, "--host", "forge-acme"]);
+    assert.equal(host.status, 1, `${cmd}: ${host.stderr}`);
+    assert.match(host.stderr, /^Error: --host only goes with install and open/m, cmd);
+  }
+  const open = forge(["open", "--remote", "203.0.113.10"], "", { FORGE_SIDE: "laptop" });
+  assert.equal(open.status, 1);
+  assert.match(open.stderr, /^Error: --remote only goes with install/m);
+});
+
 test("an unknown option fails cleanly rather than crashing", () => {
   const r = forge(["list", "--nope"]);
   assert.equal(r.status, 1);
@@ -254,16 +269,22 @@ test("an unknown option fails cleanly rather than crashing", () => {
 test("image without a subcommand fails with its usage", () => {
   const r = forge(["image"]);
   assert.equal(r.status, 1);
-  assert.match(r.stderr, /Usage: forge image build$/m);
+  assert.match(r.stderr, /Usage: forge image build \| commit$/m);
 });
 
 test("the bash shim runs the TypeScript entry", () => {
   const r = spawnSync(resolve("cli/forge"), ["list"], {
     encoding: "utf8",
-    env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+    env: { ...process.env, FORGE_SIDE: "host", PATH: `${bin}:${process.env.PATH}` },
   });
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /^REPO\s+MODE\s+EGRESS\s+STATE\s+BUILD$/m);
+});
+
+test("a host command on the laptop says where it runs", () => {
+  const r = forge(["list"], "", { FORGE_SIDE: "laptop" });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /runs on the forge host/);
 });
 
 test("setup appears in the usage", () => {

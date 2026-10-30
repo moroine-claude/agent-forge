@@ -26,3 +26,41 @@
         fail_msg: >-
           forge_users_cli_entrypoint ({{ forge_users_cli_entrypoint }}) is not
           an executable file in {{ unit_repo_root }}
+
+- name: GitHub's stale known_hosts entries
+  hosts: render
+  gather_facts: false
+  vars:
+    unit_published:
+      - ssh-ed25519 AAAAed
+      - ssh-rsa AAAArsa
+    unit_cases:
+      - name: published types are kept
+        lines: ["github.com ssh-ed25519 AAAAed", "github.com ssh-rsa AAAArsa"]
+        expect: []
+      - name: ssh-dss is selected
+        lines: ["github.com ssh-ed25519 AAAAed", "github.com ssh-dss AAAAdss"]
+        expect: ["ssh-dss AAAAdss"]
+      - name: a rotated key of a published type is selected
+        lines: ["github.com ssh-rsa AAAAold"]
+        expect: ["ssh-rsa AAAAold"]
+      - name: a multi-host line is selected
+        lines: ["github.com,192.0.2.1 ssh-dss AAAAdss comment"]
+        expect: ["ssh-dss AAAAdss"]
+      - name: other hosts, comments and markers are ignored
+        lines:
+          - "gitlab.com ssh-dss AAAAdss"
+          - "# github.com ssh-dss AAAAdss"
+          - "@cert-authority github.com ssh-dss AAAAdss"
+          - "notgithub.com ssh-dss AAAAdss"
+        expect: []
+      - name: no known_hosts at all
+        lines: []
+        expect: []
+  tasks:
+    - name: Check each case
+      ansible.builtin.include_tasks: tasks/github_stale_case.yml
+      loop: "{{ unit_cases }}"
+      loop_control:
+        loop_var: unit_case
+        label: "{{ unit_case.name }}"

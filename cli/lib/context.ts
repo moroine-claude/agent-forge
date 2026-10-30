@@ -7,7 +7,7 @@ import { createPrompt } from "./prompt.ts";
 export type ExecResult = { code: number; stdout: string; stderr: string };
 // `cwd` absent : le répertoire courant de forge, hérité.
 export type ExecOptions = { input?: string; env?: Record<string, string>; cwd?: string };
-export type AttachOptions = { env?: Record<string, string> };
+export type AttachOptions = { env?: Record<string, string>; cwd?: string };
 
 export type Prompt = {
   pick(label: string, items: string[]): Promise<number | null>;
@@ -91,12 +91,13 @@ function run(argv: string[], opts: ExecOptions = {}): Promise<ExecResult> {
 // Hérite du terminal au lieu de capturer : c'est le cas de l'agent et
 // d'ansible-playbook. L'agent doit rester la cible directe de `incus exec`,
 // sinon SIGWINCH n'atteint jamais le client au redimensionnement. opts.env se
-// superpose à l'environnement hérité.
+// superpose à l'environnement hérité ; opts.cwd absent : celui de forge.
 function attach(argv: string[], opts?: AttachOptions): Promise<number> {
   return new Promise((resolve) => {
     const child = spawn(argv[0], argv.slice(1), {
       stdio: "inherit",
       env: opts?.env ? { ...process.env, ...opts.env } : process.env,
+      cwd: opts?.cwd,
     });
     child.on("error", () => resolve(127));
     child.on("close", (code, signal) => resolve(exitCode(code, signal)));

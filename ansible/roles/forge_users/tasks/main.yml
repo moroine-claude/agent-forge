@@ -1,6 +1,8 @@
 ---
 - name: Forge user's account
   ansible.builtin.import_tasks: account.yml
+- name: GitHub's host keys
+  ansible.builtin.import_tasks: github.yml
 - name: Forge user's tools
   ansible.builtin.import_tasks: tools.yml
 - name: Forge release

@@ -151,6 +151,7 @@ These would make the work a failure even if every test passed:
 | Half-provisioned container | Recognised by a marker set at creation; `forge start` offers to recreate it, keeping the workspace and the mirror | The maintainer, 2026-10-20 |
 | Install | One command on the laptop | The maintainer, 2026-10-20 |
 | SSH configuration | A file of forge's own in `~/.ssh/config.d/`, included from `~/.ssh/config` | The maintainer, 2026-10-20 |
+| SSH Include line | forge's file is `~/.ssh/config.d/agent-forge.config`; an existing `Include` that reads it for every host is enough, otherwise `install` adds `Include config.d/agent-forge.config` at the top of `~/.ssh/config`, after confirmation | The maintainer, 2026-10-21 ("c'est tout le point du config.d") |
 | Laptop tool's language | The same TypeScript `forge`, run by Node 24 from the agent-forge checkout | Proposed; the maintainer accepted the Node 24 requirement on the laptop, reluctantly |
 | Retrieval | `forge fetch` (sets up the remote, fetches), `forge ship <task>` (re-sign, push, PR) | The maintainer, 2026-10-20 |
 | Where retrieval runs | In the developer's own clone of the repository, which they always have; no forge-managed copy on the laptop | The maintainer, 2026-10-20 |
@@ -332,21 +333,31 @@ failure:
 5. **The playbook.** `ansible-galaxy collection install -r
    ansible/requirements.yml`, then `ansible-playbook -i <inventory>
    ansible/site.yml` from the checkout (which deploys the checkout's `forge`).
-6. **SSH.** Writes `~/.ssh/config.d/agent-forge` with the forge user's block
-   (`HostName`, `Port`, `User`, `HostKeyAlias`, `ForwardAgent yes`), one block
-   per installed host. The admin connection needs no block: it lives in the
-   inventory (`ansible_ssh_common_args`), as today. OpenSSH does not read
-   `config.d/` by itself: if `~/.ssh/config` has no `Include` that covers the
-   file, `install` asks, then
-   adds `Include config.d/*` **at the top** of `~/.ssh/config` (an `Include`
-   below a `Host` line would only apply to that host). forge rewrites its own
-   file freely and never edits anything else in `~/.ssh/config`. When the
+6. **SSH.** Writes `~/.ssh/config.d/agent-forge.config` with the forge user's
+   block (`HostName`, `Port`, `User`, `HostKeyAlias`, `ForwardAgent yes`), one
+   block per installed host. The admin connection needs no block: it lives in
+   the inventory (`ansible_ssh_common_args`), as today. OpenSSH reads
+   `config.d/` only through an `Include`. An `Include` already in
+   `~/.ssh/config` that matches forge's file (OpenSSH's glob: `config.d/*`,
+   `~/.ssh/config.d/*.config`, …) and applies to every host (at the top level,
+   under `Match all`, or under `Host *`) is enough: `~/.ssh/config` is not
+   edited. ssh keeps the first value it reads, so settings placed before that
+   `Include` would win over forge's block: `install` checks with `ssh -G
+   <alias>` that forge's values are in effect, and when one of the
+   developer's wins it names it and asks for the top-of-file `Include` below
+   (review of #86, 2026-10-22). When no `Include` covers forge's file, or when
+   one of the developer's settings wins, `install` asks, then adds `Include
+   config.d/agent-forge.config` **at the top** of `~/.ssh/config` (an
+   `Include` below a `Host` line would only apply to that host). The
+   maintainer, 2026-10-21: "c'est tout le point du config.d". forge rewrites
+   its own file freely and never edits anything else in `~/.ssh/config`. When the
    developer's GitHub key lives in another agent (a hardware key's, a password
    manager's), the block carries the `IdentityAgent` the developer's SSH uses
    for it *(implementer's call on how it is detected or asked)*.
    `install` also turns herdr's toasts on in the laptop's herdr config
    (`~/.config/herdr/config.toml`): a block of its own, delimited, after
-   confirmation, unless the laptop's config already sets `ui` or `[ui.toast]`
+   confirmation, unless the laptop's config already sets `[ui.toast]` or an
+   inline `ui = {…}` table (a `[ui]` table alone does not count)
    (see sub-project 1, Finding).
 7. **The host's account.** Over SSH, as the forge user:
    - the git identity: the laptop's `git config --global user.name` and

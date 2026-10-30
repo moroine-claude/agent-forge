@@ -32,9 +32,11 @@ function release(commit: string | null): string {
   return root;
 }
 
-function build(opts: { fake?: FakeIncus; rules?: ExecRule[]; attachCode?: number; root?: string } = {}) {
+function build(opts: {
+  fake?: FakeIncus; rules?: ExecRule[]; attachCode?: number; attachRules?: ExecRule[]; root?: string;
+} = {}) {
   const fake = opts.fake ?? FakeIncus.withRuntime({ commit: "OLD" });
-  const ctx = fakeContext({ incus: fake, rules: opts.rules, attachCode: opts.attachCode });
+  const ctx = fakeContext({ incus: fake, rules: opts.rules, attachCode: opts.attachCode, attachRules: opts.attachRules });
   const root = opts.root ?? release(SHA);
   return { fake, ctx, run: () => cmdImage(ctx, "build", undefined, { proc: fakeProc(), root }) };
 }
@@ -85,6 +87,28 @@ test("the old image is deleted only after the new one is published and stamped",
   const deleted = calls.findIndex((l) => l.includes("image delete"));
   assert.ok(deleted > calls.findIndex((l) => l.includes(" publish ")));
   assert.ok(deleted > calls.findIndex((l) => l.includes("set-property")));
+});
+
+test("the publish step says what it does, then inherits the terminal for Incus's progress", async () => {
+  const { ctx, run } = build();
+  // What the screen shows when the publish starts.
+  let shown: string[] = [];
+  const attach = ctx.attach;
+  ctx.attach = async (argv, o) => {
+    if (argv.includes("publish")) shown = [...ctx.out_lines];
+    return attach(argv, o);
+  };
+  assert.equal(await run(), 0);
+  assert.ok(ctx.attachCalls.some((c) => c.argv.join(" ").includes("publish forge-image-build --alias agent-base --reuse")));
+  assert.match(shown.at(-1) ?? "", /^Publishing agent-base: .*several minutes/);
+});
+
+test("a failed publish keeps the build instance and the old image", async () => {
+  const { fake, run } = build({ attachRules: [{ match: " publish ", code: 1 }] });
+  const old = fake.findImage("agent-forge", "agent-base")!.fingerprint;
+  await assert.rejects(run, /publish agent-base failed \(exit code 1\)[\s\S]*forge-image-build is left/);
+  assert.equal(fake.findImage("agent-forge", "agent-base")!.fingerprint, old);
+  assert.ok(fake.instances.get("agent-forge")!.has("forge-image-build"));
 });
 
 test("with Incus removing the old image on --reuse, no explicit delete is issued and the build succeeds", async () => {
@@ -193,8 +217,24 @@ test("an instance that did not boot stops the build and is kept", async () => {
   await assert.rejects(run, /did not finish booting \(systemd state: maintenance\).*forge-image-build is left for debugging.*the next build removes it/);
 });
 
-test("forge image takes build and nothing else", async () => {
-  await assert.rejects(() => cmdImage(fakeContext(), "update"), /Usage: forge image build$/);
-  await assert.rejects(() => cmdImage(fakeContext(), "build", "super"), /Usage: forge image build$/);
-  await assert.rejects(() => cmdImage(fakeContext(), undefined), /Usage: forge image build$/);
+const USAGE = /Usage: forge image build \| commit$/;
+
+test("forge image takes build or commit and nothing else", async () => {
+  await assert.rejects(() => cmdImage(fakeContext(), "update"), USAGE);
+  await assert.rejects(() => cmdImage(fakeContext(), "build", "super"), USAGE);
+  await assert.rejects(() => cmdImage(fakeContext(), "commit", "super"), USAGE);
+  await assert.rejects(() => cmdImage(fakeContext(), undefined), USAGE);
+});
+
+test("image commit prints the image's commit, without the build's host checks", async () => {
+  const ctx = fakeContext({ incus: FakeIncus.withRuntime({ commit: "abc123" }) });
+  assert.equal(await cmdImage(ctx, "commit"), 0);
+  assert.deepEqual(ctx.out_lines, ["abc123"]);
+  assert.ok(!flat(ctx).some((l) => l.includes("ansible") || l.includes("launch")), flat(ctx).join("\n"));
+});
+
+test("image commit prints nothing when there is no image", async () => {
+  const ctx = fakeContext({ incus: new FakeIncus() });
+  assert.equal(await cmdImage(ctx, "commit"), 0);
+  assert.deepEqual(ctx.out_lines, []);
 });
