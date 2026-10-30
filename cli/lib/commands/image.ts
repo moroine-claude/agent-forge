@@ -94,10 +94,17 @@ export async function cmdImage(
   // held the alias; the probe below covers an Incus that keeps it. Either way
   // the previous image goes only once the new one carries the alias and the
   // stamp, so an agent-base exists at every moment.
+  // The publish lasts minutes: attached, not captured, Incus shows on a
+  // terminal the packed size and the throughput, where exec would leave the
+  // screen silent after the PLAY RECAP.
   const previous = await imageFingerprint(ctx, BASE_IMAGE);
+  ctx.out(`Publishing ${BASE_IMAGE}: Incus stops ${BUILD_INSTANCE}, then packs and compresses ` +
+    "its filesystem (several minutes)...");
   await mustSucceed(`stop ${BUILD_INSTANCE}`, ctx.exec(incus("stop", BUILD_INSTANCE)));
-  await mustSucceed(`publish ${BASE_IMAGE}`,
-    ctx.exec(incus("publish", BUILD_INSTANCE, "--alias", BASE_IMAGE, "--reuse")));
+  const published = await ctx.attach(incus("publish", BUILD_INSTANCE, "--alias", BASE_IMAGE, "--reuse"));
+  if (published !== 0) {
+    throw new ForgeError(`publish ${BASE_IMAGE} failed (exit code ${published}). ${keptHint(project)}`);
+  }
   await mustSucceed(`stamp ${BASE_IMAGE}`,
     ctx.exec(incus("image", "set-property", BASE_IMAGE, "user.forge.commit", commit)));
   const current = await imageFingerprint(ctx, BASE_IMAGE);
