@@ -14,10 +14,8 @@ const MAIN: Base = { kind: "branch", branch: "main", assumed: true };
 export function resolveBase(recorded: string | undefined, tasks: Set<string>, onGithub: (branch: string) => boolean): Base {
   if (!recorded) return MAIN;
   if (recorded.startsWith("origin/")) return { kind: "branch", branch: recorded.slice("origin/".length), assumed: false };
-  if (recorded.startsWith("agent/")) {
-    const task = recorded.slice("agent/".length);
-    return tasks.has(task) ? { kind: "task", task } : MAIN;
-  }
+  const task = recorded.startsWith("agent/") ? recorded.slice("agent/".length) : undefined;
+  if (task !== undefined && tasks.has(task)) return { kind: "task", task };
   return onGithub(recorded) ? { kind: "branch", branch: recorded, assumed: false } : MAIN;
 }
 
@@ -26,7 +24,9 @@ export function chainFor(task: string, bases: Map<string, Base>): string[] {
   const chain = [task];
   for (let base = bases.get(task); base?.kind === "task"; base = bases.get(base.task)) {
     if (chain.includes(base.task)) {
-      throw new ForgeError(`tasks ${[...chain, base.task].reverse().join(" -> ")} base on each other in a cycle`);
+      // chain is top first: the cycle runs from base.task down to the last entry.
+      const cycle = [...chain.slice(chain.indexOf(base.task)), base.task];
+      throw new ForgeError(`tasks base on each other in a cycle: ${cycle.join(" -> ")}`);
     }
     chain.push(base.task);
   }
@@ -57,6 +57,11 @@ export async function planTask(
   const tip = `${container}/agent/${task}`;
   const own = `origin/agent/${task}`;
   const limit = base.kind === "task" ? `${container}/agent/${base.task}` : `origin/${base.branch}`;
+  if (!(await exists(limit))) {
+    throw new ForgeError(base.kind === "task"
+      ? `agent/${task}: its base agent/${base.task} is gone from the container`
+      : `agent/${task}: its base ${base.branch} is gone from GitHub`);
+  }
   const shipped = await exists(own);
   const upstream = shipped ? own : limit;
 
@@ -75,8 +80,12 @@ export async function planTask(
     onto = shipped ? own : `origin/${prBase}`;
   } else {
     prBase = base.branch;
-    // The first ship signs in place: same parents, same content.
-    onto = shipped ? own : await git("merge-base", limit, tip);
+    // The first ship signs in place (same parents, same content) onto the
+    // merge base, unless cherry dropped a commit whose patch is already
+    // upstream: replaying the others without it could conflict for no reason,
+    // so they go onto the branch itself.
+    const dropped = cherry.split("\n").some((l) => l.startsWith("- "));
+    onto = shipped ? own : dropped ? limit : await git("merge-base", limit, tip);
   }
   return { task, tip, limit, commits, onto, prBase, shipped };
 }
