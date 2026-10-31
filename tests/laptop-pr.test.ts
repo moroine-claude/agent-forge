@@ -99,6 +99,15 @@ test("ensurePr: several commits give the task name and a list, oldest first", as
   assert.ok(!create.includes("--fill"));
 });
 
+test("ensurePr: a tag named like origin/<base> does not change the description", async () => {
+  branch("feat: add widget");
+  git(layout.clone, "tag", "origin/main", "refs/remotes/origin/agent/t");
+  const ctx = hybridContext({ rules: [{ match: "gh pr list", stdout: "[]" }, { match: "gh pr create", stdout: url }] });
+  await ensurePr(ctx, layout.clone, OR, "agent/t", "main");
+  const create = ctx.calls.find((c) => c.includes("create"))!;
+  assert.deepEqual(create.slice(-4), ["--title", "feat: add widget", "--body", ""]);
+});
+
 test("ensurePr: a failing create carries gh's stderr", async () => {
   branch("fix: tiny");
   const ctx = hybridContext({ rules: [

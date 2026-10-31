@@ -121,6 +121,30 @@ test("a remote host that hosts.json does not list falls back to the only host", 
   assert.equal(git(layout.clone, "config", `remote.${C}.url`), `forge-b:${C}`);
 });
 
+test("the container's tags stay out of the clone", async () => {
+  saveHost(host("forge-local"));
+  const sha = layout.commit(layout.container, "agent/login", "a.txt");
+  for (const name of ["origin/main", "v9"]) git(layout.container, "tag", name, sha);
+  const ctx = hybridContext({ rules: [taskBase("login\torigin/main\n")] });
+  assert.equal(await cmdFetch(ctx, { cwd: layout.clone }), 0);
+  assert.equal(git(layout.clone, "tag", "-l"), "");
+  assert.equal(git(layout.clone, "config", `remote.${C}.tagOpt`), "--no-tags");
+  assert.deepEqual(ctx.out_lines, ["agent/login  1 commits on origin/main"]);
+});
+
+test("tags of the clone that hide the refs fetch reads are warned about, and change nothing", async () => {
+  saveHost(host("forge-local"));
+  layout.commit(layout.container, "agent/login", "a.txt");
+  // Brought by a fetch from before forge set tagOpt, say.
+  const seed = git(layout.clone, "rev-parse", "HEAD");
+  for (const name of ["origin/main", `${C}/agent/login`, "main", "v1.0"]) git(layout.clone, "tag", name, seed);
+  const ctx = hybridContext({ rules: [taskBase("login\torigin/main\n")] });
+  assert.equal(await cmdFetch(ctx, { cwd: layout.clone }), 0);
+  const warning = (name: string) => `WARNING: tag ${name} hides the branch ${name} in git commands: delete it (git tag -d ${name}) unless you made it`;
+  assert.deepEqual(ctx.err_lines.filter((l) => l.startsWith("WARNING")), [warning(`${C}/agent/login`), warning("main"), warning("origin/main")]);
+  assert.deepEqual(ctx.out_lines, ["agent/login  1 commits on origin/main"]);
+});
+
 test("a container without agent branches says so", async () => {
   saveHost(host("forge-local"));
   const ctx = hybridContext({ rules: [taskBase("")] });

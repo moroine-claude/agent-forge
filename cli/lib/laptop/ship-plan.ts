@@ -1,6 +1,10 @@
 // The ship plan: from the recorded bases and the fetched refs of the
 // developer's clone, which commits of a task to replay, onto what, and the base
 // of its PR. Pure planning: nothing is signed or pushed here.
+//
+// Every ref handed to git is a full refs/remotes/… name: git looks a short
+// name up in refs/tags/ first, so a tag named origin/main would otherwise
+// decide what is replayed, and onto what.
 import { ForgeError, mustSucceed, type Context } from "../context.ts";
 
 export type Base =
@@ -40,14 +44,24 @@ export function prBaseFor(base: Base, below?: { prBase: string; merged: boolean 
   return below?.merged ? below.prBase : `agent/${base.task}`;
 }
 
+// The refs of the developer's clone: a task's branch as fetched from the
+// container, a branch as fetched from GitHub.
+export const agentRef = (container: string, task: string): string => `refs/remotes/${container}/agent/${task}`;
+export const githubRef = (branch: string): string => `refs/remotes/origin/${branch}`;
+
+// What a task started from, in the clone.
+export function limitRef(container: string, base: Base): string {
+  return base.kind === "task" ? agentRef(container, base.task) : githubRef(base.branch);
+}
+
 export type TaskPlan = {
   task: string;
-  tip: string;            // <container>/agent/<task>
-  limit: string;          // what the task started from, as a ref name
+  tip: string;            // refs/remotes/<container>/agent/<task>
+  limit: string;          // what the task started from, as a full ref name
   commits: string[];      // to replay, oldest first
-  onto: string;           // a ref name; the merge-base SHA on the first ship of a branch-based task
+  onto: string;           // a full ref name; the merge-base SHA on the first ship of a branch-based task
   prBase: string;
-  shipped: boolean;       // origin/agent/<task> exists
+  shipped: boolean;       // refs/remotes/origin/agent/<task> exists
 };
 
 // `below`: the task this one is stacked on, once the caller knows its PR is
@@ -58,12 +72,11 @@ export async function planTask(
 ): Promise<TaskPlan> {
   const git = async (...args: string[]) =>
     (await mustSucceed(`git ${args[0]}`, ctx.exec(["git", ...args], { cwd: root }))).stdout.trim();
-  const exists = async (ref: string) =>
-    (await ctx.exec(["git", "rev-parse", "-q", "--verify", `${ref}^{commit}`], { cwd: root })).code === 0;
+  const exists = (ref: string) => refExists(ctx, root, ref);
 
-  const tip = `${container}/agent/${task}`;
-  const own = `origin/agent/${task}`;
-  const limit = base.kind === "task" ? `${container}/agent/${base.task}` : `origin/${base.branch}`;
+  const tip = agentRef(container, task);
+  const own = githubRef(`agent/${task}`);
+  const limit = limitRef(container, base);
   if (!(await exists(limit))) {
     throw new ForgeError(base.kind === "task"
       ? `agent/${task}: its base agent/${base.task} is gone from the container`
@@ -83,7 +96,7 @@ export async function planTask(
   const prBase = prBaseFor(base, below);
   let onto: string;
   if (base.kind === "task") {
-    onto = shipped ? own : `origin/${prBase}`;
+    onto = shipped ? own : githubRef(prBase);
   } else {
     // The first ship signs in place (same parents, same content) onto the
     // merge base, unless cherry dropped a commit whose patch is already
@@ -94,3 +107,11 @@ export async function planTask(
   }
   return { task, tip, limit, commits, onto, prBase, shipped };
 }
+
+export async function refExists(ctx: Context, root: string, ref: string): Promise<boolean> {
+  return (await ctx.exec(["git", "rev-parse", "-q", "--verify", `${ref}^{commit}`], { cwd: root })).code === 0;
+}
+
+// A short name for messages: refs/remotes/origin/main reads origin/main.
+export const shortRef = (ref: string): string =>
+  /^[0-9a-f]{40,64}$/.test(ref) ? ref.slice(0, 12) : ref.replace(/^refs\/remotes\//, "");

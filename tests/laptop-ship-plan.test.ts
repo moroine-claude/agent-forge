@@ -71,8 +71,8 @@ test("chainFor names only the tasks of the cycle, not those above it", () => {
 test("the first ship of a task on main replays all its commits onto the merge base", async () => {
   layout.commit(layout.container, "agent/t", "a.txt", "b.txt");
   const p = await plan("t", main);
-  assert.equal(p.tip, `${C}/agent/t`);
-  assert.equal(p.limit, "origin/main");
+  assert.equal(p.tip, `refs/remotes/${C}/agent/t`);
+  assert.equal(p.limit, "refs/remotes/origin/main");
   assert.equal(p.shipped, false);
   assert.deepEqual(subjects(p.commits), ["add a.txt", "add b.txt"]);
   assert.equal(p.onto, sha("origin/main"));
@@ -91,7 +91,7 @@ test("shipping twice signs only the new commits", async () => {
   const p = await plan("t", main);
   assert.equal(p.shipped, true);
   assert.deepEqual(subjects(p.commits), ["add c.txt"]);
-  assert.equal(p.onto, "origin/agent/t");
+  assert.equal(p.onto, "refs/remotes/origin/agent/t");
 });
 
 test("outside commits on GitHub become the parent", async () => {
@@ -102,7 +102,7 @@ test("outside commits on GitHub become the parent", async () => {
   git(layout.container, "push", "-q", layout.github, "outside:refs/heads/agent/t");
   const p = await plan("t", main);
   assert.equal(p.shipped, true);
-  assert.equal(p.onto, "origin/agent/t");
+  assert.equal(p.onto, "refs/remotes/origin/agent/t");
   assert.deepEqual(subjects(p.commits), ["add a.txt"]);
 });
 
@@ -111,10 +111,10 @@ test("a stacked task excludes the commits of the task below", async () => {
   git(layout.container, "branch", "agent/b", "agent/a");
   layout.commit(layout.container, "agent/b", "b.txt");
   const p = await plan("b", { kind: "task", task: "a" });
-  assert.equal(p.limit, `${C}/agent/a`);
+  assert.equal(p.limit, `refs/remotes/${C}/agent/a`);
   assert.deepEqual(subjects(p.commits), ["add b.txt"]);
   // agent/a is not on GitHub yet: onto is a name the caller makes exist.
-  assert.equal(p.onto, "origin/agent/a");
+  assert.equal(p.onto, "refs/remotes/origin/agent/a");
   assert.equal(p.prBase, "agent/a");
   assert.equal(p.shipped, false);
 });
@@ -124,7 +124,7 @@ test("a stacked task over a merged task targets the merged task's base", async (
   git(layout.container, "branch", "agent/b", "agent/a");
   layout.commit(layout.container, "agent/b", "b.txt");
   const p = await plan("b", { kind: "task", task: "a" }, { prBase: "main", merged: true });
-  assert.equal(p.onto, "origin/main");
+  assert.equal(p.onto, "refs/remotes/origin/main");
   assert.equal(p.prBase, "main");
   assert.deepEqual(subjects(p.commits), ["add b.txt"]);
 });
@@ -158,7 +158,7 @@ test("signed copies, then an outside commit on GitHub: only the new commit is re
   layout.commit(layout.container, "agent/t", "c.txt");
   const p = await plan("t", main);
   assert.deepEqual(subjects(p.commits), ["add c.txt"]);
-  assert.equal(p.onto, "origin/agent/t");
+  assert.equal(p.onto, "refs/remotes/origin/agent/t");
 });
 
 test("an Update branch merge on GitHub is not a merge commit of the agent", async () => {
@@ -174,7 +174,7 @@ test("an Update branch merge on GitHub is not a merge commit of the agent", asyn
   layout.commit(layout.container, "agent/t", "c.txt");
   const p = await plan("t", main);
   assert.deepEqual(subjects(p.commits), ["add c.txt"]);
-  assert.equal(p.onto, "origin/agent/t");
+  assert.equal(p.onto, "refs/remotes/origin/agent/t");
 });
 
 test("after a squash merge, the first ship goes onto the branch and replays cleanly", async () => {
@@ -188,10 +188,36 @@ test("after a squash merge, the first ship goes onto the branch and replays clea
   layout.commit(layout.container, "agent/t", "a.txt");
   const p = await plan("t", main);
   assert.equal(p.shipped, false);
-  assert.equal(p.onto, "origin/main");
+  assert.equal(p.onto, "refs/remotes/origin/main");
   assert.deepEqual(subjects(p.commits), ["add a.txt"]);
   git(layout.clone, "checkout", "-q", "--detach", p.onto);
   git(layout.clone, "cherry-pick", ...p.commits);
+});
+
+test("tags in the clone named like the refs the plan reads change nothing", async () => {
+  const hidden = layout.commit(layout.container, "agent/t", "hidden.txt");
+  layout.commit(layout.container, "agent/t", "visible.txt");
+  sync();
+  // git's short-name lookup takes refs/tags/<name> before refs/remotes/<name>.
+  for (const name of ["origin/main", "origin/agent/t", `${C}/agent/t`]) git(layout.clone, "tag", name, hidden);
+  const p = await planTask(hybridContext(), layout.clone, C, "t", main);
+  assert.equal(p.tip, `refs/remotes/${C}/agent/t`);
+  assert.equal(p.limit, "refs/remotes/origin/main");
+  assert.equal(p.shipped, false);
+  assert.deepEqual(subjects(p.commits), ["add hidden.txt", "add visible.txt"]);
+  assert.equal(p.onto, sha("refs/remotes/origin/main"));
+});
+
+test("a stacked task's refs are the remote-tracking ones, whatever the tags", async () => {
+  layout.commit(layout.container, "agent/a", "a.txt");
+  git(layout.container, "branch", "agent/b", "agent/a");
+  layout.commit(layout.container, "agent/b", "b.txt");
+  sync();
+  git(layout.clone, "tag", `${C}/agent/a`, "refs/remotes/origin/main");
+  const p = await planTask(hybridContext(), layout.clone, C, "b", { kind: "task", task: "a" });
+  assert.equal(p.limit, `refs/remotes/${C}/agent/a`);
+  assert.equal(p.onto, "refs/remotes/origin/agent/a");
+  assert.deepEqual(subjects(p.commits), ["add b.txt"]);
 });
 
 test("a base that is gone from GitHub is reported by task and branch", async () => {

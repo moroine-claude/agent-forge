@@ -66,6 +66,8 @@ assert_contains 'Too many authentication failures'
 assert_contains 'ansible_become_exe: sudo.ws'
 assert_contains 'uploadpack'
 assert_contains 'forge upload-pack'
+# Les tags de l'agent restent hors du clone.
+assert_contains 'git config remote.agent-acme-widgets.tagOpt --no-tags'
 
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"

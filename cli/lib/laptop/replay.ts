@@ -6,7 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { ForgeError, mustSucceed, type Context } from "../context.ts";
-import type { TaskPlan } from "./ship-plan.ts";
+import { shortRef, type TaskPlan } from "./ship-plan.ts";
 
 export async function replayAndPush(
   ctx: Context, root: string, plan: TaskPlan, opts: { sign: boolean },
@@ -64,5 +64,5 @@ async function stoppedAt(ctx: Context, tmp: string, plan: TaskPlan): Promise<str
     if (subject.code === 0) what = subject.stdout.trim();
   }
   await ctx.exec(["git", "-C", tmp, "cherry-pick", "--abort"]);
-  return `agent/${plan.task}: replaying ${what} onto ${/^[0-9a-f]{40}$/.test(plan.onto) ? plan.onto.slice(0, 12) : plan.onto} stopped (conflict, or the signing failed): nothing was pushed`;
+  return `agent/${plan.task}: replaying ${what} onto ${shortRef(plan.onto)} stopped (conflict, or the signing failed): nothing was pushed`;
 }

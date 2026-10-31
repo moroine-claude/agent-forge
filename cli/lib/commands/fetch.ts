@@ -3,6 +3,7 @@
 import { ForgeError, mustSucceed, type Context } from "../context.ts";
 import { ensureForgeRemote, forgeRemoteHost, openClone } from "../laptop/clone.ts";
 import { remoteExec } from "../laptop/remote.ts";
+import { agentRef, githubRef } from "../laptop/ship-plan.ts";
 import { loadHosts, selectHost, type LaptopHost } from "../laptop/state.ts";
 
 export type Fetched = {
@@ -20,7 +21,8 @@ export async function fetchAgents(ctx: Context, opts: { host?: string; cwd?: str
   const host = known ?? (await selectHost(ctx, opts.host));
   await ensureForgeRemote(ctx, root, container, host.name);
 
-  await mustSucceed(`git fetch ${container}`, ctx.exec(["git", "fetch", "--prune", container], { cwd: root }));
+  // --no-tags on top of the remote's tagOpt: the agent's tags never land in the clone.
+  await mustSucceed(`git fetch ${container}`, ctx.exec(["git", "fetch", "--prune", "--no-tags", container], { cwd: root }));
   // --prune: a branch merged and deleted on GitHub must disappear.
   await mustSucceed("git fetch origin", ctx.exec(["git", "fetch", "--prune", "origin"], { cwd: root }));
 
@@ -39,8 +41,8 @@ export async function fetchAgents(ctx: Context, opts: { host?: string; cwd?: str
 // The ref a recorded base names in the clone: another agent branch lives
 // under the container remote, anything else (origin/<b>, or a bare <b>) on origin.
 export function baseRef(container: string, base: string): string {
-  if (base.startsWith("agent/")) return `${container}/${base}`;
-  return base.startsWith("origin/") ? base : `origin/${base}`;
+  if (base.startsWith("agent/")) return agentRef(container, base.slice("agent/".length));
+  return githubRef(base.replace(/^origin\//, ""));
 }
 
 export async function cmdFetch(ctx: Context, opts: { host?: string; cwd?: string } = {}): Promise<number> {
@@ -48,12 +50,20 @@ export async function cmdFetch(ctx: Context, opts: { host?: string; cwd?: string
   const git = async (...args: string[]) =>
     (await mustSucceed(`git ${args[0]}`, ctx.exec(["git", ...args], { cwd: root }))).stdout;
 
+  // forge reads full ref names, but a review by hand (git log -p
+  // origin/main..<container>/agent/<task>, or main..) uses short ones, which
+  // git looks up in refs/tags/ first.
+  const shadowing = await git("for-each-ref", "--format=%(refname:strip=2)", "refs/tags/origin", `refs/tags/${container}`, "refs/tags/main");
+  for (const tag of shadowing.split("\n").filter(Boolean)) {
+    ctx.err(`WARNING: tag ${tag} hides the branch ${tag} in git commands: delete it (git tag -d ${tag}) unless you made it`);
+  }
+
   const prefix = `refs/remotes/${container}/agent/`;
   const refs = (await git("for-each-ref", "--format=%(refname)", prefix)).split("\n").filter(Boolean);
   if (refs.length === 0) ctx.out("no agent branches yet");
   for (const ref of refs) {
     const task = ref.slice(prefix.length);
-    const head = `${container}/agent/${task}`;
+    const head = agentRef(container, task);
     const recorded = bases.get(task);
     const limit = baseRef(container, recorded ?? "main");
     const has = async (ref: string) =>
@@ -64,8 +74,8 @@ export async function cmdFetch(ctx: Context, opts: { host?: string; cwd?: string
       ? `agent/${task}  base ${recorded} is gone`
       : `agent/${task}  ${(await git("rev-list", "--count", head, `^${limit}`)).trim()} commits on ${recorded ?? "main (assumed)"}`;
     // Shipped = a patch-equivalent commit is already on origin/agent/<task>.
-    const shipped = `origin/agent/${task}`;
-    if (await has(`refs/remotes/${shipped}`)) {
+    const shipped = githubRef(`agent/${task}`);
+    if (await has(shipped)) {
       const cherry = await git("cherry", shipped, head, ...(baseGone ? [] : [limit]));
       line += `, ${cherry.split("\n").filter((l) => l.startsWith("+")).length} not shipped`;
     }

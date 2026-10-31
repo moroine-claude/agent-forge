@@ -97,7 +97,7 @@ test("a conflicting replay rejects, leaves GitHub as it was and no temporary wor
   const p = await plan();
   const before = snapshot();
   const ctx = hybridContext();
-  await assert.rejects(ship(p, false, ctx), (e: unknown) => e instanceof ForgeError && /replaying [0-9a-f]{7,} edit a onto/.test(e.message));
+  await assert.rejects(ship(p, false, ctx), (e: unknown) => e instanceof ForgeError && /replaying [0-9a-f]{7,} edit a onto origin\/agent\/t stopped/.test(e.message));
   assert.equal(onGithub(), moved);
   assert.deepEqual(snapshot(), before);
   assert.equal(fs.existsSync(tmpOf(ctx)), false);
@@ -118,7 +118,7 @@ test("a commit that becomes empty on the target stops like a conflict, naming it
   assert.notEqual(moved, first);
   sync();
   // Built by hand: the planner's patch-id check would already drop this commit.
-  const p: TaskPlan = { ...(await plan()), commits: [git(layout.container, "rev-parse", "agent/t")], onto: "origin/agent/t" };
+  const p: TaskPlan = { ...(await plan()), commits: [git(layout.container, "rev-parse", "agent/t")], onto: "refs/remotes/origin/agent/t" };
   await assert.rejects(ship(p), (e: unknown) => e instanceof ForgeError && /add z/.test(e.message));
   assert.equal(onGithub(), moved);
   assert.equal(git(layout.clone, "worktree", "list").split("\n").length, 1);

@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { ForgeError } from "../cli/lib/context.ts";
+import { fetchAgents } from "../cli/lib/commands/fetch.ts";
 import { cmdShip } from "../cli/lib/commands/ship.ts";
 import { saveHost } from "../cli/lib/laptop/state.ts";
 import type { ExecRule, FakeContext } from "./lib/fake-context.ts";
@@ -312,3 +313,28 @@ test("a PR that fails after the push still says the branch was pushed", async ()
   assert.deepEqual(ctx.out_lines, ["Signing 1 commit: t (1)", "agent/t: pushed 1 commit, no PR yet"]);
   assert.notEqual(onGithub("agent/t"), null);
 });
+
+// The developer's forge fetch, before the review.
+const fetched = () => fetchAgents(hybridContext(), { cwd: layout.clone });
+// Who committed each commit of GitHub's branch above main: the developer, once replayed.
+const committers = (branch: string) => git(layout.github, "log", "--format=%ce", `main..${branch}`).split("\n");
+
+// The agent tags its first commit with each name, which shadows in git's
+// short-name lookup a ref that ship reads; ship must still replay both commits.
+for (const names of [["origin/main"], ["origin/agent/t", `${C}/agent/t`, "main"]]) {
+  test(`tags the agent creates in the container cannot change what ship signs and pushes: ${names.join(", ")}`, async () => {
+    // The agent's own identity: a replayed commit is then always a new object.
+    git(layout.container, "config", "user.email", "agent@example.org");
+    const hidden = layout.commit(layout.container, "agent/t", "hidden.txt");
+    layout.commit(layout.container, "agent/t", "visible.txt");
+    for (const name of names) git(layout.container, "tag", name, hidden);
+    await fetched();
+    const ctx = hybridContext({ rules: [taskBase("t\torigin/main\n"), creates("main", "agent/t", url(1))] });
+    assert.equal(await ship(ctx, "t"), 0);
+    // Every commit pushed was replayed by the developer: none is the agent's own.
+    assert.deepEqual(committers("agent/t"), ["test@example.com", "test@example.com"]);
+    assert.notEqual(git(layout.github, "rev-parse", "agent/t~1"), hidden);
+    assert.equal(git(layout.github, "rev-parse", "agent/t~2"), git(layout.github, "rev-parse", "main"));
+    assert.equal(git(layout.clone, "tag", "-l"), "");
+  });
+}

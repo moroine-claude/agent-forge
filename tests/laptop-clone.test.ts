@@ -75,7 +75,24 @@ test("ensureForgeRemote adds the remote, then finds it ok", async () => {
     assert.equal(await ensureForgeRemote(ctx, dir, "agent-o-r", "forge-local"), "added");
     assert.equal(await git(dir, "config", "remote.agent-o-r.url"), "forge-local:agent-o-r");
     assert.equal(await git(dir, "config", "remote.agent-o-r.uploadpack"), "forge upload-pack agent-o-r");
+    // The agent's tags never reach the clone.
+    assert.equal(await git(dir, "config", "remote.agent-o-r.tagOpt"), "--no-tags");
     assert.equal(await forgeRemoteHost(ctx, dir, "agent-o-r"), "forge-local");
+    assert.equal(await ensureForgeRemote(ctx, dir, "agent-o-r", "forge-local"), "ok");
+  });
+});
+
+test("ensureForgeRemote fixes a missing or different tagOpt", async () => {
+  await withRepo("git@github.com:o/r.git", async (dir) => {
+    const ctx = createContext();
+    // A remote added by hand, as the manual block of ansible/README.md did before.
+    await git(dir, "remote", "add", "agent-o-r", "forge-local:agent-o-r");
+    await git(dir, "config", "remote.agent-o-r.uploadpack", "forge upload-pack agent-o-r");
+    assert.equal(await ensureForgeRemote(ctx, dir, "agent-o-r", "forge-local"), "fixed");
+    assert.equal(await git(dir, "config", "remote.agent-o-r.tagOpt"), "--no-tags");
+    await git(dir, "config", "remote.agent-o-r.tagOpt", "--tags");
+    assert.equal(await ensureForgeRemote(ctx, dir, "agent-o-r", "forge-local"), "fixed");
+    assert.equal(await git(dir, "config", "remote.agent-o-r.tagOpt"), "--no-tags");
     assert.equal(await ensureForgeRemote(ctx, dir, "agent-o-r", "forge-local"), "ok");
   });
 });

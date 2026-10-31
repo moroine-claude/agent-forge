@@ -49,6 +49,9 @@ export async function forgeRemoteHost(ctx: Context, root: string, container: str
 }
 
 // Over SSH, git runs `forge upload-pack <container> '<path>'` on the host.
+// No tags: the agent creates them in the container, and a tag named
+// origin/main (or <container>/agent/<task>, or main) would take the place of
+// that ref wherever git reads a short name, in the developer's review included.
 export async function ensureForgeRemote(
   ctx: Context,
   root: string,
@@ -56,7 +59,7 @@ export async function ensureForgeRemote(
   alias: string,
 ): Promise<"added" | "fixed" | "ok"> {
   const url = `${alias}:${container}`;
-  const uploadpack = `forge upload-pack ${container}`;
+  const wanted: [string, string][] = [["uploadpack", `forge upload-pack ${container}`], ["tagOpt", "--no-tags"]];
   const key = (name: string) => `remote.${container}.${name}`;
   const set = (name: string, value: string) =>
     mustSucceed(`git config ${key(name)}`, ctx.exec(["git", "config", key(name), value], { cwd: root }));
@@ -64,11 +67,13 @@ export async function ensureForgeRemote(
   const current = await configGet(ctx, root, key("url"));
   if (current === null) {
     await mustSucceed(`git remote add ${container}`, ctx.exec(["git", "remote", "add", container, url], { cwd: root }));
-    await set("uploadpack", uploadpack);
+    for (const [name, value] of wanted) await set(name, value);
     return "added";
   }
   let fixed = false;
   if (current !== url) { await set("url", url); fixed = true; }
-  if ((await configGet(ctx, root, key("uploadpack"))) !== uploadpack) { await set("uploadpack", uploadpack); fixed = true; }
+  for (const [name, value] of wanted) {
+    if ((await configGet(ctx, root, key(name))) !== value) { await set(name, value); fixed = true; }
+  }
   return fixed ? "fixed" : "ok";
 }

@@ -199,12 +199,15 @@ your clone of the repository, with your SSH alias in place of `forge-local`:
 ```bash
 git remote add agent-acme-widgets forge-local:agent-acme-widgets
 git config remote.agent-acme-widgets.uploadpack "forge upload-pack agent-acme-widgets"
+git config remote.agent-acme-widgets.tagOpt --no-tags
 git fetch agent-acme-widgets
 ```
 
 `forge upload-pack` runs on the host and serves the repository from inside the
-container, so the host never runs git in the agent's workspace. Review the
-branch, then sign and push it yourself.
+container, so the host never runs git in the agent's workspace. `tagOpt`
+keeps the agent's tags out of your clone: a tag named `origin/main` would take
+that branch's place in `git log origin/main..` and other git commands. Review
+the branch, then sign and push it yourself.
 
 ### Troubleshooting a manual install
 

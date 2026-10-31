@@ -3,6 +3,7 @@
 // (origin and the forge one), and gh guessing between them can prompt or pick
 // the wrong one.
 import { ForgeError, type Context } from "../context.ts";
+import { githubRef } from "./ship-plan.ts";
 
 // gh is a laptop prerequisite checked by ship itself, before any other call here.
 export async function requireGh(ctx: Context, root: string): Promise<void> {
@@ -47,11 +48,12 @@ export async function ensurePr(
 }
 
 // One commit: its subject and body. Several: the task name from the branch and
-// one line per commit, oldest first. Reads origin/<branch>, which ship fetched.
+// one line per commit, oldest first. Reads origin/<branch>, which ship fetched,
+// by its full name: a tag named origin/<base> must not change the range.
 async function describe(ctx: Context, root: string, branch: string, base: string): Promise<{ title: string; body: string }> {
   // \x1f ends the subject, \x1e ends the commit.
   const r = await ctx.exec(
-    ["git", "log", "--no-merges", "--reverse", "--format=%s%x1f%b%x1e", `origin/${base}..origin/${branch}`],
+    ["git", "log", "--no-merges", "--reverse", "--format=%s%x1f%b%x1e", `${githubRef(base)}..${githubRef(branch)}`],
     { cwd: root },
   );
   if (r.code !== 0) throw new ForgeError(`git log failed: ${r.stderr.trim() || `exit code ${r.code}`}`);
