@@ -100,7 +100,7 @@ export function createLayout(containerName: string, ownerRepo = "acme/widgets"):
   };
 }
 
-// Real exec and attach, except ssh and gh: those are answered from `rules`
+// Real exec, and attach run through exec (its output is captured), except ssh and gh: those are answered from `rules`
 // (first substring match wins) and recorded, like fakeContext.
 export function hybridContext(opts: { rules?: ExecRule[]; answers?: (number | string | null)[] } = {}): FakeContext {
   const ctx = fakeContext(opts);

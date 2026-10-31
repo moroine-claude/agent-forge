@@ -22,7 +22,10 @@ function sync() {
   git(layout.clone, "fetch", "-q", "--prune", "origin");
 }
 const plan = () => { sync(); return planTask(hybridContext(), layout.clone, C, "t", main); };
-const ship = (p: TaskPlan, sign = false) => replayAndPush(hybridContext(), layout.clone, p, { sign });
+const ship = (p: TaskPlan, sign = false, ctx = hybridContext()) => replayAndPush(ctx, layout.clone, p, { sign });
+// The temporary worktree's path, from the `worktree add` call.
+const tmpOf = (ctx: ReturnType<typeof hybridContext>) =>
+  ctx.calls.find((c) => c.includes("worktree") && c.includes("add"))!.at(-2)!;
 const onGithub = () => git(layout.github, "rev-parse", "refs/heads/agent/t");
 const snapshot = () => ({
   head: git(layout.clone, "rev-parse", "HEAD"),
@@ -93,9 +96,11 @@ test("a conflicting replay rejects, leaves GitHub as it was and no temporary wor
   const moved = onGithub();
   const p = await plan();
   const before = snapshot();
-  await assert.rejects(ship(p), (e: unknown) => e instanceof ForgeError && /replaying [0-9a-f]{7,} edit a onto/.test(e.message));
+  const ctx = hybridContext();
+  await assert.rejects(ship(p, false, ctx), (e: unknown) => e instanceof ForgeError && /replaying [0-9a-f]{7,} edit a onto/.test(e.message));
   assert.equal(onGithub(), moved);
   assert.deepEqual(snapshot(), before);
+  assert.equal(fs.existsSync(tmpOf(ctx)), false);
 });
 
 test("a commit that becomes empty on the target stops like a conflict, naming it", async () => {
@@ -134,10 +139,49 @@ test("a push rejected as non-fast-forward stops with the way forward", async () 
   git(layout.github, "update-ref", "refs/heads/agent/t", git(layout.github, "rev-parse", "main"));
   pushElsewhere("x", "x\n");
   const moved = onGithub();
-  await assert.rejects(ship(p), (e: unknown) =>
+  const ctx = hybridContext();
+  await assert.rejects(ship(p, false, ctx), (e: unknown) =>
     e instanceof ForgeError && e.message === "GitHub's agent/t moved since the fetch: run forge ship again.");
   assert.equal(onGithub(), moved);
   assert.equal(git(layout.clone, "worktree", "list").split("\n").length, 1);
+  assert.equal(fs.existsSync(tmpOf(ctx)), false);
+});
+
+test("a refusal by GitHub itself is reported with git's reason, not as a moved branch", async () => {
+  layout.commit(layout.container, "agent/t", "a");
+  const p = await plan();
+  const hook = path.join(layout.github, "hooks", "pre-receive");
+  fs.writeFileSync(hook, "#!/bin/sh\necho 'GH013: signed commits required' >&2\nexit 1\n");
+  fs.chmodSync(hook, 0o755);
+  const ctx = hybridContext();
+  await assert.rejects(ship(p, false, ctx), (e: unknown) =>
+    e instanceof ForgeError && /^git push failed:/.test(e.message) && /GH013: signed commits required/.test(e.message));
+  assert.throws(() => onGithub());
+  assert.equal(git(layout.clone, "worktree", "list").split("\n").length, 1);
+  assert.equal(fs.existsSync(tmpOf(ctx)), false);
+});
+
+test("the cherry-pick goes through attach, and SIGINT handling is restored", async () => {
+  layout.commit(layout.container, "agent/t", "a");
+  const p = await plan();
+  const ctx = hybridContext();
+  const attached: string[][] = [];
+  const attach = ctx.attach;
+  ctx.attach = (argv, o) => { attached.push(argv); return attach(argv, o); };
+  const sigints = process.listenerCount("SIGINT");
+  assert.equal(await ship(p, false, ctx), "pushed");
+  assert.equal(attached.length, 1);
+  assert.ok(attached[0].includes("cherry-pick") && attached[0].includes(p.commits[0]));
+  assert.equal(process.listenerCount("SIGINT"), sigints);
+});
+
+test("authors are kept, committers are the developer", async () => {
+  git(layout.container, "config", "user.name", "Agent Smith");
+  git(layout.container, "config", "user.email", "agent@example.org");
+  layout.commit(layout.container, "agent/t", "a");
+  await ship(await plan());
+  assert.equal(git(layout.github, "log", "-1", "--format=%an <%ae>|%cn <%ce>", "agent/t"),
+    "Agent Smith <agent@example.org>|Test <test@example.com>");
 });
 
 const hasKeygen = (() => { try { execFileSync("ssh-keygen", ["-?"], { stdio: "ignore" }); return true; } catch (e) { return (e as { status?: number }).status !== undefined; } })();

@@ -21,23 +21,36 @@ export async function replayAndPush(
     // on a hardware key, which only an inherited terminal can show.
     // --allow-empty keeps an originally empty commit; a commit that becomes
     // empty on `onto` still stops like a conflict.
-    const code = await ctx.attach(
-      ["git", "-C", tmp, "cherry-pick", "--allow-empty", ...(opts.sign ? ["-S"] : []), ...plan.commits],
-    );
+    // Ctrl-C is the natural way out of that prompt: a no-op handler keeps node
+    // alive, so the signal still reaches git (same process group), which exits
+    // non-zero, and the abort and cleanup below run instead of leaking the worktree.
+    const ignoreSigint = () => {};
+    process.on("SIGINT", ignoreSigint);
+    let code: number;
+    try {
+      // The advice texts tell how to continue a pick in a worktree about to be deleted.
+      code = await ctx.attach([
+        "git", "-C", tmp, "-c", "advice.mergeConflict=false", "-c", "advice.resolveConflict=false",
+        "cherry-pick", "--allow-empty", ...(opts.sign ? ["-S"] : []), ...plan.commits,
+      ]);
+    } finally {
+      process.off("SIGINT", ignoreSigint);
+    }
     if (code !== 0) throw new ForgeError(await stoppedAt(ctx, tmp, plan));
 
     const push = await ctx.exec(["git", "-C", tmp, "push", "origin", `HEAD:refs/heads/agent/${plan.task}`]);
     if (push.code !== 0) {
-      throw new ForgeError(/rejected|non-fast-forward|fetch first/.test(push.stderr)
+      throw new ForgeError(/\[rejected\][^\n]*\((fetch first|non-fast-forward)\)/.test(push.stderr)
         ? `GitHub's agent/${plan.task} moved since the fetch: run forge ship again.`
         : `git push failed: ${push.stderr.trim() || push.stdout.trim()}`);
     }
     return "pushed";
   } finally {
     // --force only discards the temporary worktree, which may be mid cherry-pick.
-    await ctx.exec(["git", "-C", root, "worktree", "remove", "--force", tmp]);
-    await ctx.exec(["git", "-C", root, "worktree", "prune"]);
+    const removed = await ctx.exec(["git", "-C", root, "worktree", "remove", "--force", tmp]);
     fs.rmSync(path.dirname(tmp), { recursive: true, force: true });
+    // Never a repository-wide prune: it would also drop the developer's other worktrees.
+    if (removed.code !== 0) await ctx.exec(["git", "-C", root, "worktree", "remove", "--force", tmp]);
   }
 }
 
@@ -51,5 +64,5 @@ async function stoppedAt(ctx: Context, tmp: string, plan: TaskPlan): Promise<str
     if (subject.code === 0) what = subject.stdout.trim();
   }
   await ctx.exec(["git", "-C", tmp, "cherry-pick", "--abort"]);
-  return `agent/${plan.task}: replaying ${what} onto ${plan.onto} stopped (conflict, or the signing failed): nothing was pushed`;
+  return `agent/${plan.task}: replaying ${what} onto ${/^[0-9a-f]{40}$/.test(plan.onto) ? plan.onto.slice(0, 12) : plan.onto} stopped (conflict, or the signing failed): nothing was pushed`;
 }
