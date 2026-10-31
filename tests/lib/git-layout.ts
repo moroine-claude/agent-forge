@@ -117,7 +117,9 @@ export function hybridContext(opts: { rules?: ExecRule[]; answers?: (number | st
   ctx.attach = (argv, o) => {
     if (scripted(argv)) return fakeAttach(argv, o);
     ctx.calls.push(argv);
-    return real.attach(argv, o);
+    // Captured, not inherited: a failing git command must not spill onto the
+    // test output. The exit code is what attach reports either way.
+    return real.exec(argv, o).then((r) => r.code);
   };
   return ctx;
 }
