@@ -291,9 +291,9 @@ is `git log -p agent-acme-widgets/agent/fix-login..agent-acme-widgets/agent/fix-
 
 `forge ship <task>` re-signs the agent's commits that are not on GitHub yet
 with your own git signing configuration, pushes `agent/<task>` and opens its
-pull request (or finds the one that exists). It fetches again first: commits
-the agent made since your last `forge fetch`, which you have not reviewed,
-are listed and signed only after you say yes. It replays the commits in a
+pull request (or finds the one that exists). It fetches again first, then
+lists every commit it will sign, task by task, and asks once before signing:
+the agent may have committed since your review. It replays the commits in a
 temporary worktree, so your checkout is never touched, and runs no git hook
 there: the tree is the agent's. It never force-pushes: if GitHub's
 `agent/<task>` moved since the fetch, it stops and asks you to run `forge

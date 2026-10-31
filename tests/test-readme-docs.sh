@@ -75,8 +75,9 @@ assert_contains 'git log -p origin/main..agent-acme-widgets/agent/fix-login'
 assert_not_contains 'git log -p main..'
 assert_contains 'agent/fix-login  3 commits on origin/main'
 assert_contains 'git log -p agent-acme-widgets/agent/fix-login..agent-acme-widgets/agent/fix-tests'
-# forge ship demande avant de signer ce qui n'a pas été relu, sans hook de l'agent.
-assert_contains "which you have not reviewed"
+# forge ship liste tout ce qu'il va signer et demande avant, sans hook de l'agent.
+assert_contains 'lists every commit it will sign'
+assert_not_contains "which you have not reviewed"
 assert_contains 'runs no git hook'
 assert_contains 'already merged'
 

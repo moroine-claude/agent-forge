@@ -3,7 +3,6 @@
 // A stacked task ships with the whole chain under it, bottom first.
 import { ForgeError, mustSucceed, type Context } from "../context.ts";
 import { fetchAgents } from "./fetch.ts";
-import { openClone } from "../laptop/clone.ts";
 import { ensurePr, prState, requireGh } from "../laptop/pr.ts";
 import { replayAndPush } from "../laptop/replay.ts";
 import {
@@ -19,9 +18,6 @@ export async function cmdShip(
 ): Promise<number> {
   const sign = opts.sign ?? true;
   await requireGh(ctx, opts.cwd ?? process.cwd());
-  // The agent may have committed since the developer's review: what the clone
-  // held before this ship's own fetch is what was there to review.
-  const before = await fetchedBefore(ctx, opts.cwd);
   const { root, ownerRepo, container, bases: recorded } = await fetchAgents(ctx, { host: opts.host, cwd: opts.cwd });
   const git = async (...args: string[]) =>
     (await mustSucceed(`git ${args[0]}`, ctx.exec(["git", ...args], { cwd: root }))).stdout;
@@ -66,7 +62,7 @@ export async function cmdShip(
     plans.push({ plan, merged });
     below = { prBase: plan.prBase, merged: false };
   }
-  await confirmUnseen(ctx, root, plans.map(({ plan }) => plan), before);
+  await confirmSigning(ctx, root, plans.map(({ plan }) => plan));
 
   const signing = plans.filter(({ plan }) => plan.commits.length > 0);
   const total = signing.reduce((n, { plan }) => n + plan.commits.length, 0);
@@ -105,41 +101,23 @@ export async function cmdShip(
   return 0;
 }
 
-// task -> the commit its container branch was at in the clone, before ship fetches.
-async function fetchedBefore(ctx: Context, cwd: string | undefined): Promise<Map<string, string>> {
-  const { root, container } = await openClone(ctx, cwd);
-  const prefix = `refs/remotes/${container}/agent/`;
-  const r = await mustSucceed("git for-each-ref",
-    ctx.exec(["git", "for-each-ref", "--format=%(objectname) %(refname)", prefix], { cwd: root }));
-  return new Map(r.stdout.split("\n").filter(Boolean).map((l) => {
-    const [sha, ref] = l.split(" ");
-    return [ref.slice(prefix.length), sha];
-  }));
-}
-
-// The commits to sign that the clone did not hold before this ship (all of a
-// task's when it had none of them) are listed, then signed only after a yes,
-// one question for the whole chain. Nothing new since the last fetch: no question.
-async function confirmUnseen(ctx: Context, root: string, plans: TaskPlan[], before: Map<string, string>): Promise<void> {
-  let asked = false;
-  for (const plan of plans) {
-    if (plan.commits.length === 0) continue;
-    const seen = before.get(plan.task);
-    // Unreadable (the old commit is gone): every commit counts as new.
-    const r = seen ? await ctx.exec(["git", "rev-list", plan.tip, `^${seen}`], { cwd: root }) : undefined;
-    const fresh = r?.code === 0 ? new Set(r.stdout.split("\n").filter(Boolean)) : undefined;
-    const unseen = plan.commits.filter((c) => fresh === undefined || fresh.has(c));
-    if (unseen.length === 0) continue;
+// Every commit about to be signed is listed, per task and oldest first, then
+// one question for the whole chain: ship fetches again, and the agent may have
+// committed since the developer's review. Nothing to sign: no question. No
+// terminal to ask: nothing is signed.
+async function confirmSigning(ctx: Context, root: string, plans: TaskPlan[]): Promise<void> {
+  const signing = plans.filter((plan) => plan.commits.length > 0);
+  if (signing.length === 0) return;
+  for (const plan of signing) {
+    // Full SHAs: git takes them as object names, never as ref names.
     const log = await mustSucceed("git log",
-      ctx.exec(["git", "log", "--no-walk=unsorted", "--format=%h %s", ...unseen], { cwd: root }));
-    ctx.out(`agent/${plan.task}: ${commits(unseen.length)} you haven't fetched before:`);
+      ctx.exec(["git", "log", "--no-walk=unsorted", "--format=%h %s", ...plan.commits], { cwd: root }));
+    ctx.out(`agent/${plan.task}:`);
     for (const line of log.stdout.split("\n").filter(Boolean)) ctx.out(`  ${line}`);
-    asked = true;
   }
-  if (!asked) return;
   // pick numbers its answers from 1.
   if ((await ctx.prompt.pick("Sign and push them?", ["yes", "no"])) !== 1) {
-    throw new ForgeError("nothing shipped: the new commits are fetched now; review them, then run forge ship again");
+    throw new ForgeError("nothing shipped: signing was not confirmed");
   }
 }
 
