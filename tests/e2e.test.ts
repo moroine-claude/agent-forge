@@ -245,7 +245,7 @@ test("--all with another command than resume is refused", () => {
   }
 });
 
-// --remote ne vaut que pour install, --host pour install, open et fetch.
+// --remote ne vaut que pour install, --host pour install, open, fetch et ship.
 test("--remote and --host are refused outside the laptop commands that take them", () => {
   for (const cmd of ["list", "start"]) {
     const remote = forge([cmd, "--remote", "203.0.113.10"]);
@@ -253,7 +253,7 @@ test("--remote and --host are refused outside the laptop commands that take them
     assert.match(remote.stderr, /^Error: --remote only goes with install/m, cmd);
     const host = forge([cmd, "--host", "forge-acme"]);
     assert.equal(host.status, 1, `${cmd}: ${host.stderr}`);
-    assert.match(host.stderr, /^Error: --host only goes with install, open and fetch/m, cmd);
+    assert.match(host.stderr, /^Error: --host only goes with install, open, fetch and ship/m, cmd);
   }
   const open = forge(["open", "--remote", "203.0.113.10"], "", { FORGE_SIDE: "laptop" });
   assert.equal(open.status, 1);

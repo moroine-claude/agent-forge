@@ -22,6 +22,7 @@ import { cmdCompletion } from "./lib/commands/completion.ts";
 import { cmdInstall } from "./lib/commands/install.ts";
 import { cmdOpen } from "./lib/commands/open.ts";
 import { cmdFetch } from "./lib/commands/fetch.ts";
+import { cmdShip } from "./lib/commands/ship.ts";
 import { currentSide, requireSide } from "./lib/side.ts";
 
 const USAGE = `Usage: forge <command> [args]
@@ -56,6 +57,8 @@ On your laptop:
                                     remote VM with --remote, an installed host with --host
   open [--host <name>]              Open herdr on a forge host
   fetch [--host <name>]             Fetch the agents' branches into this clone and list the tasks
+  ship <task> [--host <name>]       Re-sign a task's new commits, push agent/<task> and open its PR
+                                    (a stacked task ships with the tasks under it, bottom first)
 
 A bracketed argument is asked for when you leave it out, as a numbered menu.
 With no terminal on stdin (scripts, CI) nothing is asked and the command
@@ -86,6 +89,7 @@ function dispatch(
     case "install": return cmdInstall(ctx, laptop);
     case "open": return cmdOpen(ctx, { host: laptop.host });
     case "fetch": return cmdFetch(ctx, { host: laptop.host });
+    case "ship": return cmdShip(ctx, a, { host: laptop.host });
     default: throw new ForgeError(`unknown command '${cmd}'\n${USAGE}`);
   }
 }
@@ -134,8 +138,8 @@ async function main(): Promise<number> {
     if (values.remote !== undefined && cmd !== "install") {
       throw new ForgeError("--remote only goes with install: forge install --remote <address>");
     }
-    if (values.host !== undefined && cmd !== "install" && cmd !== "open" && cmd !== "fetch") {
-      throw new ForgeError("--host only goes with install, open and fetch: forge install --host <name>, forge open --host <name>");
+    if (values.host !== undefined && !["install", "open", "fetch", "ship"].includes(cmd)) {
+      throw new ForgeError("--host only goes with install, open, fetch and ship: forge install --host <name>, forge open --host <name>");
     }
     const laptop = { remote: values.remote, host: values.host };
     const code = await dispatch(ctx, positionals, values.force === true, values.strict === true, values.all === true, laptop);

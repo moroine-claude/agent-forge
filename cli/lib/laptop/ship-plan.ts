@@ -33,6 +33,13 @@ export function chainFor(task: string, bases: Map<string, Base>): string[] {
   return chain.reverse();
 }
 
+// A task's PR base: its base branch, or the branch of the task below, unless
+// that task's PR is merged: then the base that PR had.
+export function prBaseFor(base: Base, below?: { prBase: string; merged: boolean }): string {
+  if (base.kind === "branch") return base.branch;
+  return below?.merged ? below.prBase : `agent/${base.task}`;
+}
+
 export type TaskPlan = {
   task: string;
   tip: string;            // <container>/agent/<task>
@@ -73,13 +80,11 @@ export async function planTask(
   const cherry = await git("cherry", upstream, tip, limit);
   const commits = cherry.split("\n").filter((l) => l.startsWith("+ ")).map((l) => l.slice(2));
 
+  const prBase = prBaseFor(base, below);
   let onto: string;
-  let prBase: string;
   if (base.kind === "task") {
-    prBase = below?.merged ? below.prBase : `agent/${base.task}`;
     onto = shipped ? own : `origin/${prBase}`;
   } else {
-    prBase = base.branch;
     // The first ship signs in place (same parents, same content) onto the
     // merge base, unless cherry dropped a commit whose patch is already
     // upstream: replaying the others without it could conflict for no reason,
