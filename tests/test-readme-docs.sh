@@ -60,8 +60,26 @@ assert_contains 'prefix+f'
 assert_contains 'prefix+shift+f'
 
 # Récupération du travail.
-assert_contains 'forge upload-pack'
-assert_contains 'uploadpack'
+# forge fetch et forge ship ; la forme manuelle vit dans ansible/README.md.
+assert_contains 'forge fetch'
+assert_contains 'forge ship <task>'
+assert_contains 'stacked'
+assert_contains 'gh auth login'
+assert_contains 'never force-pushes'
+assert_not_contains 'git config remote.'
+assert_not_contains 'uploadpack'
+# La revue lit origin/main (le main local peut être en retard), la liste
+# d'exemple est celle que forge fetch affiche, une tâche empilée se relit
+# contre sa base.
+assert_contains 'git log -p origin/main..agent-acme-widgets/agent/fix-login'
+assert_not_contains 'git log -p main..'
+assert_contains 'agent/fix-login  3 commits on origin/main'
+assert_contains 'git log -p agent-acme-widgets/agent/fix-login..agent-acme-widgets/agent/fix-tests'
+# forge ship liste tout ce qu'il va signer et demande avant, sans hook de l'agent.
+assert_contains 'lists every commit it will sign'
+assert_not_contains "which you have not reviewed"
+assert_contains 'runs no git hook'
+assert_contains 'already merged'
 
 # Commandes du quotidien et mode strict.
 assert_contains 'forge resume'

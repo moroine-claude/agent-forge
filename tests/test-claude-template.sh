@@ -48,8 +48,6 @@ assert_contains 'git push -u origin agent/<task-name>'
 # tâches est toujours main, sans variable <base> à résoudre.
 assert_contains 'gh pr create --base main'
 assert_contains 'git merge origin/main'
-assert_contains 'git log -p main..agent/<task-name>'
-assert_contains 'git rebase --reset-author main'
 assert_not_contains 'origin/next'
 assert_not_contains '<base>'
 assert_contains "aucune** credential GitHub"
@@ -82,8 +80,11 @@ assert_not_contains 'noreply.github.com'
 assert_not_contains ':2222'
 assert_not_contains 'container LXD'
 
-# Récupération : fetch via `forge upload-pack`, miroir origin en lecture seule.
-assert_contains 'uploadpack "forge upload-pack <container>"'
+# Récupération : forge fetch puis forge ship côté humain, miroir origin en lecture seule.
+assert_contains 'forge fetch'
+assert_contains 'forge ship <task-name>'
+assert_not_contains 'reset-author'
+assert_not_contains 'uploadpack'
 assert_contains '/forge/origin.git'
 assert_contains 'git fetch origin'
 assert_not_contains 'ssh://<user>@<host><workspaces>'

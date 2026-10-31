@@ -16,10 +16,13 @@ import { cmdList } from "./lib/commands/list.ts";
 import { cmdEgress } from "./lib/commands/egress.ts";
 import { cmdImage } from "./lib/commands/image.ts";
 import { cmdAttach } from "./lib/commands/attach.ts";
+import { cmdTaskBase } from "./lib/commands/task-base.ts";
 import { cmdUploadPack } from "./lib/commands/upload-pack.ts";
 import { cmdCompletion } from "./lib/commands/completion.ts";
 import { cmdInstall } from "./lib/commands/install.ts";
 import { cmdOpen } from "./lib/commands/open.ts";
+import { cmdFetch } from "./lib/commands/fetch.ts";
+import { cmdShip } from "./lib/commands/ship.ts";
 import { currentSide, requireSide } from "./lib/side.ts";
 
 const USAGE = `Usage: forge <command> [args]
@@ -41,6 +44,7 @@ On the forge host:
                                     wrong container: addresses are reused)
   attach <container> <task>         Run a task's agent in this terminal (what herdr tabs run)
   upload-pack <container> [<path>]  Serve a container's repository to git fetch (see the README, "Get the work back")
+  task-base <container> [<task>]    Print the ref a task started from (every task, tab-separated, without <task>)
   image build                       Build the agent-base image (Ansible, through Incus)
   image commit                      Print the commit agent-base was built from (nothing if no image)
   completion bash                   Print a bash completion function (eval it in ~/.bashrc)
@@ -52,6 +56,9 @@ On your laptop:
                                     Install or update a forge host: the local Lima VM by default, a new
                                     remote VM with --remote, an installed host with --host
   open [--host <name>]              Open herdr on a forge host
+  fetch [--host <name>]             Fetch the agents' branches into this clone and list the tasks
+  ship <task> [--host <name>]       Re-sign a task's new commits, push agent/<task> and open its PR
+                                    (a stacked task ships with the tasks under it, bottom first)
 
 A bracketed argument is asked for when you leave it out, as a numbered menu.
 With no terminal on stdin (scripts, CI) nothing is asked and the command
@@ -76,10 +83,13 @@ function dispatch(
     case "egress": return cmdEgress(ctx, a, b);
     case "attach": return cmdAttach(ctx, a, b);
     case "upload-pack": return cmdUploadPack(ctx, a);
+    case "task-base": return cmdTaskBase(ctx, a, b);
     case "image": return cmdImage(ctx, a, b);
     case "completion": return cmdCompletion(ctx, a, b);
     case "install": return cmdInstall(ctx, laptop);
     case "open": return cmdOpen(ctx, { host: laptop.host });
+    case "fetch": return cmdFetch(ctx, { host: laptop.host });
+    case "ship": return cmdShip(ctx, a, { host: laptop.host });
     default: throw new ForgeError(`unknown command '${cmd}'\n${USAGE}`);
   }
 }
@@ -128,8 +138,9 @@ async function main(): Promise<number> {
     if (values.remote !== undefined && cmd !== "install") {
       throw new ForgeError("--remote only goes with install: forge install --remote <address>");
     }
-    if (values.host !== undefined && cmd !== "install" && cmd !== "open") {
-      throw new ForgeError("--host only goes with install and open: forge install --host <name>, forge open --host <name>");
+    if (values.host !== undefined && !["install", "open", "fetch", "ship"].includes(cmd)) {
+      throw new ForgeError("--host only goes with install, open, fetch and ship: forge install --host <name>, " +
+        "forge open --host <name>, forge fetch --host <name>, forge ship <task> --host <name>");
     }
     const laptop = { remote: values.remote, host: values.host };
     const code = await dispatch(ctx, positionals, values.force === true, values.strict === true, values.all === true, laptop);

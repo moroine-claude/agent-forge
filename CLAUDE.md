@@ -29,7 +29,7 @@ Ce fichier décrit la v2, sortie sur `main` (la v1, LXD, n'est plus maintenue). 
 - **Dans un container forge v2** (mode `supervised`, le seul de la v2) :
   - tu commites sur `agent/<tâche>`. Les commits sont non signés et portent l'identité git de l'hôte ;
   - tu ne pousses jamais et tu n'utilises jamais `gh` : `container/pre-bash.sh` les bloque. `origin` est un miroir en lecture seule (`/forge/origin.git`, rafraîchi par l'hôte à chaque `forge start`) : `git fetch origin` marche, `git push` non ;
-  - le mainteneur récupère ton travail depuis sa machine avec `forge upload-pack`, le relit, le re-signe, le pousse et ouvre la PR.
+  - le mainteneur récupère ton travail depuis sa machine avec `forge fetch` dans son clone, le relit, puis `forge ship <tâche>` le re-signe, le pousse et ouvre la PR.
 - **Sur la machine de dev** (une session Claude Code dans ce repo, dont `.claude/settings.json` applique `container/pre-bash.sh`) :
   - push uniquement vers `agent/<tâche>` : `git push -u origin agent/<tâche>` ;
   - puis une PR vers `main` : `gh pr create --base main` ;

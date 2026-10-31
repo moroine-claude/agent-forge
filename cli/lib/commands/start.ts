@@ -8,12 +8,12 @@ import { join } from "node:path";
 import type { Context, ExecResult } from "../context.ts";
 import { ForgeError, mustSucceed } from "../context.ts";
 import { sanitizeContainerName, validateGitRef, validateRepo, validateTaskName } from "../validate.ts";
-import { checkNameCollision, containerRepo, forgeRepos } from "../containers.ts";
+import { baseKey, checkNameCollision, containerRepo, forgeRepos } from "../containers.ts";
 import { hasOriginDevice, refreshMirror } from "../mirror.ts";
 import { mirrorPath, workspacesDir } from "../paths.ts";
 import { claudeSlug, ensureRunning } from "../session.ts";
 import { runTask } from "../tabs.ts";
-import { execAsAgent, instanceExists } from "../incus.ts";
+import { configSet, execAsAgent, instanceExists } from "../incus.ts";
 import { agentBranches, branchExists, taskNames, worktreeAbsPath, worktreeExists } from "../worktrees.ts";
 import { egressMode } from "../strict.ts";
 import { discardHalfProvisioned, provisionContainer } from "./provision.ts";
@@ -263,6 +263,7 @@ async function addWorktree(ctx: Context, container: string, task: string, ref: s
     ctx.out(`Creating worktree .trees/${task} on a new agent/${task} from ${ref}...`);
     await mustSucceed("git worktree add",
       execAsAgent(ctx, container, `git -C /workspace worktree add .trees/${task} -b agent/${task} ${ref}`));
+    await recordBase(ctx, container, task, ref);
     return;
   }
 
@@ -283,4 +284,12 @@ async function addWorktree(ctx: Context, container: string, task: string, ref: s
   ctx.out(`Creating worktree .trees/${task} on a new agent/${task} from origin/main...`);
   await mustSucceed("git worktree add", execAsAgent(ctx, container,
     `git -C /workspace worktree add .trees/${task} -b agent/${task} origin/main`));
+  await recordBase(ctx, container, task, "origin/main");
+}
+
+// La base d'une tâche (la ref dont son worktree est parti) ne se retrouve plus
+// une fois la branche avancée : `forge fetch` et `forge ship` la lisent via
+// `forge task-base`. Reprendre une branche existante n'enregistre rien.
+async function recordBase(ctx: Context, container: string, task: string, base: string): Promise<void> {
+  await mustSucceed("recording the task's base", configSet(ctx, container, baseKey(task), base));
 }

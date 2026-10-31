@@ -22,6 +22,9 @@ export function containerRepo(ctx: Context, name: string): Promise<string> {
   return configGet(ctx, name, "user.forge.repo");
 }
 
+// La ref dont est parti le worktree d'une tâche, une clé par tâche.
+export const baseKey = (task: string) => `user.forge.base.${task}`;
+
 // Marqueurs posés par `incus launch` et retirés en tout dernier : un container
 // qui les porte encore est un provisioning interrompu.
 export const PROVISIONING_KEY = "user.forge.provisioning";
