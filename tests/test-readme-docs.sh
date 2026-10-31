@@ -60,8 +60,14 @@ assert_contains 'prefix+f'
 assert_contains 'prefix+shift+f'
 
 # Récupération du travail.
-assert_contains 'forge upload-pack'
-assert_contains 'uploadpack'
+# forge fetch et forge ship ; la forme manuelle vit dans ansible/README.md.
+assert_contains 'forge fetch'
+assert_contains 'forge ship <task>'
+assert_contains 'stacked'
+assert_contains 'gh auth login'
+assert_contains 'never force-pushes'
+assert_not_contains 'git config remote.'
+assert_not_contains 'uploadpack'
 
 # Commandes du quotidien et mode strict.
 assert_contains 'forge resume'

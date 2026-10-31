@@ -64,6 +64,8 @@ assert_contains 'ui = {…}'
 assert_contains 'REMOTE HOST IDENTIFICATION HAS CHANGED'
 assert_contains 'Too many authentication failures'
 assert_contains 'ansible_become_exe: sudo.ws'
+assert_contains 'uploadpack'
+assert_contains 'forge upload-pack'
 
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"

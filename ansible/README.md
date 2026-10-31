@@ -191,6 +191,21 @@ an inline `ui = {…}`. It is a setting of the client: the host's herdr config c
 nothing. `forge install` adds those two lines in a block of its own, after
 asking.
 
+### Fetch the agents' branches by hand
+
+`forge fetch` (README, "Get the work back") does this for you. By hand, in
+your clone of the repository, with your SSH alias in place of `forge-local`:
+
+```bash
+git remote add agent-acme-widgets forge-local:agent-acme-widgets
+git config remote.agent-acme-widgets.uploadpack "forge upload-pack agent-acme-widgets"
+git fetch agent-acme-widgets
+```
+
+`forge upload-pack` runs on the host and serves the repository from inside the
+container, so the host never runs git in the agent's workspace. Review the
+branch, then sign and push it yourself.
+
 ### Troubleshooting a manual install
 
 - **`REMOTE HOST IDENTIFICATION HAS CHANGED`** after recreating the VM:

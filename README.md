@@ -18,8 +18,8 @@ your machine                     host (a VM)                          containers
   Mac or Ubuntu machine (local mode).
 - **The containers** hold no SSH key and no GitHub credential. The host clones
   and fetches with your forwarded SSH agent; agents commit locally and never
-  push. You fetch their work from your machine, review it, sign it and push
-  it yourself.
+  push. You fetch their work from your machine (`forge fetch`), review it, then
+  `forge ship` signs it, pushes it and opens the PR.
 - **herdr** keeps every agent in a tab of a session that survives your laptop
   closing. One key opens a new task.
 
@@ -259,19 +259,45 @@ warnings go unseen.
 
 ### 4. Get the work back
 
-On your machine, in your own clone of the repository:
+On your machine, in your own clone of the repository (not in the VM):
 
 ```bash
-git remote add agent-acme-widgets forge-local:agent-acme-widgets
-git config remote.agent-acme-widgets.uploadpack "forge upload-pack agent-acme-widgets"
-git fetch agent-acme-widgets
+forge fetch
 ```
 
-Run these three lines once per container, with your SSH alias in place of
-`forge-local`. The fetch runs `forge upload-pack` on
-the host, which serves the repository from inside the container: the host
-never runs git in the agent's workspace. Review the branch, then sign and push
-it yourself.
+The first run adds a git remote named after the container
+(`agent-acme-widgets`) that points at your forge host, then fetches the
+agents' `agent/*` branches through it. The host serves the repository from
+inside the container and never runs git in the agent's workspace. `forge
+fetch` also refreshes `origin` and lists each task with its commit count and
+the branch it started from:
+
+```
+agent/fix-login  3 commits on main
+```
+
+Review the branch, then ship it:
+
+```bash
+git log -p main..agent-acme-widgets/agent/fix-login
+forge ship fix-login
+```
+
+`forge ship <task>` re-signs the agent's commits that are not on GitHub yet
+with your own git signing configuration, pushes `agent/<task>` and opens its
+pull request (or finds the one that exists). It replays the commits in a
+temporary worktree, so your checkout is never touched. It never force-pushes:
+if GitHub's `agent/<task>` moved since the fetch, it stops and asks you to run
+`forge ship` again, and a conflict stops it at the commit it names. Each
+signature may need a touch of your key.
+
+A stacked task, started from another task's branch (`forge start`, then
+"other branch…"), ships its whole chain, bottom first: shipping `b`, started
+from `agent/a`, pushes `agent/a` then `agent/b`, and `b`'s pull request
+targets `agent/a`.
+
+`forge ship` needs the GitHub CLI, installed and logged in on your machine
+(`gh auth login`). `--host <name>` picks the forge host when you have several.
 
 ### The local VM day to day
 
@@ -314,7 +340,7 @@ The same install, on a VM that you create:
    see "Installing by hand" in `ansible/README.md`.
 
 `forge open --host forge-acme` opens herdr on it, and
-`git remote add <container> forge-acme:<container>` fetches its work (step
+`forge fetch --host forge-acme` fetches its work (step
 [4](#4-get-the-work-back)). With several hosts installed, `forge open` asks which one. `forge install`
 with no option goes to `forge-local` when it is listed, and asks which host
 only when just remote hosts are listed.
@@ -340,6 +366,8 @@ link):
 |---|---|
 | `forge install [--remote <address>] [--host <name>]` | Install or update a host: the local VM by default, a new remote VM with `--remote`, an installed host with `--host` |
 | `forge open [--host <name>]` | Open herdr on a host |
+| `forge fetch [--host <name>]` | In your clone: fetch the agents' branches and list the tasks (needs no `gh`) |
+| `forge ship <task> [--host <name>]` | In your clone: re-sign, push and open the PR; needs `gh auth login` |
 
 Run on the host (in a herdr pane, or over `ssh`):
 
@@ -368,7 +396,7 @@ agent in the foreground and say
 - **Never run git yourself in `~/workspaces/<container>` on the host,** and do
   not `cd` there with a git-aware prompt. The agent controls that repository,
   hooks and `.git/config` included, and host git would run its commands as
-  you. Fetch from your machine, as in step 4.
+  you. Fetch and ship from your machine, as in step 4.
 - **Review agent code before running it on your machine.** Checking out an
   agent branch and running its scripts (`npm install`, test runners) runs the
   agent's code there.

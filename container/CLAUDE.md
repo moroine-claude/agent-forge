@@ -16,17 +16,13 @@ Tu es un agent Claude Code tournant dans un container Incus isolé.
 - Les commits doivent avoir des messages clairs et conventionnels (`feat:`, `fix:`, `chore:`, etc.)
 - **Avant toute action de publication** (push, PR), lis `/home/aiuser/.claude/forge-mode` pour connaître ton mode :
   - **`autonomous`** : Pousse ta branche avec `git push -u origin agent/<task-name>` — c'est la seule destination autorisée. **Ouvre la PR toi-même** avec `gh pr create --base main` dès que le travail est poussé — sans attendre qu'on te le demande. C'est une étape obligatoire du flux autonome, pas une action optionnelle. Ne merge **jamais** ta branche dans `main`, et ne merge jamais une PR toi-même (`gh pr merge` bloqué). Si ta PR a un conflit, tu peux faire `git merge origin/main` (seule forme autorisée) pour la rafraîchir avant de pousser — jamais l'inverse. Réponds aux retours de review en poussant de nouveaux commits sur la même branche (jamais de force push, jamais de rebase).
-  - **`supervised`** : Tu n'as **aucune** credential GitHub — ni pour push, ni pour `gh`. Ne tente **jamais** `git push` ni aucune commande `gh` (les deux sont bloqués de toute façon, mais ne les essaie même pas). `origin` est un miroir en lecture seule, monté à `/forge/origin.git` et rafraîchi par forge à chaque `forge start` : `git fetch origin` fonctionne, `git push` est impossible. Commite localement sur ta branche, et **arrête-toi là**. Quand la tâche est terminée, dis-le clairement dans ta dernière réponse et rappelle à l'humain comment récupérer le travail — remplace `<container>` par le nom de ce container (`hostname`) et `<task-name>` par le nom de ta branche courante :
+  - **`supervised`** : Tu n'as **aucune** credential GitHub — ni pour push, ni pour `gh`. Ne tente **jamais** `git push` ni aucune commande `gh` (les deux sont bloqués de toute façon, mais ne les essaie même pas). `origin` est un miroir en lecture seule, monté à `/forge/origin.git` et rafraîchi par forge à chaque `forge start` : `git fetch origin` fonctionne, `git push` est impossible. Commite localement sur ta branche, et **arrête-toi là**. Quand la tâche est terminée, dis-le clairement dans ta dernière réponse et rappelle à l'humain comment récupérer le travail — remplace `<task-name>` par le nom de ta branche courante (sans le préfixe `agent/`) :
     ```bash
-    git remote add <container> <forge-host>:<container>
-    git config remote.<container>.uploadpack "forge upload-pack <container>"
-    git fetch <container> agent/<task-name>:agent/<task-name>
-    git log -p main..agent/<task-name>          # review avant toute autre action
-    git checkout agent/<task-name>
-    git rebase --reset-author main
-    git push origin agent/<task-name>            # identité de l'humain, re-signé par lui
+    forge fetch                    # dans son clone du dépôt : récupère les branches des agents
+    # review de la branche agent/<task-name>, puis :
+    forge ship <task-name>         # re-signe avec sa clé, pousse agent/<task-name> (jamais de force) et ouvre la PR
     ```
-    `<forge-host>` est l'alias SSH de l'hôte forge sur la machine de l'humain (le README, « Get the work back ») — ne l'invente pas. La suite (review, rebase, push) est le rôle de l'humain, pas le tien.
+    Si tu es parti de la branche d'une autre tâche (« other branch… » au `forge start`), nomme-la : `forge ship <task-name>` livre alors toute la chaîne, la tâche de base d'abord. La suite (review, signature, push, PR) est le rôle de l'humain, pas le tien.
 
 ## Docker
 - Docker (rootless) et Docker Compose sont disponibles — utilise `docker compose up` / `docker run` pour les services dont dépend le repo (tests d'intégration, vérification de l'application en conditions réelles)
