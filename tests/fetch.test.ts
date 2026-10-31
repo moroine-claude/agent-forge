@@ -34,6 +34,8 @@ const host = (name: string): LaptopHost => ({
 const taskBase = (stdout: string) => ({ match: `'forge' 'task-base' '${C}'`, stdout });
 // The task listing, without the lines about the remote and the fetches.
 const listing = (ctx: FakeContext) => ctx.out_lines.filter((l) => !l.endsWith("…") && !/^(Added|Fixed) remote /.test(l));
+const warning = (name: string) =>
+  `WARNING: tag ${name} hides the branch ${name} in git commands: delete it (git tag -d ${name}) unless you made it`;
 
 test("the first fetch adds the forge remote, says so, and lists the tasks", async () => {
   saveHost(host("forge-local"));
@@ -189,11 +191,29 @@ test("tags of the clone that hide the refs fetch reads are warned about, and cha
   layout.commit(layout.container, "agent/login", "a.txt");
   // Brought by a fetch from before forge set tagOpt, say.
   const seed = git(layout.clone, "rev-parse", "HEAD");
-  for (const name of ["origin/main", `${C}/agent/login`, "main", "v1.0"]) git(layout.clone, "tag", name, seed);
+  // refs/remotes/…: a full name stands in for its ref wherever that ref is missing.
+  for (const name of ["origin/main", `${C}/agent/login`, "main", "v1.0", "refs/remotes/origin/agent/login"]) {
+    git(layout.clone, "tag", name, seed);
+  }
   const ctx = hybridContext({ rules: [taskBase("login\torigin/main\n")] });
   assert.equal(await cmdFetch(ctx, { cwd: layout.clone }), 0);
-  const warning = (name: string) => `WARNING: tag ${name} hides the branch ${name} in git commands: delete it (git tag -d ${name}) unless you made it`;
-  assert.deepEqual(ctx.err_lines.filter((l) => l.startsWith("WARNING")), [warning(`${C}/agent/login`), warning("main"), warning("origin/main")]);
+  assert.deepEqual(ctx.err_lines.filter((l) => l.startsWith("WARNING")),
+    [warning(`${C}/agent/login`), warning("main"), warning("origin/main"), warning("refs/remotes/origin/agent/login")]);
+  assert.deepEqual(listing(ctx), ["agent/login  1 commits on origin/main"]);
+});
+
+test("with the developer's fetch.pruneTags, no container tag arrives and the clone's own tags stay", async () => {
+  saveHost(host("forge-local"));
+  // A usual pair in a developer's ~/.gitconfig.
+  git(layout.clone, "config", "fetch.prune", "true");
+  git(layout.clone, "config", "fetch.pruneTags", "true");
+  git(layout.clone, "tag", "dev-own-tag", "HEAD");
+  const sha = layout.commit(layout.container, "agent/login", "a.txt");
+  for (const name of ["origin/main", "main", "v9"]) git(layout.container, "tag", name, sha);
+  const ctx = hybridContext({ rules: [taskBase("login\torigin/main\n")] });
+  assert.equal(await cmdFetch(ctx, { cwd: layout.clone }), 0);
+  assert.equal(git(layout.clone, "tag", "-l"), "dev-own-tag");
+  assert.equal(git(layout.clone, "config", `remote.${C}.pruneTags`), "false");
   assert.deepEqual(listing(ctx), ["agent/login  1 commits on origin/main"]);
 });
 

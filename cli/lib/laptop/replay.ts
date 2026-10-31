@@ -21,6 +21,16 @@ export async function replayAndPush(
 ): Promise<"pushed" | "nothing"> {
   if (plan.commits.length === 0) return "nothing";
 
+  // onto is a merge-base SHA or a full ref name, the latter read exactly: a
+  // missing ref (origin/agent/<below> not fetched, a base gone) must not fall
+  // back to a tag of that name.
+  let start = plan.onto;
+  if (!/^[0-9a-f]{40,64}$/.test(start)) {
+    const r = await ctx.exec(gitIn(root, "show-ref", "--verify", "--hash", plan.onto));
+    if (r.code !== 0) throw new ForgeError(`agent/${plan.task}: ${shortRef(plan.onto)} is not in this clone: nothing was pushed`);
+    start = r.stdout.trim();
+  }
+
   const tmp = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "forge-ship-")), "wt");
   // Ctrl-C is the natural way out of a signing prompt (a terminal pinentry, a
   // touch on a hardware key) and of an SSH key's touch at the push: a no-op
@@ -30,7 +40,7 @@ export async function replayAndPush(
   const ignoreSigint = () => {};
   process.on("SIGINT", ignoreSigint);
   try {
-    await mustSucceed("git worktree add", ctx.exec(gitIn(root, "worktree", "add", "--detach", tmp, plan.onto)));
+    await mustSucceed("git worktree add", ctx.exec(gitIn(root, "worktree", "add", "--detach", tmp, start)));
 
     // attach, not exec: a signing key may need a terminal pinentry or a touch
     // on a hardware key, which only an inherited terminal can show.
@@ -63,11 +73,13 @@ export async function replayAndPush(
   }
 }
 
-// Names the commit the cherry-pick stopped on, then abandons the pick.
+// Names the commit the cherry-pick stopped on, then abandons the pick. Without
+// a CHERRY_PICK_HEAD (a signing failure), rev-parse could find a tag of that
+// name: only one of the commits being replayed is named.
 async function stoppedAt(ctx: Context, tmp: string, plan: TaskPlan): Promise<string> {
   const head = await ctx.exec(gitIn(tmp, "rev-parse", "-q", "--verify", "CHERRY_PICK_HEAD"));
   let what = "a commit";
-  if (head.code === 0) {
+  if (head.code === 0 && plan.commits.includes(head.stdout.trim())) {
     const sha = head.stdout.trim();
     const subject = await ctx.exec(gitIn(tmp, "log", "-1", "--format=%h %s", sha));
     if (subject.code === 0) what = subject.stdout.trim();

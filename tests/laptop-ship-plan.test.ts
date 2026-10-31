@@ -220,6 +220,18 @@ test("a stacked task's refs are the remote-tracking ones, whatever the tags", as
   assert.deepEqual(subjects(p.commits), ["add b.txt"]);
 });
 
+test("a tag named after a full ref that does not exist does not stand in for it", async () => {
+  layout.commit(layout.container, "agent/t", "a.txt");
+  const other = layout.commit(layout.container, "side", "z.txt");
+  sync();
+  // On a first ship refs/remotes/origin/agent/t is missing: rev-parse would try refs/tags/refs/remotes/….
+  git(layout.clone, "tag", "refs/remotes/origin/agent/t", other);
+  const p = await planTask(hybridContext(), layout.clone, C, "t", main);
+  assert.equal(p.shipped, false);
+  assert.deepEqual(subjects(p.commits), ["add a.txt"]);
+  assert.equal(p.onto, sha("refs/remotes/origin/main"));
+});
+
 test("notShipped counts a merged task's commits GitHub has no copy of", async () => {
   layout.commit(layout.container, "agent/t", "a.txt");
   // Its branch kept, with a signed copy of the first commit.

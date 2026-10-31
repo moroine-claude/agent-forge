@@ -30,16 +30,20 @@ export async function fetchAgents(ctx: Context, opts: { host?: string; cwd?: str
   // git's output is captured: an SSH key's touch prompt would go unseen, so a
   // line says which fetch is waiting.
   ctx.out(`Fetching ${container}…`);
-  // --no-tags on top of the remote's tagOpt: the agent's tags never land in the clone.
-  await mustSucceed(`git fetch ${container}`, ctx.exec(["git", "fetch", "--prune", "--no-tags", container], { cwd: root }));
+  // The agent's tags never land in the clone: --no-tags on top of the remote's
+  // tagOpt, and --no-prune-tags on top of its pruneTags, since the developer's
+  // fetch.pruneTags turns a pruning fetch into one of refs/tags/* as well.
+  await mustSucceed(`git fetch ${container}`,
+    ctx.exec(["git", "fetch", "--prune", "--no-tags", "--no-prune-tags", container], { cwd: root }));
   ctx.out("Fetching origin…");
   // --prune: a branch merged and deleted on GitHub must disappear. Refspecs on
   // the command line replace the configured ones, so those are passed too; the
   // agent branches are added because a single-branch clone never fetches them.
+  // --no-prune-tags: forge's own --prune never deletes the developer's tags.
   const configured = (await ctx.exec(["git", "config", "--get-all", "remote.origin.fetch"], { cwd: root })).stdout
     .split("\n").map((s) => s.trim()).filter(Boolean);
   await mustSucceed("git fetch origin",
-    ctx.exec(["git", "fetch", "--prune", "origin", ...configured, AGENT_BRANCHES], { cwd: root }));
+    ctx.exec(["git", "fetch", "--prune", "--no-prune-tags", "origin", ...configured, AGENT_BRANCHES], { cwd: root }));
 
   const listed = await remoteExec(ctx, host, ["forge", "task-base", container]);
   if (listed.code !== 0) {
@@ -60,10 +64,12 @@ export async function cmdFetch(ctx: Context, opts: { host?: string; cwd?: string
   const names = async (prefix: string) =>
     (await git("for-each-ref", "--format=%(refname)", prefix)).split("\n").filter(Boolean).map((r) => r.slice(prefix.length));
 
-  // forge reads full ref names, but a review by hand (git log -p
-  // origin/main..<container>/agent/<task>, or main..) uses short ones, which
-  // git looks up in refs/tags/ first.
-  const shadowing = await git("for-each-ref", "--format=%(refname:strip=2)", "refs/tags/origin", `refs/tags/${container}`, "refs/tags/main");
+  // A review by hand (git log -p origin/main..<container>/agent/<task>, or
+  // main..) uses short names, which git looks up in refs/tags/ first. And a
+  // full name (refs/remotes/…) that does not exist yet, say origin/agent/<t>
+  // before its first ship, falls back to refs/tags/<that name>.
+  const shadowing = await git("for-each-ref", "--format=%(refname:strip=2)",
+    "refs/tags/origin", `refs/tags/${container}`, "refs/tags/main", "refs/tags/refs");
   for (const tag of shadowing.split("\n").filter(Boolean)) {
     ctx.err(`WARNING: tag ${tag} hides the branch ${tag} in git commands: delete it (git tag -d ${tag}) unless you made it`);
   }

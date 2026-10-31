@@ -75,14 +75,15 @@ test("ensureForgeRemote adds the remote, then finds it ok", async () => {
     assert.equal(await ensureForgeRemote(ctx, dir, "agent-o-r", "forge-local"), "added");
     assert.equal(await git(dir, "config", "remote.agent-o-r.url"), "forge-local:agent-o-r");
     assert.equal(await git(dir, "config", "remote.agent-o-r.uploadpack"), "forge upload-pack agent-o-r");
-    // The agent's tags never reach the clone.
+    // The agent's tags never reach the clone, even with the developer's fetch.pruneTags.
     assert.equal(await git(dir, "config", "remote.agent-o-r.tagOpt"), "--no-tags");
+    assert.equal(await git(dir, "config", "remote.agent-o-r.pruneTags"), "false");
     assert.equal(await forgeRemoteHost(ctx, dir, "agent-o-r"), "forge-local");
     assert.equal(await ensureForgeRemote(ctx, dir, "agent-o-r", "forge-local"), "ok");
   });
 });
 
-test("ensureForgeRemote fixes a missing or different tagOpt", async () => {
+test("ensureForgeRemote fixes a missing or different tagOpt or pruneTags", async () => {
   await withRepo("git@github.com:o/r.git", async (dir) => {
     const ctx = createContext();
     // A remote added by hand, as the manual block of ansible/README.md did before.
@@ -90,9 +91,14 @@ test("ensureForgeRemote fixes a missing or different tagOpt", async () => {
     await git(dir, "config", "remote.agent-o-r.uploadpack", "forge upload-pack agent-o-r");
     assert.equal(await ensureForgeRemote(ctx, dir, "agent-o-r", "forge-local"), "fixed");
     assert.equal(await git(dir, "config", "remote.agent-o-r.tagOpt"), "--no-tags");
+    assert.equal(await git(dir, "config", "remote.agent-o-r.pruneTags"), "false");
     await git(dir, "config", "remote.agent-o-r.tagOpt", "--tags");
     assert.equal(await ensureForgeRemote(ctx, dir, "agent-o-r", "forge-local"), "fixed");
     assert.equal(await git(dir, "config", "remote.agent-o-r.tagOpt"), "--no-tags");
+    // Set by an earlier forge, before pruneTags: only that one is missing.
+    await git(dir, "config", "--unset", "remote.agent-o-r.pruneTags");
+    assert.equal(await ensureForgeRemote(ctx, dir, "agent-o-r", "forge-local"), "fixed");
+    assert.equal(await git(dir, "config", "remote.agent-o-r.pruneTags"), "false");
     assert.equal(await ensureForgeRemote(ctx, dir, "agent-o-r", "forge-local"), "ok");
   });
 });

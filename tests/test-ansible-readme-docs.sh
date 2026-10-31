@@ -68,6 +68,7 @@ assert_contains 'uploadpack'
 assert_contains 'forge upload-pack'
 # Les tags de l'agent restent hors du clone.
 assert_contains 'git config remote.agent-acme-widgets.tagOpt --no-tags'
+assert_contains 'git config remote.agent-acme-widgets.pruneTags false'
 
 echo ""
 echo "PASS=$PASS FAIL=$FAIL"

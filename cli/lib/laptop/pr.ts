@@ -3,7 +3,7 @@
 // (origin and the forge one), and gh guessing between them can prompt or pick
 // the wrong one.
 import { ForgeError, type Context } from "../context.ts";
-import { githubRef } from "./ship-plan.ts";
+import { githubRef, resolveRef } from "./ship-plan.ts";
 
 // gh is a laptop prerequisite checked by ship itself, before any other call here.
 export async function requireGh(ctx: Context, root: string): Promise<void> {
@@ -53,11 +53,17 @@ export async function ensurePr(
 
 // One commit: its subject and body. Several: the task name from the branch and
 // one line per commit, oldest first. Reads origin/<branch>, which ship fetched,
-// by its full name: a tag named origin/<base> must not change the range.
+// by its exact full name: a tag named origin/<base>, or refs/remotes/origin/<base>
+// when that ref is missing, must not change the range.
 async function describe(ctx: Context, root: string, branch: string, base: string): Promise<{ title: string; body: string }> {
+  const [from, to] = await Promise.all([base, branch].map(async (b) => {
+    const sha = await resolveRef(ctx, root, githubRef(b));
+    if (sha === null) throw new ForgeError(`origin/${b} is not in this clone: no PR opened`);
+    return sha;
+  }));
   // \x1f ends the subject, \x1e ends the commit.
   const r = await ctx.exec(
-    ["git", "log", "--no-merges", "--reverse", "--format=%s%x1f%b%x1e", `${githubRef(base)}..${githubRef(branch)}`],
+    ["git", "log", "--no-merges", "--reverse", "--format=%s%x1f%b%x1e", `${from}..${to}`],
     { cwd: root },
   );
   if (r.code !== 0) throw new ForgeError(`git log failed: ${r.stderr.trim() || `exit code ${r.code}`}`);

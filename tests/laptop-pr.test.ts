@@ -111,6 +111,15 @@ test("ensurePr: a tag named like origin/<base> does not change the description",
   assert.deepEqual(create.slice(-4), ["--title", "feat: add widget", "--body", ""]);
 });
 
+test("ensurePr: a base missing from the clone is an error, not a tag of that name", async () => {
+  branch("feat: add widget");
+  git(layout.clone, "tag", "refs/remotes/origin/gone", "refs/remotes/origin/agent/t");
+  const ctx = hybridContext({ rules: [{ match: "gh pr list", stdout: "[]" }, { match: "gh pr create", stdout: url }] });
+  await assert.rejects(ensurePr(ctx, layout.clone, OR, "agent/t", "gone"),
+    new ForgeError("origin/gone is not in this clone: no PR opened"));
+  assert.ok(!ctx.calls.some((c) => c.includes("create")));
+});
+
 test("ensurePr: a failing create carries gh's stderr", async () => {
   branch("fix: tiny");
   const ctx = hybridContext({ rules: [

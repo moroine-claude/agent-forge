@@ -119,6 +119,18 @@ test("every git command of the replay runs without hooks", async () => {
   assert.deepEqual(ctx.out_lines, ["Pushing agent/t…"]);
 });
 
+test("an onto ref missing from the clone stops before anything, whatever the tags", async () => {
+  layout.commit(layout.container, "agent/t", "a");
+  const p = await plan();
+  // A tag named after the missing ref would answer for it in git's lookup.
+  git(layout.clone, "tag", "refs/remotes/origin/agent/gone", "refs/remotes/origin/main");
+  const ctx = hybridContext();
+  await assert.rejects(ship({ ...p, onto: "refs/remotes/origin/agent/gone" }, false, ctx),
+    new ForgeError("agent/t: origin/agent/gone is not in this clone: nothing was pushed"));
+  assert.ok(!ctx.calls.some((c) => c.includes("worktree") || c.includes("push")));
+  assert.throws(() => onGithub());
+});
+
 test("a commit that becomes empty on the target stops like a conflict, naming it", async () => {
   layout.commit(layout.container, "agent/t", "a");
   await ship(await plan());

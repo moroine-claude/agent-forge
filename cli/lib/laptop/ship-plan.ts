@@ -4,7 +4,9 @@
 //
 // Every ref handed to git is a full refs/remotes/… name: git looks a short
 // name up in refs/tags/ first, so a tag named origin/main would otherwise
-// decide what is replayed, and onto what.
+// decide what is replayed, and onto what. And a full name only reaches git
+// once refExists has seen that very ref: missing, git would fall back to
+// refs/tags/<the full name>.
 import { ForgeError, mustSucceed, type Context } from "../context.ts";
 
 export type Base =
@@ -124,8 +126,16 @@ export async function notShipped(
   return r.code === 0 ? r.stdout.split("\n").filter((l) => l.startsWith("+ ")).length : null;
 }
 
+// show-ref --verify takes the exact ref only: rev-parse --verify would, for a
+// missing refs/remotes/origin/agent/<t>, answer with a tag of that name.
 export async function refExists(ctx: Context, root: string, ref: string): Promise<boolean> {
-  return (await ctx.exec(["git", "rev-parse", "-q", "--verify", `${ref}^{commit}`], { cwd: root })).code === 0;
+  return (await resolveRef(ctx, root, ref)) !== null;
+}
+
+// The commit a full ref name points at, or null when that very ref is missing.
+export async function resolveRef(ctx: Context, root: string, ref: string): Promise<string | null> {
+  const r = await ctx.exec(["git", "show-ref", "--verify", "--hash", ref], { cwd: root });
+  return r.code === 0 ? r.stdout.trim() : null;
 }
 
 // A short name for messages: refs/remotes/origin/main reads origin/main.

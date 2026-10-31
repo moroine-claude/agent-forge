@@ -52,6 +52,9 @@ export async function forgeRemoteHost(ctx: Context, root: string, container: str
 // No tags: the agent creates them in the container, and a tag named
 // origin/main (or <container>/agent/<task>, or main) would take the place of
 // that ref wherever git reads a short name, in the developer's review included.
+// pruneTags=false as well: the developer's fetch.pruneTags would otherwise add
+// refs/tags/*:refs/tags/* to a pruning fetch of this remote, bring the
+// container's tags in and delete the developer's own.
 export async function ensureForgeRemote(
   ctx: Context,
   root: string,
@@ -59,7 +62,9 @@ export async function ensureForgeRemote(
   alias: string,
 ): Promise<"added" | "fixed" | "ok"> {
   const url = `${alias}:${container}`;
-  const wanted: [string, string][] = [["uploadpack", `forge upload-pack ${container}`], ["tagOpt", "--no-tags"]];
+  const wanted: [string, string][] = [
+    ["uploadpack", `forge upload-pack ${container}`], ["tagOpt", "--no-tags"], ["pruneTags", "false"],
+  ];
   const key = (name: string) => `remote.${container}.${name}`;
   const set = (name: string, value: string) =>
     mustSucceed(`git config ${key(name)}`, ctx.exec(["git", "config", key(name), value], { cwd: root }));

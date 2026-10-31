@@ -88,10 +88,12 @@ export async function cmdShip(
     try {
       // The explicit refspec creates origin/agent/<t> even with a narrower
       // fetch refspec: the next task's onto and the PR's description read it.
+      // --no-prune-tags: the developer's fetch.prune and fetch.pruneTags would
+      // otherwise delete their own tags here.
       if (pushed) {
         ctx.out(`Fetching ${branch} from origin…`);
-        await mustSucceed(`git fetch origin ${branch}`,
-          ctx.exec(["git", "fetch", "origin", `+refs/heads/${branch}:refs/remotes/origin/${branch}`], { cwd: root }));
+        await mustSucceed(`git fetch origin ${branch}`, ctx.exec(
+          ["git", "fetch", "--no-prune-tags", "origin", `+refs/heads/${branch}:refs/remotes/origin/${branch}`], { cwd: root }));
       }
       const pr = await ensurePr(ctx, root, ownerRepo, branch, plan.prBase);
       ctx.out(`${branch}: ${what}, ${pr.created ? "created" : "existing"} PR ${pr.url}`);

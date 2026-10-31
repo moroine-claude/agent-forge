@@ -5,7 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { ForgeError } from "../cli/lib/context.ts";
-import { fetchAgents } from "../cli/lib/commands/fetch.ts";
+import { cmdFetch, fetchAgents } from "../cli/lib/commands/fetch.ts";
 import { cmdShip } from "../cli/lib/commands/ship.ts";
 import { saveHost } from "../cli/lib/laptop/state.ts";
 import type { ExecRule, FakeContext } from "./lib/fake-context.ts";
@@ -477,6 +477,37 @@ for (const names of [["origin/main"], ["origin/agent/t", `${C}/agent/t`, "main"]
     assert.equal(git(layout.clone, "tag", "-l"), "");
   });
 }
+
+test("a tag named after a full ref ship reads, missing on a first ship, is warned about and cannot stand in for it", async () => {
+  // The developer prunes tags on fetch, a usual setting.
+  git(layout.clone, "config", "fetch.pruneTags", "true");
+  // The agent: a commit off agent/t, never in the reviewed range, tagged with a full ref name.
+  git(layout.container, "checkout", "-q", "-b", "side", "main");
+  fs.writeFileSync(path.join(layout.container, "evil.txt"), "evil\n");
+  git(layout.container, "add", "evil.txt");
+  git(layout.container, "commit", "-q", "-m", "evil");
+  const evil = git(layout.container, "rev-parse", "HEAD");
+  git(layout.container, "checkout", "-q", "main");
+  git(layout.container, "branch", "-D", "side");
+  git(layout.container, "tag", "refs/remotes/origin/agent/t", evil);
+  layout.commit(layout.container, "agent/t", "visible.txt");
+  // The same tag already in the clone, brought by a fetch from before forge kept tags out.
+  git(layout.clone, "fetch", "-q", layout.container, "refs/tags/*:refs/tags/*");
+  const bases = taskBase("t\torigin/main\n");
+  const fetch = hybridContext({ rules: [bases] });
+  assert.equal(await cmdFetch(fetch, { cwd: layout.clone }), 0);
+  const name = "refs/remotes/origin/agent/t";
+  assert.ok(fetch.err_lines.includes(
+    `WARNING: tag ${name} hides the branch ${name} in git commands: delete it (git tag -d ${name}) unless you made it`,
+  ), fetch.err_lines.join("\n"));
+  const ctx = hybridContext({ rules: [bases, creates("main", "agent/t", url(1))], answers: [1] });
+  assert.equal(await shipNow(ctx, "t"), 0);
+  // Only the reviewed commit, replayed onto main: the tagged commit is nowhere on GitHub's branch.
+  const pushed = git(layout.github, "rev-list", "main..agent/t").split("\n");
+  assert.equal(pushed.length, 1);
+  assert.ok(!pushed.includes(evil));
+  assert.equal(git(layout.github, "rev-parse", "agent/t~1"), git(layout.github, "rev-parse", "main"));
+});
 
 // Two ways a hook can run code from the agent's tree: a relative core.hooksPath
 // (husky v9, .githooks), and the developer's own hook running a script of the
