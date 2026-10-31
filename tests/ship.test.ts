@@ -10,6 +10,7 @@ import { cmdShip } from "../cli/lib/commands/ship.ts";
 import { saveHost } from "../cli/lib/laptop/state.ts";
 import type { ExecRule, FakeContext } from "./lib/fake-context.ts";
 import { createLayout, git, hybridContext, type Layout } from "./lib/git-layout.ts";
+import { hookScript } from "./lib/hostile-repo.ts";
 
 const C = "agent-acme-widgets";
 const OR = "acme/widgets";
@@ -338,3 +339,46 @@ for (const names of [["origin/main"], ["origin/agent/t", `${C}/agent/t`, "main"]
     assert.equal(git(layout.clone, "tag", "-l"), "");
   });
 }
+
+// Two ways a hook can run code from the agent's tree: a relative core.hooksPath
+// (husky v9, .githooks), and the developer's own hook running a script of the
+// checked-out tree (lefthook, pre-commit). The marker is written outside the repository.
+const HOOKS = ["post-checkout", "prepare-commit-msg", "post-commit", "pre-push", "reference-transaction", "post-index-change"];
+
+// Ships agent/t twice: the second ship starts its worktree on GitHub's agent/t,
+// which holds the agent's tooling commit.
+async function shipTwice() {
+  layout.commit(layout.container, "agent/t", "a.txt");
+  const bases = taskBase("t\torigin/main\n");
+  assert.equal(await ship(hybridContext({ rules: [bases, creates("main", "agent/t", url(1))] }), "t"), 0);
+  layout.commit(layout.container, "agent/t", "b.txt");
+  assert.equal(await ship(hybridContext({ rules: [bases, prs("agent/t", [url(1), "OPEN"])] }), "t"), 0);
+  assert.equal(git(layout.github, "rev-list", "--count", "main..agent/t"), "3");
+}
+
+test("no hook from the agent's tree runs on the laptop during ship", async () => {
+  const marker = path.join(layout.root, "hook-ran");
+  git(layout.clone, "config", "core.hooksPath", ".githooks");
+  git(layout.container, "checkout", "-q", "-b", "agent/t", "main");
+  fs.mkdirSync(path.join(layout.container, ".githooks"));
+  for (const h of HOOKS) fs.writeFileSync(path.join(layout.container, ".githooks", h), hookScript(marker), { mode: 0o755 });
+  git(layout.container, "add", ".githooks");
+  git(layout.container, "commit", "-q", "-m", "tooling");
+  git(layout.container, "checkout", "-q", "main");
+  await shipTwice();
+  assert.equal(fs.existsSync(marker), false, "a hook from the agent's tree ran");
+});
+
+test("no script of the agent's tree runs through the clone's own hooks during ship", async () => {
+  const marker = path.join(layout.root, "hook-ran");
+  for (const h of HOOKS) {
+    fs.writeFileSync(path.join(layout.clone, ".git", "hooks", h), "#!/bin/sh\n[ -x ./tree-hook.sh ] && ./tree-hook.sh\nexit 0\n", { mode: 0o755 });
+  }
+  git(layout.container, "checkout", "-q", "-b", "agent/t", "main");
+  fs.writeFileSync(path.join(layout.container, "tree-hook.sh"), hookScript(marker), { mode: 0o755 });
+  git(layout.container, "add", "tree-hook.sh");
+  git(layout.container, "commit", "-q", "-m", "tooling");
+  git(layout.container, "checkout", "-q", "main");
+  await shipTwice();
+  assert.equal(fs.existsSync(marker), false, "a script from the agent's tree ran");
+});

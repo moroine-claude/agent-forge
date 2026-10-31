@@ -101,6 +101,21 @@ test("a conflicting replay rejects, leaves GitHub as it was and no temporary wor
   assert.equal(onGithub(), moved);
   assert.deepEqual(snapshot(), before);
   assert.equal(fs.existsSync(tmpOf(ctx)), false);
+  // The abort and its reads ran without hooks too.
+  assert.ok(ctx.calls.some((c) => c.includes("--abort")));
+  assert.ok(ctx.calls.every((c) => hooksOff(c)), ctx.calls.map((c) => c.join(" ")).join("\n"));
+});
+
+// The temporary worktree holds the agent's tree: no hook may run there.
+const hooksOff = (argv: string[]) => argv[0] === "git" && argv.join(" ").includes(" -c core.hooksPath=/dev/null ");
+
+test("every git command of the replay runs without hooks", async () => {
+  layout.commit(layout.container, "agent/t", "a");
+  const p = await plan();
+  const ctx = hybridContext();
+  assert.equal(await ship(p, false, ctx), "pushed");
+  for (const word of ["add", "cherry-pick", "push", "remove"]) assert.ok(ctx.calls.some((c) => c.includes(word)), word);
+  assert.ok(ctx.calls.every((c) => hooksOff(c)), ctx.calls.map((c) => c.join(" ")).join("\n"));
 });
 
 test("a commit that becomes empty on the target stops like a conflict, naming it", async () => {
