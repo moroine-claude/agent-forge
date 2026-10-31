@@ -7,7 +7,8 @@
 //
 // Importing this file isolates every git call of the test process from the
 // developer's own configuration (signing, hooks, aliases): an empty global
-// config, no system config.
+// config, no system config, and no GIT_AUTHOR_*/GIT_COMMITTER_* identity from
+// the environment (CI sets one; it would override each repository's own).
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -19,6 +20,9 @@ const emptyConfig = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "forge-gitcf
 fs.writeFileSync(emptyConfig, "");
 process.env.GIT_CONFIG_GLOBAL = emptyConfig;
 process.env.GIT_CONFIG_NOSYSTEM = "1";
+for (const who of ["AUTHOR", "COMMITTER"]) {
+  for (const field of ["NAME", "EMAIL", "DATE"]) delete process.env[`GIT_${who}_${field}`];
+}
 
 export const git = (repo: string, ...args: string[]): string =>
   execFileSync("git", ["-C", repo, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();

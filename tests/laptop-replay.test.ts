@@ -232,6 +232,25 @@ test("authors are kept, committers are the developer", async () => {
     "Agent Smith <agent@example.org>|Test <test@example.com>");
 });
 
+test("authors are kept even when the developer's environment sets a git identity", async () => {
+  git(layout.container, "config", "user.name", "Agent Smith");
+  git(layout.container, "config", "user.email", "agent@example.org");
+  layout.commit(layout.container, "agent/t", "a");
+  const p = await plan();
+  const identity = {
+    GIT_AUTHOR_NAME: "Env Author", GIT_AUTHOR_EMAIL: "author@example.net",
+    GIT_COMMITTER_NAME: "Env Committer", GIT_COMMITTER_EMAIL: "committer@example.net",
+  };
+  Object.assign(process.env, identity);
+  try {
+    await ship(p);
+  } finally {
+    for (const k of Object.keys(identity)) delete process.env[k];
+  }
+  assert.equal(git(layout.github, "log", "-1", "--format=%an <%ae>|%cn <%ce>", "agent/t"),
+    "Agent Smith <agent@example.org>|Env Committer <committer@example.net>");
+});
+
 const hasKeygen = (() => { try { execFileSync("ssh-keygen", ["-?"], { stdio: "ignore" }); return true; } catch (e) { return (e as { status?: number }).status !== undefined; } })();
 
 test("sign: true signs the replayed commits with the developer's own key", { skip: !hasKeygen && "ssh-keygen not available" }, async () => {
