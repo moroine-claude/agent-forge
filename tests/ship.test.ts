@@ -48,7 +48,13 @@ const creates = (base: string, branch: string, u: string): ExecRule => ({
   stdout: `Creating pull request for ${branch} into ${base} in ${OR}\n\n${u}\n`,
 });
 
-const ship = (ctx: FakeContext, task?: string) => cmdShip(ctx, task, { cwd: layout.clone, sign: false });
+// The developer's forge fetch, before the review.
+const fetched = () => fetchAgents(hybridContext(), { cwd: layout.clone });
+// forge ship right after a forge fetch: every commit to sign was there to review.
+const ship = async (ctx: FakeContext, task?: string) => { await fetched(); return shipNow(ctx, task); };
+// forge ship alone: it asks before signing what the developer has not fetched.
+const shipNow = (ctx: FakeContext, task?: string) => cmdShip(ctx, task, { cwd: layout.clone, sign: false });
+const asked = (ctx: FakeContext, question: string) => ctx.err_lines.filter((l) => l.startsWith(`${question}>`)).length;
 const onGithub = (branch: string): string | null => {
   try { return git(layout.github, "rev-parse", "-q", "--verify", `refs/heads/${branch}`); } catch { return null; }
 };
@@ -60,6 +66,7 @@ const snapshot = () => ({
   status: git(layout.clone, "status", "--porcelain"),
   worktrees: git(layout.clone, "worktree", "list"),
 });
+const short = (repo: string, ref: string) => git(repo, "rev-parse", "--short", ref);
 
 // A on main, B on A, C on B, in the container.
 function chain(...tasks: [string, ...string[]][]) {
@@ -110,7 +117,7 @@ test("one task: pushed, its PR created against main", async () => {
 test("gh missing stops before any fetch", async () => {
   layout.commit(layout.container, "agent/t", "a.txt");
   const ctx = hybridContext({ rules: [{ match: "gh --version", code: 127 }] });
-  await assert.rejects(ship(ctx, "t"), (e: unknown) => e instanceof ForgeError && /install the GitHub CLI/.test(e.message));
+  await assert.rejects(shipNow(ctx, "t"), (e: unknown) => e instanceof ForgeError && /install the GitHub CLI/.test(e.message));
   assert.deepEqual(ctx.calls, [["gh", "--version"]]);
 });
 
@@ -276,6 +283,23 @@ test("two merged tasks below: the top one goes onto the bottom one's base", asyn
   assert.equal(git(layout.github, "rev-parse", "agent/c~1"), git(layout.github, "rev-parse", "main"));
 });
 
+test("a merged task below with commits not on GitHub is skipped, and the line says how to ship them", async () => {
+  chain(["a", "a.txt"], ["b", "b.txt"]);
+  squashMerged("a");
+  // The agent went on with A after its PR was merged.
+  layout.commit(layout.container, "agent/a", "a2.txt");
+  const ctx = hybridContext({ rules: [
+    taskBase("a\torigin/main\nb\tagent/a\n"), prs("agent/a", [url(1), "MERGED"]), creates("main", "agent/b", url(2)),
+  ] });
+  assert.equal(await ship(ctx, "b"), 0);
+  assert.deepEqual(ctx.out_lines, [
+    "agent/a: merged, skipped (1 commit not shipped: forge ship a)",
+    "Signing 1 commit: b (1)",
+    `agent/b: pushed 1 commit, created PR ${url(2)}`,
+  ]);
+  assert.deepEqual(pushes(ctx), ["HEAD:refs/heads/agent/b"]);
+});
+
 test("a task below with nothing to ship and no GitHub branch stops the chain before signing anything", async () => {
   git(layout.container, "branch", "agent/a", "main");
   git(layout.container, "branch", "agent/b", "agent/a");
@@ -307,6 +331,38 @@ test("a merged task with nothing new opens no second PR", async () => {
   assert.ok(!ran(ctx, "create"));
 });
 
+// GitHub squash-merges agent/t into main and deletes the branch.
+function squashOnGithub() {
+  const gh = path.join(layout.root, "ghwork");
+  execFileSync("git", ["clone", "-q", layout.github, gh], { stdio: "ignore" });
+  git(gh, "config", "user.name", "GitHub");
+  git(gh, "config", "user.email", "gh@example.com");
+  git(gh, "merge", "-q", "--squash", "origin/agent/t");
+  git(gh, "commit", "-q", "-m", "squash t (#1)");
+  git(gh, "push", "-q", "origin", "main");
+  git(gh, "push", "-q", "origin", ":agent/t");
+}
+
+test("a task whose PR was squash-merged ships again only after a yes, as a new PR", async () => {
+  layout.commit(layout.container, "agent/t", "a.txt", "b.txt");
+  const bases = taskBase("t\torigin/main\n");
+  await ship(hybridContext({ rules: [bases, creates("main", "agent/t", url(1))] }), "t");
+  squashOnGithub();
+  // The squash matches neither commit: ship would sign both again.
+  const question = `agent/t's PR ${url(1)} is merged: push 2 commits as a new PR?`;
+  for (const answers of [[2], []]) {
+    const ctx = hybridContext({ rules: [bases, prs("agent/t", [url(1), "MERGED"]), creates("main", "agent/t", url(2))], answers });
+    await assert.rejects(ship(ctx, "t"), new ForgeError("nothing shipped: agent/t's PR is merged, and a new one was not confirmed"));
+    assert.equal(asked(ctx, question), 1, ctx.err_lines.join("\n"));
+    assert.deepEqual(ctx.out_lines, []);
+    assert.ok(!ran(ctx, "cherry-pick") && !ran(ctx, "push") && !ran(ctx, "create"));
+  }
+  assert.equal(onGithub("agent/t"), null);
+  const ctx = hybridContext({ rules: [bases, prs("agent/t", [url(1), "MERGED"]), creates("main", "agent/t", url(2))], answers: [1] });
+  assert.equal(await ship(ctx, "t"), 0);
+  assert.deepEqual(ctx.out_lines, ["Signing 2 commits: t (2)", `agent/t: pushed 2 commits, created PR ${url(2)}`]);
+});
+
 test("a PR that fails after the push still says the branch was pushed", async () => {
   layout.commit(layout.container, "agent/t", "a.txt");
   const ctx = hybridContext({ rules: [taskBase("t\torigin/main\n"), { match: "gh pr create", code: 1, stderr: "GraphQL: boom" }] });
@@ -315,8 +371,67 @@ test("a PR that fails after the push still says the branch was pushed", async ()
   assert.notEqual(onGithub("agent/t"), null);
 });
 
-// The developer's forge fetch, before the review.
-const fetched = () => fetchAgents(hybridContext(), { cwd: layout.clone });
+test("commits the agent made after the developer's fetch are listed and signed only after a yes", async () => {
+  layout.commit(layout.container, "agent/t", "a.txt");
+  const bases = taskBase("t\torigin/main\n");
+  await fetched();
+  // The developer reviews; meanwhile the agent commits again.
+  layout.commit(layout.container, "agent/t", "b.txt");
+  const no = hybridContext({ rules: [bases, creates("main", "agent/t", url(1))], answers: [2] });
+  await assert.rejects(shipNow(no, "t"),
+    new ForgeError("nothing shipped: the new commits are fetched now; review them, then run forge ship again"));
+  assert.deepEqual(no.out_lines, ["agent/t: 1 commit you haven't fetched before:", `  ${short(layout.container, "agent/t")} add b.txt`]);
+  assert.equal(asked(no, "Sign and push them?"), 1);
+  assert.ok(!ran(no, "cherry-pick") && !ran(no, "push") && !ran(no, "create"));
+  assert.equal(onGithub("agent/t"), null);
+  // b.txt is fetched now; the agent's next commit is the only one listed.
+  layout.commit(layout.container, "agent/t", "c.txt");
+  const yes = hybridContext({ rules: [bases, creates("main", "agent/t", url(1))], answers: [1] });
+  assert.equal(await shipNow(yes, "t"), 0);
+  assert.deepEqual(yes.out_lines, [
+    "agent/t: 1 commit you haven't fetched before:",
+    `  ${short(layout.container, "agent/t")} add c.txt`,
+    "Signing 3 commits: t (3)",
+    `agent/t: pushed 3 commits, created PR ${url(1)}`,
+  ]);
+});
+
+test("one question for the whole chain, each task's new commits listed under it", async () => {
+  chain(["a", "a.txt"], ["b", "b1.txt"]);
+  const bases = taskBase("a\torigin/main\nb\tagent/a\n");
+  await fetched();
+  layout.commit(layout.container, "agent/a", "a2.txt");
+  layout.commit(layout.container, "agent/b", "b2.txt");
+  const ctx = hybridContext({
+    rules: [bases, creates("main", "agent/a", url(1)), creates("agent/a", "agent/b", url(2))], answers: [1],
+  });
+  assert.equal(await shipNow(ctx, "b"), 0);
+  assert.equal(asked(ctx, "Sign and push them?"), 1);
+  assert.deepEqual(ctx.out_lines.slice(0, 5), [
+    "agent/a: 1 commit you haven't fetched before:",
+    `  ${short(layout.container, "agent/a")} add a2.txt`,
+    "agent/b: 1 commit you haven't fetched before:",
+    `  ${short(layout.container, "agent/b")} add b2.txt`,
+    "Signing 4 commits: a (2), b (2)",
+  ]);
+});
+
+test("a ship without a fetch before it lists every commit; run again, it asks nothing", async () => {
+  layout.commit(layout.container, "agent/t", "a.txt", "b.txt");
+  const bases = taskBase("t\torigin/main\n");
+  const first = hybridContext({ rules: [bases, creates("main", "agent/t", url(1))], answers: [1] });
+  assert.equal(await shipNow(first, "t"), 0);
+  assert.deepEqual(first.out_lines.slice(0, 3), [
+    "agent/t: 2 commits you haven't fetched before:",
+    `  ${short(layout.container, "agent/t~1")} add a.txt`,
+    `  ${short(layout.container, "agent/t")} add b.txt`,
+  ]);
+  const again = hybridContext({ rules: [bases, prs("agent/t", [url(1), "OPEN"])] });
+  assert.equal(await shipNow(again, "t"), 0);
+  assert.equal(asked(again, "Sign and push them?"), 0);
+  assert.deepEqual(again.out_lines, ["Nothing new to sign.", `agent/t: nothing new, existing PR ${url(1)}`]);
+});
+
 // Who committed each commit of GitHub's branch above main: the developer, once replayed.
 const committers = (branch: string) => git(layout.github, "log", "--format=%ce", `main..${branch}`).split("\n");
 
@@ -329,7 +444,6 @@ for (const names of [["origin/main"], ["origin/agent/t", `${C}/agent/t`, "main"]
     const hidden = layout.commit(layout.container, "agent/t", "hidden.txt");
     layout.commit(layout.container, "agent/t", "visible.txt");
     for (const name of names) git(layout.container, "tag", name, hidden);
-    await fetched();
     const ctx = hybridContext({ rules: [taskBase("t\torigin/main\n"), creates("main", "agent/t", url(1))] });
     assert.equal(await ship(ctx, "t"), 0);
     // Every commit pushed was replayed by the developer: none is the agent's own.

@@ -1,7 +1,7 @@
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { ForgeError } from "../cli/lib/context.ts";
-import { chainFor, planTask, resolveBase, type Base } from "../cli/lib/laptop/ship-plan.ts";
+import { chainFor, notShipped, planTask, resolveBase, type Base } from "../cli/lib/laptop/ship-plan.ts";
 import { createLayout, git, hybridContext, type Layout } from "./lib/git-layout.ts";
 
 const C = "agent-acme-widgets";
@@ -218,6 +218,22 @@ test("a stacked task's refs are the remote-tracking ones, whatever the tags", as
   assert.equal(p.limit, `refs/remotes/${C}/agent/a`);
   assert.equal(p.onto, "refs/remotes/origin/agent/a");
   assert.deepEqual(subjects(p.commits), ["add b.txt"]);
+});
+
+test("notShipped counts a merged task's commits GitHub has no copy of", async () => {
+  layout.commit(layout.container, "agent/t", "a.txt");
+  // Its branch kept, with a signed copy of the first commit.
+  pushSignedCopies("agent/t");
+  publishSigned("t");
+  layout.commit(layout.container, "agent/t", "b.txt");
+  sync();
+  assert.equal(await notShipped(hybridContext(), layout.clone, C, "t", main), 1);
+  // Its branch deleted: what counts is main, which holds neither commit.
+  git(layout.github, "update-ref", "-d", "refs/heads/agent/t");
+  sync();
+  assert.equal(await notShipped(hybridContext(), layout.clone, C, "t", main), 2);
+  // A base gone from GitHub: it cannot be told.
+  assert.equal(await notShipped(hybridContext(), layout.clone, C, "t", { kind: "branch", branch: "gone", assumed: false }), null);
 });
 
 test("a base that is gone from GitHub is reported by task and branch", async () => {

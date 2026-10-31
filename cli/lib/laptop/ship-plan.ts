@@ -108,6 +108,22 @@ export async function planTask(
   return { task, tip, limit, commits, onto, prBase, shipped };
 }
 
+// How many commits of a merged task GitHub has no patch-equivalent of: on its
+// own branch while it is there, else on the branch its PR went into. null when
+// that cannot be told (a branch gone). A PR squash-merged from several commits
+// and its branch deleted counts them all: the squash matches none of them.
+export async function notShipped(
+  ctx: Context, root: string, container: string, task: string, base: Base,
+  below?: { prBase: string; merged: boolean },
+): Promise<number | null> {
+  const own = githubRef(`agent/${task}`);
+  const upstream = (await refExists(ctx, root, own)) ? own : githubRef(prBaseFor(base, below));
+  const limit = limitRef(container, base);
+  if (!(await refExists(ctx, root, upstream)) || !(await refExists(ctx, root, limit))) return null;
+  const r = await ctx.exec(["git", "cherry", upstream, agentRef(container, task), limit], { cwd: root });
+  return r.code === 0 ? r.stdout.split("\n").filter((l) => l.startsWith("+ ")).length : null;
+}
+
 export async function refExists(ctx: Context, root: string, ref: string): Promise<boolean> {
   return (await ctx.exec(["git", "rev-parse", "-q", "--verify", `${ref}^{commit}`], { cwd: root })).code === 0;
 }

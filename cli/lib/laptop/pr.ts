@@ -16,9 +16,10 @@ export async function requireGh(ctx: Context, root: string): Promise<void> {
   }
 }
 
+// The open PR of `branch`, if any, and whether one was merged (`mergedUrl`: the first gh lists).
 export async function prState(
   ctx: Context, root: string, ownerRepo: string, branch: string,
-): Promise<{ open?: string; merged: boolean }> {
+): Promise<{ open?: string; merged: boolean; mergedUrl?: string }> {
   const r = await ctx.exec(
     ["gh", "pr", "list", "--repo", ownerRepo, "--head", branch, "--state", "all", "--json", "url,state"],
     { cwd: root },
@@ -26,7 +27,8 @@ export async function prState(
   if (r.code !== 0) throw new ForgeError(`gh pr list failed: ${r.stderr.trim() || `exit code ${r.code}`}`);
   let prs: { url: string; state: string }[];
   try { prs = JSON.parse(r.stdout || "[]"); } catch { throw new ForgeError(`gh pr list printed something unreadable: ${r.stdout.trim()}`); }
-  return { open: prs.find((p) => p.state === "OPEN")?.url, merged: prs.some((p) => p.state === "MERGED") };
+  const mergedUrl = prs.find((p) => p.state === "MERGED")?.url;
+  return { open: prs.find((p) => p.state === "OPEN")?.url, merged: mergedUrl !== undefined, mergedUrl };
 }
 
 export async function ensurePr(

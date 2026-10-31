@@ -41,20 +41,20 @@ test("requireGh: ok", async () => {
 
 test("prState: an open PR", async () => {
   const ctx = fakeContext({ rules: [{ match: LIST, stdout: json([url, "OPEN"]) }] });
-  assert.deepEqual(await prState(ctx, "/r", OR, "agent/t"), { open: url, merged: false });
+  assert.deepEqual(await prState(ctx, "/r", OR, "agent/t"), { open: url, merged: false, mergedUrl: undefined });
   assert.equal(ctx.execOptions[0]?.cwd, "/r");
 });
 
-test("prState: merged only", async () => {
+test("prState: merged only, with the merged PR's URL", async () => {
   const ctx = fakeContext({ rules: [{ match: LIST, stdout: json([url, "MERGED"]) }] });
-  assert.deepEqual(await prState(ctx, "/r", OR, "agent/t"), { open: undefined, merged: true });
+  assert.deepEqual(await prState(ctx, "/r", OR, "agent/t"), { open: undefined, merged: true, mergedUrl: url });
 });
 
 test("prState: none, and closed unmerged", async () => {
   const none = fakeContext({ rules: [{ match: LIST, stdout: "[]" }] });
-  assert.deepEqual(await prState(none, "/r", OR, "agent/t"), { open: undefined, merged: false });
+  assert.deepEqual(await prState(none, "/r", OR, "agent/t"), { open: undefined, merged: false, mergedUrl: undefined });
   const closed = fakeContext({ rules: [{ match: LIST, stdout: json([url, "CLOSED"]) }] });
-  assert.deepEqual(await prState(closed, "/r", OR, "agent/t"), { open: undefined, merged: false });
+  assert.deepEqual(await prState(closed, "/r", OR, "agent/t"), { open: undefined, merged: false, mergedUrl: undefined });
 });
 
 test("prState: gh failure", async () => {
