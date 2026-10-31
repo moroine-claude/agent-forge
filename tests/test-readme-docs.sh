@@ -68,6 +68,17 @@ assert_contains 'gh auth login'
 assert_contains 'never force-pushes'
 assert_not_contains 'git config remote.'
 assert_not_contains 'uploadpack'
+# La revue lit origin/main (le main local peut être en retard), la liste
+# d'exemple est celle que forge fetch affiche, une tâche empilée se relit
+# contre sa base.
+assert_contains 'git log -p origin/main..agent-acme-widgets/agent/fix-login'
+assert_not_contains 'git log -p main..'
+assert_contains 'agent/fix-login  3 commits on origin/main'
+assert_contains 'git log -p agent-acme-widgets/agent/fix-login..agent-acme-widgets/agent/fix-tests'
+# forge ship demande avant de signer ce qui n'a pas été relu, sans hook de l'agent.
+assert_contains "which you have not reviewed"
+assert_contains 'runs no git hook'
+assert_contains 'already merged'
 
 # Commandes du quotidien et mode strict.
 assert_contains 'forge resume'

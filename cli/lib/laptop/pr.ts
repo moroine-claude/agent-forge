@@ -11,7 +11,9 @@ export async function requireGh(ctx: Context, root: string): Promise<void> {
   if ((await ctx.exec(["gh", "--version"], { cwd: root })).code !== 0) {
     throw new ForgeError("forge ship needs gh: install the GitHub CLI (https://cli.github.com)");
   }
-  if ((await ctx.exec(["gh", "auth", "status"], { cwd: root })).code !== 0) {
+  // github.com only: a stale login on another host (GitHub Enterprise) makes
+  // a bare `gh auth status` fail, yet does not matter here.
+  if ((await ctx.exec(["gh", "auth", "status", "--hostname", "github.com"], { cwd: root })).code !== 0) {
     throw new ForgeError("The GitHub CLI is not logged in: run gh auth login");
   }
 }

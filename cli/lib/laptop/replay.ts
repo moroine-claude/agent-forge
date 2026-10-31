@@ -22,6 +22,13 @@ export async function replayAndPush(
   if (plan.commits.length === 0) return "nothing";
 
   const tmp = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "forge-ship-")), "wt");
+  // Ctrl-C is the natural way out of a signing prompt (a terminal pinentry, a
+  // touch on a hardware key) and of an SSH key's touch at the push: a no-op
+  // handler keeps node alive, so the signal still reaches git and ssh (same
+  // process group), which exit non-zero, and the abort and cleanup below run
+  // instead of leaking the worktree.
+  const ignoreSigint = () => {};
+  process.on("SIGINT", ignoreSigint);
   try {
     await mustSucceed("git worktree add", ctx.exec(gitIn(root, "worktree", "add", "--detach", tmp, plan.onto)));
 
@@ -29,23 +36,16 @@ export async function replayAndPush(
     // on a hardware key, which only an inherited terminal can show.
     // --allow-empty keeps an originally empty commit; a commit that becomes
     // empty on `onto` still stops like a conflict.
-    // Ctrl-C is the natural way out of that prompt: a no-op handler keeps node
-    // alive, so the signal still reaches git (same process group), which exits
-    // non-zero, and the abort and cleanup below run instead of leaking the worktree.
-    const ignoreSigint = () => {};
-    process.on("SIGINT", ignoreSigint);
-    let code: number;
-    try {
-      // The advice texts tell how to continue a pick in a worktree about to be deleted.
-      code = await ctx.attach(gitIn(tmp,
-        "-c", "advice.mergeConflict=false", "-c", "advice.resolveConflict=false",
-        "cherry-pick", "--allow-empty", ...(opts.sign ? ["-S"] : []), ...plan.commits,
-      ));
-    } finally {
-      process.off("SIGINT", ignoreSigint);
-    }
+    // The advice texts tell how to continue a pick in a worktree about to be deleted.
+    const code = await ctx.attach(gitIn(tmp,
+      "-c", "advice.mergeConflict=false", "-c", "advice.resolveConflict=false",
+      "cherry-pick", "--allow-empty", ...(opts.sign ? ["-S"] : []), ...plan.commits,
+    ));
     if (code !== 0) throw new ForgeError(await stoppedAt(ctx, tmp, plan));
 
+    // The push's output is captured to read a rejection: an SSH key's touch
+    // prompt would go unseen, so this line says what is waiting.
+    ctx.out(`Pushing agent/${plan.task}…`);
     const push = await ctx.exec(gitIn(tmp, "push", "origin", `HEAD:refs/heads/agent/${plan.task}`));
     if (push.code !== 0) {
       throw new ForgeError(/\[rejected\][^\n]*\((fetch first|non-fast-forward)\)/.test(push.stderr)
@@ -59,6 +59,7 @@ export async function replayAndPush(
     fs.rmSync(path.dirname(tmp), { recursive: true, force: true });
     // Never a repository-wide prune: it would also drop the developer's other worktrees.
     if (removed.code !== 0) await ctx.exec(gitIn(root, "worktree", "remove", "--force", tmp));
+    process.off("SIGINT", ignoreSigint);
   }
 }
 

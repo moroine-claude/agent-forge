@@ -36,7 +36,10 @@ test("requireGh: not logged in", async () => {
 });
 
 test("requireGh: ok", async () => {
-  await requireGh(fakeContext(), "/r");
+  const ctx = fakeContext();
+  await requireGh(ctx, "/r");
+  // github.com only: a stale login on another GitHub host does not block shipping.
+  assert.deepEqual(ctx.calls, [["gh", "--version"], ["gh", "auth", "status", "--hostname", "github.com"]]);
 });
 
 test("prState: an open PR", async () => {

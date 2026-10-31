@@ -116,6 +116,7 @@ test("every git command of the replay runs without hooks", async () => {
   assert.equal(await ship(p, false, ctx), "pushed");
   for (const word of ["add", "cherry-pick", "push", "remove"]) assert.ok(ctx.calls.some((c) => c.includes(word)), word);
   assert.ok(ctx.calls.every((c) => hooksOff(c)), ctx.calls.map((c) => c.join(" ")).join("\n"));
+  assert.deepEqual(ctx.out_lines, ["Pushing agent/t…"]);
 });
 
 test("a commit that becomes empty on the target stops like a conflict, naming it", async () => {
@@ -176,17 +177,22 @@ test("a refusal by GitHub itself is reported with git's reason, not as a moved b
   assert.equal(fs.existsSync(tmpOf(ctx)), false);
 });
 
-test("the cherry-pick goes through attach, and SIGINT handling is restored", async () => {
+test("the cherry-pick goes through attach, Ctrl-C is held through the push, then restored", async () => {
   layout.commit(layout.container, "agent/t", "a");
   const p = await plan();
   const ctx = hybridContext();
   const attached: string[][] = [];
   const attach = ctx.attach;
   ctx.attach = (argv, o) => { attached.push(argv); return attach(argv, o); };
+  // An SSH key's touch at the push is left with Ctrl-C as well.
+  let atPush = -1;
+  const exec = ctx.exec;
+  ctx.exec = (argv, o) => { if (argv.includes("push")) atPush = process.listenerCount("SIGINT"); return exec(argv, o); };
   const sigints = process.listenerCount("SIGINT");
   assert.equal(await ship(p, false, ctx), "pushed");
   assert.equal(attached.length, 1);
   assert.ok(attached[0].includes("cherry-pick") && attached[0].includes(p.commits[0]));
+  assert.equal(atPush, sigints + 1);
   assert.equal(process.listenerCount("SIGINT"), sigints);
 });
 

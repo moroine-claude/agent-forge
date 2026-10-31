@@ -266,30 +266,40 @@ forge fetch
 ```
 
 The first run adds a git remote named after the container
-(`agent-acme-widgets`) that points at your forge host, then fetches the
-agents' `agent/*` branches through it. The host serves the repository from
-inside the container and never runs git in the agent's workspace. `forge
-fetch` also refreshes `origin` and lists each task with its commit count and
-the branch it started from:
+(`agent-acme-widgets`) that points at your forge host, and says so, then
+fetches the agents' `agent/*` branches through it, without the container's
+tags. The host serves the repository from inside the container and never runs
+git in the agent's workspace. `forge fetch` also refreshes `origin` and lists
+each task with its commit count and the branch it started from:
 
 ```
-agent/fix-login  3 commits on main
+Fetching agent-acme-widgets…
+Fetching origin…
+agent/fix-login  3 commits on origin/main
 ```
 
-Review the branch, then ship it:
+Review the branch against that base, then ship it:
 
 ```bash
-git log -p main..agent-acme-widgets/agent/fix-login
+git log -p origin/main..agent-acme-widgets/agent/fix-login
 forge ship fix-login
 ```
 
+A stacked task is reviewed against the task it started from, the base that
+`forge fetch` lists: for `agent/fix-tests  2 commits on agent/fix-login`, that
+is `git log -p agent-acme-widgets/agent/fix-login..agent-acme-widgets/agent/fix-tests`.
+
 `forge ship <task>` re-signs the agent's commits that are not on GitHub yet
 with your own git signing configuration, pushes `agent/<task>` and opens its
-pull request (or finds the one that exists). It replays the commits in a
-temporary worktree, so your checkout is never touched. It never force-pushes:
-if GitHub's `agent/<task>` moved since the fetch, it stops and asks you to run
-`forge ship` again, and a conflict stops it at the commit it names. Each
-signature may need a touch of your key.
+pull request (or finds the one that exists). It fetches again first: commits
+the agent made since your last `forge fetch`, which you have not reviewed,
+are listed and signed only after you say yes. It replays the commits in a
+temporary worktree, so your checkout is never touched, and runs no git hook
+there: the tree is the agent's. It never force-pushes: if GitHub's
+`agent/<task>` moved since the fetch, it stops and asks you to run `forge
+ship` again, and a conflict stops it at the commit it names. Each signature
+may need a touch of your key. A task whose pull request is already merged
+ships new commits only after a confirmation, as a new pull request.
 
 A stacked task, started from another task's branch (`forge start`, then
 "other branch…"), ships its whole chain, bottom first: shipping `b`, started

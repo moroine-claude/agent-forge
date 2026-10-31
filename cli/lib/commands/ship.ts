@@ -89,6 +89,7 @@ export async function cmdShip(
       // The explicit refspec creates origin/agent/<t> even with a narrower
       // fetch refspec: the next task's onto and the PR's description read it.
       if (pushed) {
+        ctx.out(`Fetching ${branch} from origin…`);
         await mustSucceed(`git fetch origin ${branch}`,
           ctx.exec(["git", "fetch", "origin", `+refs/heads/${branch}:refs/remotes/origin/${branch}`], { cwd: root }));
       }

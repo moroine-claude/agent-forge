@@ -139,7 +139,8 @@ async function main(): Promise<number> {
       throw new ForgeError("--remote only goes with install: forge install --remote <address>");
     }
     if (values.host !== undefined && !["install", "open", "fetch", "ship"].includes(cmd)) {
-      throw new ForgeError("--host only goes with install, open, fetch and ship: forge install --host <name>, forge open --host <name>");
+      throw new ForgeError("--host only goes with install, open, fetch and ship: forge install --host <name>, " +
+        "forge open --host <name>, forge fetch --host <name>, forge ship <task> --host <name>");
     }
     const laptop = { remote: values.remote, host: values.host };
     const code = await dispatch(ctx, positionals, values.force === true, values.strict === true, values.all === true, laptop);
