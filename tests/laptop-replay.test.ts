@@ -106,8 +106,23 @@ test("a conflicting replay rejects, leaves GitHub as it was and no temporary wor
   assert.ok(ctx.calls.every((c) => hooksOff(c)), ctx.calls.map((c) => c.join(" ")).join("\n"));
 });
 
+test("the conflict message names the commit without its subject's control characters", async () => {
+  layout.commit(layout.container, "agent/t", "a");
+  await ship(await plan());
+  git(layout.container, "checkout", "-q", "agent/t");
+  fs.writeFileSync(path.join(layout.container, "a"), "agent\n");
+  // The agent's subject would erase the line and print another message in its place.
+  git(layout.container, "commit", "-q", "-am", "edit a\x1b[2K\rall good");
+  git(layout.container, "checkout", "-q", "main");
+  pushElsewhere("a", "someone\n");
+  const p = await plan();
+  await assert.rejects(ship(p), (e: unknown) => e instanceof ForgeError &&
+    /^agent\/t: replaying [0-9a-f]{7,} edit a\[2Kall good onto origin\/agent\/t stopped/.test(e.message) &&
+    !/[\x00-\x1f\x7f-\x9f]/.test(e.message));
+});
+
 // The temporary worktree holds the agent's tree: no hook may run there.
-const hooksOff = (argv: string[]) => argv[0] === "git" && argv.join(" ").includes(" -c core.hooksPath=/dev/null ");
+const hooksOff =(argv: string[]) => argv[0] === "git" && argv.join(" ").includes(" -c core.hooksPath=/dev/null ");
 
 test("every git command of the replay runs without hooks", async () => {
   layout.commit(layout.container, "agent/t", "a");

@@ -58,7 +58,11 @@ const shipNow = (ctx: FakeContext, task?: string) => cmdShip(ctx, task, { cwd: l
 // of the commits to sign (`agent/<t>:` and its indented lines).
 const said = (ctx: FakeContext) => ctx.out_lines.filter((l) => !l.endsWith("…") && !/^agent\/\S+:$/.test(l) && !l.startsWith("  "));
 const asked = (ctx: FakeContext, question: string) => ctx.err_lines.filter((l) => l.startsWith(`${question}>`)).length;
-const SIGN = "Sign and push them?";
+// The signing question names how many commits it covers, so none can be hidden from it.
+const SIGN = (n: number) => `Sign and push ${n} commit${n === 1 ? "" : "s"}?`;
+const signQuestions = (ctx: FakeContext) => ctx.err_lines.filter((l) => l.startsWith("Sign and push "));
+// No control character (C0, DEL, C1): no escape sequence can rewrite what the terminal shows.
+const CONTROL = /[\x00-\x1f\x7f-\x9f]/;
 // The list ship prints before its question: per task, its commits to sign, oldest first.
 const listed = (ctx: FakeContext) => ctx.out_lines.filter((l) => /^agent\/\S+:$/.test(l) || l.startsWith("  "));
 const line = (ref: string) => `  ${git(layout.container, "log", "-1", "--format=%h %s", ref)}`;
@@ -124,7 +128,7 @@ test("one task: pushed, its PR created against main", async () => {
     "Fetching agent/t from origin…",
     `agent/t: pushed 2 commits, created PR ${url(1)}`,
   ]);
-  assert.equal(asked(ctx, SIGN), 1);
+  assert.equal(asked(ctx, SIGN(2)), 1);
   assert.equal(git(layout.github, "rev-list", "--count", "main..agent/t"), "2");
   // gh is checked before anything else, the fetch and SSH included.
   assert.deepEqual(ctx.calls[0], ["gh", "--version"]);
@@ -196,7 +200,7 @@ test("re-running right after signs nothing, pushes nothing and finds the PRs", a
   const ctx = hybridContext({ rules: [bases, prs("agent/a", [url(1), "OPEN"]), prs("agent/b", [url(2), "OPEN"])] });
   assert.equal(await ship(ctx, "b"), 0);
   // Nothing to sign: no list, no question.
-  assert.equal(asked(ctx, SIGN), 0);
+  assert.deepEqual(signQuestions(ctx), []);
   assert.deepEqual(listed(ctx), []);
   assert.deepEqual(said(ctx), [
     "Nothing new to sign.",
@@ -413,7 +417,7 @@ test("ship lists every commit it will sign, oldest first, and signs only after a
     const ctx = hybridContext({ rules: [bases, creates("main", "agent/t", url(1))], answers });
     await assert.rejects(ship(ctx, "t"), new ForgeError("nothing shipped: signing was not confirmed"));
     assert.deepEqual(listed(ctx), ["agent/t:", line("agent/t~1"), line("agent/t")]);
-    assert.equal(asked(ctx, SIGN), 1);
+    assert.equal(asked(ctx, SIGN(2)), 1);
     assert.deepEqual(said(ctx), []);
     assert.ok(!ran(ctx, "cherry-pick") && !ran(ctx, "push") && !ran(ctx, "create"));
   }
@@ -432,7 +436,8 @@ test("one question for the whole chain, each task's commits listed under it, bef
     answers: [1],
   });
   assert.equal(await ship(ctx, "b"), 0);
-  assert.equal(asked(ctx, SIGN), 1);
+  // One question, its count the whole chain's.
+  assert.deepEqual(signQuestions(ctx), [`${SIGN(3)}> [yes | no]`]);
   assert.deepEqual(ctx.out_lines.filter((l) => !l.endsWith("…")).slice(0, 6), [
     "agent/a:",
     line("agent/a"),
@@ -471,7 +476,7 @@ test("a commit made after the review is listed even after a ship that stopped af
   const again = hybridContext({ rules: [bases, creates("main", "agent/t", url(1))], answers: [1, 2] });
   await assert.rejects(shipNow(again, "t"), new ForgeError("nothing shipped: signing was not confirmed"));
   assert.deepEqual(listed(again), ["agent/t:", line("agent/t~1"), line("agent/t")]);
-  assert.equal(asked(again, SIGN), 1);
+  assert.equal(asked(again, SIGN(2)), 1);
   assert.equal(onGithub("agent/t"), null);
 });
 
@@ -482,8 +487,27 @@ test("the list and question come after the other questions", async () => {
   const questions = ctx.err_lines.filter((l) => l.includes("> ["));
   assert.deepEqual(questions, [
     "agent/t has no recorded base: open its PR against main?> [yes | no]",
-    `${SIGN}> [yes | no]`,
+    `${SIGN(1)}> [yes | no]`,
   ]);
+});
+
+test("a commit subject cannot hide a commit in the signing list: no control character reaches it", async () => {
+  git(layout.container, "checkout", "-q", "-b", "agent/t", "main");
+  fs.writeFileSync(path.join(layout.container, "evil.txt"), "evil\n");
+  git(layout.container, "add", "evil.txt");
+  git(layout.container, "commit", "-q", "-m", "evil");
+  fs.writeFileSync(path.join(layout.container, "ok.txt"), "ok\n");
+  git(layout.container, "add", "ok.txt");
+  // Cursor up, erase the line, back to its start: on a terminal, "evil" would vanish.
+  git(layout.container, "commit", "-q", "-m", "\x1b[1A\x1b[2K\radd ok.txt");
+  git(layout.container, "checkout", "-q", "main");
+  const ctx = hybridContext({ rules: [taskBase("t\torigin/main\n"), creates("main", "agent/t", url(1))], answers: [2] });
+  await assert.rejects(ship(ctx, "t"), new ForgeError("nothing shipped: signing was not confirmed"));
+  const h = (ref: string) => git(layout.container, "rev-parse", "--short", ref);
+  assert.deepEqual(listed(ctx), ["agent/t:", `  ${h("agent/t~1")} evil`, `  ${h("agent/t")} [1A[2Kadd ok.txt`]);
+  assert.ok(ctx.out_lines.every((l) => !CONTROL.test(l)), JSON.stringify(ctx.out_lines));
+  assert.deepEqual(signQuestions(ctx), [`${SIGN(2)}> [yes | no]`]);
+  assert.equal(onGithub("agent/t"), null);
 });
 
 // Who committed each commit of GitHub's branch above main: the developer, once replayed.

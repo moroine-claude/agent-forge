@@ -17,6 +17,8 @@ import {
 } from "../incus.ts";
 import { BRIDGE, effectiveEgress, egressNames, proxyInstance, type EgressMode } from "../objects.ts";
 import { SQUID_ACCESS_LOG } from "../proxy.ts";
+// The log's fields come from the agents' requests.
+import { printable } from "../printable.ts";
 import { ENV_KEYS, currentPlan, egressMismatch, proxyEnv, requireStrictRuntime } from "../strict.ts";
 import { columnWidths, formatRow } from "../table.ts";
 import { resolveRepo } from "./resolve.ts";
@@ -63,10 +65,6 @@ export function parseSquidLine(line: string): LogEntry | null {
     host,
   };
 }
-
-// The log's fields come from the agents' requests: no control character (C0,
-// DEL, C1) reaches the terminal, so no escape sequence either.
-const printable = (field: string): string => field.replace(/[\x00-\x1f\x7f-\x9f]/g, "");
 
 async function cmdLog(ctx: Context, repo: string | undefined): Promise<number> {
   let only: string | null = null;

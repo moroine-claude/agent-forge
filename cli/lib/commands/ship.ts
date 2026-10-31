@@ -3,6 +3,7 @@
 // A stacked task ships with the whole chain under it, bottom first.
 import { ForgeError, mustSucceed, type Context } from "../context.ts";
 import { fetchAgents } from "./fetch.ts";
+import { printable } from "../printable.ts";
 import { ensurePr, prState, requireGh } from "../laptop/pr.ts";
 import { replayAndPush } from "../laptop/replay.ts";
 import {
@@ -105,18 +106,23 @@ export async function cmdShip(
 // one question for the whole chain: ship fetches again, and the agent may have
 // committed since the developer's review. Nothing to sign: no question. No
 // terminal to ask: nothing is signed.
+// The subjects are the agent's: printed without control characters, so an
+// escape sequence cannot erase a line of the list. The question carries the
+// count, which no subject can change.
 async function confirmSigning(ctx: Context, root: string, plans: TaskPlan[]): Promise<void> {
   const signing = plans.filter((plan) => plan.commits.length > 0);
   if (signing.length === 0) return;
   for (const plan of signing) {
-    // Full SHAs: git takes them as object names, never as ref names.
+    // Full SHAs: git takes them as object names, never as ref names. A
+    // subject never holds a newline: one line per commit.
     const log = await mustSucceed("git log",
       ctx.exec(["git", "log", "--no-walk=unsorted", "--format=%h %s", ...plan.commits], { cwd: root }));
     ctx.out(`agent/${plan.task}:`);
-    for (const line of log.stdout.split("\n").filter(Boolean)) ctx.out(`  ${line}`);
+    for (const line of log.stdout.split("\n").filter(Boolean)) ctx.out(`  ${printable(line)}`);
   }
+  const total = signing.reduce((n, plan) => n + plan.commits.length, 0);
   // pick numbers its answers from 1.
-  if ((await ctx.prompt.pick("Sign and push them?", ["yes", "no"])) !== 1) {
+  if ((await ctx.prompt.pick(`Sign and push ${commits(total)}?`, ["yes", "no"])) !== 1) {
     throw new ForgeError("nothing shipped: signing was not confirmed");
   }
 }

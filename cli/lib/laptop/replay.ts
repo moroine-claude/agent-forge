@@ -6,6 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { ForgeError, mustSucceed, type Context } from "../context.ts";
+import { printable } from "../printable.ts";
 import { shortRef, type TaskPlan } from "./ship-plan.ts";
 
 // No hook runs in or around the temporary worktree: its tree is the agent's.
@@ -75,14 +76,15 @@ export async function replayAndPush(
 
 // Names the commit the cherry-pick stopped on, then abandons the pick. Without
 // a CHERRY_PICK_HEAD (a signing failure), rev-parse could find a tag of that
-// name: only one of the commits being replayed is named.
+// name: only one of the commits being replayed is named. Its subject is the
+// agent's: no control character reaches the error message.
 async function stoppedAt(ctx: Context, tmp: string, plan: TaskPlan): Promise<string> {
   const head = await ctx.exec(gitIn(tmp, "rev-parse", "-q", "--verify", "CHERRY_PICK_HEAD"));
   let what = "a commit";
   if (head.code === 0 && plan.commits.includes(head.stdout.trim())) {
     const sha = head.stdout.trim();
     const subject = await ctx.exec(gitIn(tmp, "log", "-1", "--format=%h %s", sha));
-    if (subject.code === 0) what = subject.stdout.trim();
+    if (subject.code === 0) what = printable(subject.stdout.trim());
   }
   await ctx.exec(gitIn(tmp, "cherry-pick", "--abort"));
   return `agent/${plan.task}: replaying ${what} onto ${shortRef(plan.onto)} stopped (conflict, or the signing failed): nothing was pushed`;
