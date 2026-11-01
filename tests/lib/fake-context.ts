@@ -71,7 +71,13 @@ export function fakeContext(opts: FakeOptions = {}): FakeContext {
       err_lines.push(`${label}> [${items.join(" | ")}]`);
       if (!tty) return null;
       const a = answers.shift();
-      return typeof a === "number" ? a : null;
+      if (typeof a !== "number") return null;
+      // Le vrai pick ne rend qu'un numéro affiché, de 1 à N : une réponse
+      // scriptée hors de ces bornes est une erreur du test, pas une réponse.
+      if (!Number.isInteger(a) || a < 1 || a > items.length) {
+        throw new Error(`fake pick "${label}": answer ${a} is not between 1 and ${items.length}`);
+      }
+      return a;
     },
     async ask(label) {
       err_lines.push(`${label}> `);

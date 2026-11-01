@@ -61,7 +61,7 @@ test("a different host identity is kept by default", async () => {
 test("a different host identity can be replaced", async () => {
   const ctx = fakeContext({ rules: [
     ...SETS, { match: GET_NAME, stdout: "Other\n" }, { match: GET_EMAIL, stdout: "other@example.com\n" }, ...laptopId,
-  ], answers: [1] });
+  ], answers: [2] });
   assert.equal(await ensureGitIdentity(ctx, host), "set");
   assert.ok(ctx.calls.some((c) => c.join(" ").includes("'user.name' 'Alice Example'")));
 });
@@ -213,7 +213,7 @@ test("ensureImage asks about an unknown commit and keeps it on null", async () =
 test("ensureImage rebuilds an unknown commit when the user says so", async () => {
   const r = repo();
   try {
-    const base = fakeContext({ rules: [{ match: "'forge' 'image' 'commit'", stdout: "0123456789abcdef0123456789abcdef01234567" }], answers: [0] });
+    const base = fakeContext({ rules: [{ match: "'forge' 'image' 'commit'", stdout: "0123456789abcdef0123456789abcdef01234567" }], answers: [1] });
     const ctx: Context = { ...base, exec: (argv, o) => argv[0] === "ssh" ? base.exec(argv, o) : createContext().exec(argv, o) };
     assert.equal(await ensureImage(ctx, host, r.dir), "built");
     assert.equal(base.attachCalls.length, 1);

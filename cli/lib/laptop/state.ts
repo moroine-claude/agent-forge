@@ -123,5 +123,5 @@ export async function selectHost(ctx: Context, wanted?: string): Promise<LaptopH
   if (hosts.length === 1) return hosts[0];
   const i = await ctx.prompt.pick("Host", hosts.map((h) => h.name));
   if (i === null) throw new ForgeError("several forge hosts: pass --host <name>");
-  return hosts[i];
+  return hosts[i - 1];
 }
