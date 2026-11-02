@@ -14,7 +14,13 @@ forge_users_claude_fingerprint: 31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE
 forge_users_claude_uri: https://downloads.claude.ai/claude-code/apt/stable
 # nodejs from NodeSource (Node 24); claude-code for `claude auth login`;
 # Ubuntu's ansible (with community.general) for `forge image build`.
+# nodejs carries cli/forge's floor as its minimum: with a bare name,
+# state: present would keep a Node already installed from Ubuntu (22 on
+# 26.04), on which forge refuses to run. Replacing it removes Ubuntu's npm and
+# what depends on it: NodeSource's nodejs conflicts with that npm and ships
+# its own. ansible/tests/unit/forge_users.yml checks the floor and the
+# repository's major agree.
 forge_users_packages:
-  - nodejs
+  - nodejs>=24
   - claude-code
   - ansible

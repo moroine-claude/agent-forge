@@ -403,7 +403,10 @@ v2.0 has exactly one forge user (see "Preflight"). For that user:
   It sits before Ubuntu's early `return` for non-interactive shells, so SSH
   commands find what herdr installs there (spike, finding G).
 - **Node 24:** NodeSource's `node_24.x` repository, suite `nodistro`, with an apt
-  pin at priority 600. Ubuntu 26.04 only ships Node 22.
+  pin at priority 600. Ubuntu 26.04 only ships Node 22. The package is
+  installed as `nodejs>=24`, so a Node 22 already installed from Ubuntu is
+  upgraded rather than kept; that removes Ubuntu's `npm`, which conflicts with
+  NodeSource's `nodejs`.
 - **Claude Code:** Anthropic's apt repository, `stable` channel, key fingerprint
   asserted (`31DD DE24 DDFA B679 F42D 7BD2 BAA9 29FF 1A7E CACE`), giving
   `/usr/bin/claude`. On the host it is only used for `claude auth login`. The
