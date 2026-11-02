@@ -84,14 +84,14 @@ test("one key is chosen without a question", async () => {
 });
 
 test("several keys ask, labelled with type and comment, and return the full line", async () => {
-  const ctx = fakeContext({ answers: [1] });
+  const ctx = fakeContext({ answers: [2] });
   assert.equal(await chooseKey(ctx, [KEY_A, KEY_B]), KEY_B);
   assert.equal(ctx.err_lines[0], "Key GitHub accepts> [ssh-ed25519 alice@laptop | ssh-rsa work key]");
 });
 
 test("a key without comment is labelled with a short prefix of the key", async () => {
   const bare = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAA";
-  const ctx = fakeContext({ answers: [0] });
+  const ctx = fakeContext({ answers: [1] });
   await chooseKey(ctx, [bare, KEY_B]);
   assert.match(ctx.err_lines[0], /ssh-ed25519 AAAAC3NzaC1l…/);
 });

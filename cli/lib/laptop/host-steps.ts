@@ -38,7 +38,7 @@ export async function ensureGitIdentity(ctx: Context, host: LaptopHost): Promise
       `the host's git identity is ${theirs.name} <${theirs.email}>, this machine's is ${mine.name} <${mine.email}>`,
       ["keep the host's", "replace it with this machine's"],
     );
-    if (pick !== 1) return "already";
+    if (pick !== 2) return "already";
   }
   await mustSucceed("git config user.name on the host", remoteExec(ctx, host, ["git", "config", "--global", "user.name", mine.name]));
   await mustSucceed("git config user.email on the host", remoteExec(ctx, host, ["git", "config", "--global", "user.email", mine.email]));
@@ -82,7 +82,7 @@ export async function ensureImage(ctx: Context, host: LaptopHost, checkout: stri
   if (decision === "ask") {
     const pick = await ctx.prompt.pick("agent-base was built from a commit this checkout does not know",
       ["rebuild it (about 10 minutes)", "keep it"]);
-    decision = pick === 0 ? "build" : "fresh";
+    decision = pick === 1 ? "build" : "fresh";
   }
   if (decision === "fresh") return "fresh";
   if ((await remoteAttach(ctx, host, ["forge", "image", "build"], true)) !== 0) {

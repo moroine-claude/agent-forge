@@ -152,7 +152,7 @@ async function whichHost(ctx: Context, opts: InstallOptions): Promise<Target> {
   if (i === null) {
     throw new ForgeError("no host chosen: pass --host <name> for an installed host, or --remote <address> for a new remote one");
   }
-  return i < hosts.length ? { kind: hosts[i].kind, listed: hosts[i], address: hosts[i].address } : { kind: "lima", address: "127.0.0.1" };
+  return i <= hosts.length ? { kind: hosts[i - 1].kind, listed: hosts[i - 1], address: hosts[i - 1].address } : { kind: "lima", address: "127.0.0.1" };
 }
 
 // The commit the playbook deploys; "" when the checkout cannot tell (not a git checkout).
@@ -202,7 +202,7 @@ async function limaHost(
   // A VM that was never created (its creation failed) is simply created.
   if (listed && !vm && listed.done.includes("vm")) {
     const i = await ctx.prompt.pick(`${LIMA_NAME}'s Lima VM is gone`, ["forget it and install a new one", "stop"]);
-    if (i !== 0) throw new ForgeError(`${LIMA_NAME} stays listed: run forge install again to forget it and start over`);
+    if (i !== 1) throw new ForgeError(`${LIMA_NAME} stays listed: run forge install again to forget it and start over`);
     await forgetLimaHost(ctx, listed);
     listed = undefined;
   }
@@ -233,7 +233,7 @@ async function retryOrForget(ctx: Context, host: LaptopHost): Promise<void> {
   const i = await ctx.prompt.pick(`${host.name}: the first connection never succeeded`, [
     `try again with the saved answers (admin ${host.admin}, key ${host.adminKey})`, "forget these answers",
   ]);
-  if (i !== 1) return;
+  if (i !== 2) return;
   forgetEntry(host.name);
   throw new ForgeError(`${host.name}'s answers are forgotten: run forge install --remote ${host.address} to answer again`);
 }
@@ -286,7 +286,7 @@ async function newRemoteHost(ctx: Context, address: string, key: string, agent: 
   if (user === admin) throw new ForgeError(`the forge user must differ from the admin account (${admin})`);
   const host: LaptopHost = {
     name, kind: "remote", address, port: 22, user, admin, adminKey: await adminKey(ctx, name, key),
-    exposure: exposure === 0 ? "public" : "lan", ...(agent ? { identityAgent: agent } : {}), done: [],
+    exposure: exposure === 1 ? "public" : "lan", ...(agent ? { identityAgent: agent } : {}), done: [],
   };
   saveNewHost(host, key);
   return host;
@@ -296,7 +296,7 @@ async function newRemoteHost(ctx: Context, address: string, key: string, agent: 
 // half stays in the agent), or a private key file the provider generated.
 async function adminKey(ctx: Context, name: string, key: string): Promise<string> {
   const i = await ctx.prompt.pick("Key the admin account accepts", [keyLabel(key), "a private key file"]);
-  if (i !== 1) return forgeKeyPath(name);
+  if (i !== 2) return forgeKeyPath(name);
   const answer = (await ctx.prompt.ask("Private key file"))?.trim();
   if (!answer) throw new ForgeError("no private key file given");
   const path = resolve(answer.startsWith("~/") ? join(forgeHome(), answer.slice(2)) : answer);
@@ -379,7 +379,7 @@ async function sshConfig(ctx: Context, host: LaptopHost): Promise<Outcome> {
 // refusal stops the run with `refusal`.
 async function addIncludeOrStop(ctx: Context, path: string, text: string, refusal: string): Promise<void> {
   const yes = await ctx.prompt.pick(`Add \`${INCLUDE_LINE}\` at the top of ~/.ssh/config?`, ["yes", "no"]);
-  if (yes !== 0) throw new ForgeError(refusal);
+  if (yes !== 1) throw new ForgeError(refusal);
   writeKeepingMode(path, addInclude(text));
 }
 
@@ -417,7 +417,7 @@ async function herdrToasts(ctx: Context): Promise<string> {
       `(delivery = "herdr") for the start popup's warnings to show.`);
     return "set in your config";
   }
-  if ((await ctx.prompt.pick(`Turn herdr's notifications on in ${path}?`, ["yes", "no"])) !== 0) {
+  if ((await ctx.prompt.pick(`Turn herdr's notifications on in ${path}?`, ["yes", "no"])) !== 1) {
     ctx.out("herdr's notifications stay as they are: with them off, the start popup's warnings will go unseen.");
     return "declined";
   }
@@ -439,7 +439,7 @@ async function linkForge(ctx: Context, checkout: string): Promise<void> {
   let present = true;
   try { lstatSync(link); } catch { present = false; }
   if (!present) {
-    if ((await ctx.prompt.pick(`Link ~/.local/bin/forge to ${target}?`, ["yes", "no"])) !== 0) return;
+    if ((await ctx.prompt.pick(`Link ~/.local/bin/forge to ${target}?`, ["yes", "no"])) !== 1) return;
     mkdirSync(bin, { recursive: true });
     symlinkSync(target, link);
   } else if (!lstatSync(link).isSymbolicLink() || resolve(bin, readlinkSync(link)) !== target) {

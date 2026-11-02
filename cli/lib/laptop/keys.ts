@@ -51,6 +51,6 @@ export async function chooseKey(ctx: Context, keys: string[]): Promise<string> {
   }
   if (keys.length === 1) return keys[0];
   const i = await ctx.prompt.pick("Key GitHub accepts", keys.map(keyLabel));
-  if (i === null || i < 0 || i >= keys.length) throw new ForgeError("No key chosen.");
-  return keys[i];
+  if (i === null || i < 1 || i > keys.length) throw new ForgeError("No key chosen.");
+  return keys[i - 1];
 }

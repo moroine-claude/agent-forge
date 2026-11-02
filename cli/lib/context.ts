@@ -10,6 +10,8 @@ export type ExecOptions = { input?: string; env?: Record<string, string>; cwd?: 
 export type AttachOptions = { env?: Record<string, string>; cwd?: string };
 
 export type Prompt = {
+  // Le numéro affiché que l'utilisateur a choisi, de 1 à items.length (pas
+  // un index : items[n - 1]), ou null sans terminal ni réponse.
   pick(label: string, items: string[]): Promise<number | null>;
   ask(label: string): Promise<string | null>;
   askSecret(label: string): Promise<string | null>;

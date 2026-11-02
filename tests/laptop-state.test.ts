@@ -134,7 +134,7 @@ test("selectHost returns the only host", async () => {
 test("selectHost picks among several hosts", async () => {
   saveHost(host("forge-acme"));
   saveHost(host("forge-local"));
-  assert.equal((await selectHost(fakeContext({ answers: [1] }))).name, "forge-local");
+  assert.equal((await selectHost(fakeContext({ answers: [2] }))).name, "forge-local");
 });
 
 test("selectHost without an answer asks for --host", async () => {
