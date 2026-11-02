@@ -27,6 +27,35 @@
           forge_users_cli_entrypoint ({{ forge_users_cli_entrypoint }}) is not
           an executable file in {{ unit_repo_root }}
 
+- name: Node version on the host
+  hosts: render
+  gather_facts: false
+  # A bare "nodejs" with state: present keeps a Node already installed from
+  # Ubuntu (22 on 26.04), and the forge CLI refuses to run on it. The package
+  # must carry the CLI's floor as its minimum, from a repository that serves
+  # that major.
+  vars_files:
+    - ../../roles/forge_users/defaults/main.yml
+  vars:
+    unit_repo_root: "{{ (playbook_dir ~ '/../../..') | realpath }}"
+    # The guard in cli/forge: `if ! [ "$major" -ge 24 ]`.
+    unit_cli_floor: >-
+      {{ lookup('ansible.builtin.file', unit_repo_root ~ '/cli/forge')
+         | regex_search('"\$major" -ge (\d+)', '\1') | first }}
+    unit_repo_major: >-
+      {{ forge_users_nodesource_uri | regex_search('/node_(\d+)\.x$', '\1') | first }}
+  tasks:
+    - name: Check the nodejs package's minimum is the CLI's floor
+      ansible.builtin.assert:
+        that:
+          - (forge_users_packages | select('match', 'nodejs') | list) == ['nodejs>=' ~ unit_cli_floor]
+          - unit_repo_major == unit_cli_floor
+        fail_msg: >-
+          forge_users_packages must hold nodejs>={{ unit_cli_floor }} (cli/forge's
+          floor), from NodeSource's node_{{ unit_cli_floor }}.x: got
+          {{ forge_users_packages | select('match', 'nodejs') | list }} and
+          {{ forge_users_nodesource_uri }}
+
 - name: GitHub's stale known_hosts entries
   hosts: render
   gather_facts: false

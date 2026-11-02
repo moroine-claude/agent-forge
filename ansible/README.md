@@ -3,8 +3,11 @@
 `site.yml` provisions an agent-forge host: a fresh Ubuntu 26.04 machine, VM or
 bare metal. It hardens the OS (devsec.hardening), installs a native nftables
 firewall, fail2ban, and Incus 7.0 LTS with a btrfs storage pool. It also sets
-up one forge user with Node 24, Claude Code, Ansible and `forge`. Everything
-inside Incus (project, bridge, profiles, image) is `forge setup`'s job. Design:
+up one forge user with Node 24, Claude Code, Ansible and `forge`. On a machine
+that already has Ubuntu's Node, it replaces it with NodeSource's Node 24,
+which removes Ubuntu's `npm` and the packages that depend on it (NodeSource's
+`nodejs` ships its own `npm`). Everything inside Incus (project, bridge,
+profiles, image) is `forge setup`'s job. Design:
 `docs/superpowers/specs/2026-10-15-v2-host-ansible-design.md`.
 
 ## Running it
