@@ -2,9 +2,11 @@
 # Installs .githooks/pre-commit into the current clone: run it from inside the
 # clone, optionally with --force to replace a different existing hook.
 #
-# The hook is copied, never wired through core.hooksPath: that setting would
-# redirect every hook of the clone, including the ones other tools install
-# (see cli/lib/laptop/replay.ts and the open-source design spec, section 3).
+# The hook is copied, never wired through core.hooksPath: a core.hooksPath
+# pointing into the repository would run whatever hook code is checked out, so
+# an agent's branch could run code on the maintainer's machine, next to their
+# SSH agent and signing key (see cli/lib/laptop/replay.ts and the open-source
+# design spec, section 3).
 set -e
 
 force=0
@@ -45,12 +47,14 @@ if [ -e "$dest" ]; then
     exit 0
   fi
   if [ "$force" -ne 1 ]; then
-    echo "a different pre-commit hook exists at $dest; rerun with --force to replace it"
+    echo "a different pre-commit hook exists at $dest; rerun with: npm run hooks:install -- --force (or bash .githooks/install.sh --force)"
     exit 1
   fi
 fi
 
 mkdir -p "$hooks_dir"
+# Remove first: cp would write through a symlink to wherever it points.
+rm -f "$dest"
 cp "$src" "$dest"
 chmod 755 "$dest"
 echo "installed $dest"

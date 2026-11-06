@@ -27,19 +27,36 @@ if ! git cat-file -e "$head^{commit}" 2>/dev/null; then
   exit 2
 fi
 
+# --diff-merges=remerge: a plain `git log -p` shows no diff for a merge commit,
+# so a secret added while resolving a conflict would go unseen. remerge shows
+# what the merge changed relative to an automatic re-merge of its parents.
 if [ -z "$base" ] || [ "$base" = 0000000000000000000000000000000000000000 ] \
   || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
   echo "scan-secrets: no usable base, scanning the full history of $head"
-  opts="$head"
+  opts="--diff-merges=remerge $head"
 else
-  opts="$base..$head"
+  opts="--diff-merges=remerge $base..$head"
 fi
 
-args=(git "--log-opts=$opts" --redact --no-banner)
+# --ignore-gitleaks-allow: inline allow comments cannot silence a finding; the
+# only suppression is a fingerprint in .betterleaksignore.
+args=(git "--log-opts=$opts" --redact --no-banner --ignore-gitleaks-allow)
 if [ -f "$top/.betterleaksignore" ]; then
   args+=(--gitleaks-ignore-path "$top/.betterleaksignore")
 fi
 
+# Without --verbose (banned: in 2.x it means --validate) Betterleaks prints no
+# detail of a finding, so the redacted JSON report goes to a temp file and its
+# identifying fields are printed on a finding. --redact keeps the secret out.
+report="$(mktemp "${TMPDIR:-/tmp}/forge-betterleaks.XXXXXX")"
+trap 'rm -f "$report"' EXIT
+args+=(--report-format json --report-path "$report")
+
 # BETTERLEAKS_VALIDATE and BETTERLEAKS_ANALYZE are removed from the
 # environment: validation would send found tokens to their issuers' APIs.
-exec env -u BETTERLEAKS_VALIDATE -u BETTERLEAKS_ANALYZE betterleaks "${args[@]}" "$top"
+code=0
+env -u BETTERLEAKS_VALIDATE -u BETTERLEAKS_ANALYZE betterleaks "${args[@]}" "$top" || code=$?
+if [ "$code" -ne 0 ]; then
+  grep -E '^ *"(File|RuleID|StartLine|Commit|Fingerprint)":' "$report" || true
+fi
+exit "$code"

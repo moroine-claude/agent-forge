@@ -21,6 +21,31 @@ cat > "$TMP/bin/betterleaks" <<'EOF'
 printf '%s\n' "$@" >> "$FAKE_BL_ARGS"
 echo "BETTERLEAKS_VALIDATE=${BETTERLEAKS_VALIDATE-unset}" >> "$FAKE_BL_ENV"
 echo "BETTERLEAKS_ANALYZE=${BETTERLEAKS_ANALYZE-unset}" >> "$FAKE_BL_ENV"
+# On a finding, write a redacted JSON report where --report-path points.
+if [ "${FAKE_BL_EXIT:-0}" -ne 0 ]; then
+  while [ "$#" -gt 0 ]; do
+    if [ "$1" = --report-path ]; then
+      cat > "$2" <<'JSON'
+[
+ {
+  "RuleID": "github-pat",
+  "StartLine": 3,
+  "Match": "REDACTED",
+  "Secret": "REDACTED",
+  "Attributes": {
+   "path": "s.txt"
+  },
+  "Fingerprint": "0123abc:s.txt:github-pat:3",
+  "File": "s.txt",
+  "SymlinkFile": "",
+  "Commit": "0123abc"
+ }
+]
+JSON
+    fi
+    shift
+  done
+fi
 exit "${FAKE_BL_EXIT:-0}"
 EOF
 chmod 755 "$TMP/bin/betterleaks"
@@ -74,16 +99,23 @@ UNKNOWN=deadbeefdeadbeefdeadbeefdeadbeefdeadbeef
 assert_full_history() {
   check "$CASE exit 0" [ "$CODE" -eq 0 ]
   check "$CASE message" contains "$OUT" "scanning the full history"
-  check "$CASE log-opts" has "--log-opts=$C3"
+  check "$CASE log-opts" has "--log-opts=--diff-merges=remerge $C3"
 }
 
 # S1 range
 begin S1
 run_scan "$C1" "$C3"
 check "S1 exit 0" [ "$CODE" -eq 0 ]
-check "S1 log-opts" has "--log-opts=$C1..$C3"
+check "S1 log-opts" has "--log-opts=--diff-merges=remerge $C1..$C3"
 check "S1 redact" has --redact
 check "S1 no-banner" has --no-banner
+check "S1 ignore inline allow" has --ignore-gitleaks-allow
+check "S1 json report" has json
+check "S1 remerge" has "--log-opts=--diff-merges=remerge $C1..$C3"
+S1_REPORT="$(grep -xF -A1 -- --report-path "$FAKE_BL_ARGS" | tail -n1)"
+check "S1 report is a file, not stdout" [ -n "$S1_REPORT" -a "$S1_REPORT" != - ]
+check "S1 report removed" [ ! -e "$S1_REPORT" ]
+check "S1 prints nothing extra" [ -z "$OUT" ]
 check "S1 repo last" [ "$(tail -n1 "$FAKE_BL_ARGS")" = "$TOP" ]
 if contains "$OUT" "scanning the full history"; then fail "S1 unexpected full-history message"; else pass; fi
 
@@ -113,6 +145,14 @@ check "S5 no scan" [ ! -s "$FAKE_BL_ARGS" ]
 begin S6
 FAKE_BL_EXIT=1 run_scan "$C1" "$C3"
 check "S6 exit non-zero" [ "$CODE" -ne 0 ]
+check "S6 File" contains "$OUT" '"File": "s.txt"'
+check "S6 RuleID" contains "$OUT" '"RuleID": "github-pat"'
+check "S6 StartLine" contains "$OUT" '"StartLine": 3'
+check "S6 Commit" contains "$OUT" '"Commit": "0123abc"'
+check "S6 Fingerprint" contains "$OUT" '"Fingerprint": "0123abc:s.txt:github-pat:3"'
+if contains "$OUT" '"Secret"'; then fail "S6 prints the Secret field"; else pass; fi
+S6_REPORT="$(grep -xF -A1 -- --report-path "$FAKE_BL_ARGS" | tail -n1)"
+check "S6 report removed" [ ! -e "$S6_REPORT" ]
 
 # S7 safety: validation and analysis are removed from the environment, and no
 # flag that enables them (or trusts the repository's own config) is passed.

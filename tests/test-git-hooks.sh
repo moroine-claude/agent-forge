@@ -22,6 +22,33 @@ if [ "$1" = version ]; then
 fi
 printf '%s\n' "$@" >> "$FAKE_BL_ARGS"
 echo "BETTERLEAKS_VALIDATE=${BETTERLEAKS_VALIDATE-unset}" >> "$FAKE_BL_ENV"
+echo "BETTERLEAKS_ANALYZE=${BETTERLEAKS_ANALYZE-unset}" >> "$FAKE_BL_ENV"
+# On a finding, write a redacted JSON report where --report-path points.
+if [ "${FAKE_BL_EXIT:-0}" -ne 0 ]; then
+  while [ "$#" -gt 0 ]; do
+    if [ "$1" = --report-path ]; then
+      cat > "$2" <<'JSON'
+[
+ {
+  "RuleID": "github-pat",
+  "Description": "Uncovered a GitHub Personal Access Token",
+  "StartLine": 3,
+  "Match": "REDACTED",
+  "Secret": "REDACTED",
+  "Attributes": {
+   "path": "s.txt"
+  },
+  "Fingerprint": "s.txt:github-pat:3",
+  "File": "s.txt",
+  "SymlinkFile": "",
+  "Commit": ""
+ }
+]
+JSON
+    fi
+    shift
+  done
+fi
 exit "${FAKE_BL_EXIT:-0}"
 EOF
 chmod 755 "$TMP/bin/betterleaks"
@@ -76,7 +103,12 @@ assert_clean_run() {
   local repo="$1" top
   top="$(git -C "$repo" rev-parse --show-toplevel)"
   check "$CASE exit 0" [ "$CODE" -eq 0 ]
-  check "$CASE argv" [ "$(cat "$FAKE_BL_ARGS")" = "$(printf '%s\n' git --pre-commit --staged --redact --no-banner "$top")" ]
+  local report
+  report="$(grep -xF -A1 -- --report-path "$FAKE_BL_ARGS" | tail -n1)"
+  check "$CASE argv" [ "$(cat "$FAKE_BL_ARGS")" = "$(printf '%s\n' git --pre-commit --staged --redact --no-banner --ignore-gitleaks-allow --report-format json --report-path "$report" "$top")" ]
+  check "$CASE report is a file, not stdout" [ -n "$report" -a "$report" != - ]
+  check "$CASE report removed" [ ! -e "$report" ]
+  check "$CASE prints nothing" [ -z "$ERR" ]
   local flag
   for flag in --validation -v --verbose --trust-local-git-config --unsafe-auto-load-config --gitleaks-ignore-path; do
     if has "$flag"; then fail "forbidden or unexpected flag $flag"; else pass; fi
@@ -85,7 +117,8 @@ assert_clean_run() {
 
 # H1 missing binary
 begin H1 "$TMP/h1"
-run_hook "$TMP/h1" /usr/bin:/bin
+mkdir -p "$TMP/empty"
+run_hook "$TMP/h1" "$TMP/empty"
 check "H1 exit 0" [ "$CODE" -eq 0 ]
 check "H1 message" contains "$ERR" "pre-commit: betterleaks is not installed, the secret scan is skipped (CI still runs it). See CONTRIBUTING.md."
 
@@ -106,6 +139,14 @@ begin H4 "$TMP/h4"
 FAKE_BL_EXIT=1 run_hook "$TMP/h4"
 check "H4 exit non-zero" [ "$CODE" -ne 0 ]
 check "H4 message" contains "$ERR" "pre-commit: betterleaks found a possible secret in the staged changes. See CONTRIBUTING.md for false positives."
+# The finding is diagnosable: file, rule, line and fingerprint, no secret.
+check "H4 File" contains "$ERR" '"File": "s.txt"'
+check "H4 RuleID" contains "$ERR" '"RuleID": "github-pat"'
+check "H4 StartLine" contains "$ERR" '"StartLine": 3'
+check "H4 Fingerprint" contains "$ERR" '"Fingerprint": "s.txt:github-pat:3"'
+if contains "$ERR" '"Secret"'; then fail "H4 prints the Secret field"; else pass; fi
+H4_REPORT="$(grep -xF -A1 -- --report-path "$FAKE_BL_ARGS" | tail -n1)"
+check "H4 report removed" [ ! -e "$H4_REPORT" ]
 
 # H5 ignore file
 begin H5 "$TMP/h5"
@@ -118,7 +159,7 @@ check "H5 ignore flag" [ "$(grep -xF -A1 -- --gitleaks-ignore-path "$FAKE_BL_ARG
 # H6 validation env is removed
 begin H6 "$TMP/h6"
 BETTERLEAKS_VALIDATE=true BETTERLEAKS_ANALYZE=true run_hook "$TMP/h6"
-check "H6 env" [ "$(cat "$FAKE_BL_ENV")" = "BETTERLEAKS_VALIDATE=unset" ]
+check "H6 env" [ "$(cat "$FAKE_BL_ENV")" = "$(printf 'BETTERLEAKS_VALIDATE=unset\nBETTERLEAKS_ANALYZE=unset')" ]
 
 # H7 space in path
 begin H7 "$TMP/with space/repo"
@@ -149,7 +190,8 @@ printf '#!/bin/sh\nexit 0\n' > "$common/hooks/pre-commit"
 cp "$common/hooks/pre-commit" "$TMP/i3-before"
 run_install "$TMP/i3"
 check "I3 exit non-zero" [ "$CODE" -ne 0 ]
-check "I3 output" contains "$OUT" "a different pre-commit hook exists at $common/hooks/pre-commit; rerun with --force to replace it"
+check "I3 output" contains "$OUT" "a different pre-commit hook exists at $common/hooks/pre-commit; rerun with: npm run hooks:install -- --force (or bash .githooks/install.sh --force)"
+check "I3 message names npm form" contains "$OUT" "npm run hooks:install -- --force"
 check "I3 untouched" cmp -s "$TMP/i3-before" "$common/hooks/pre-commit"
 run_install "$TMP/i3" --force
 check "I3 force exit 0" [ "$CODE" -eq 0 ]
@@ -181,6 +223,20 @@ begin I6 "$TMP/i6" side
 run_install "$TMP/i6"
 check "I6 warning" contains "$OUT" "warning: installing the hook from side, not main"
 
+# I7 a pre-commit symlink pointing outside the repository is replaced, not
+# written through
+begin I7 "$TMP/i7"
+common="$(git -C "$TMP/i7" rev-parse --path-format=absolute --git-common-dir)"
+mkdir -p "$common/hooks"
+printf 'outside\n' > "$TMP/i7-target"
+ln -s "$TMP/i7-target" "$common/hooks/pre-commit"
+run_install "$TMP/i7" --force
+check "I7 exit 0" [ "$CODE" -eq 0 ]
+check "I7 not a symlink" [ ! -L "$common/hooks/pre-commit" ]
+check "I7 regular file" [ -f "$common/hooks/pre-commit" ]
+check "I7 identical" cmp -s "$HOOK" "$common/hooks/pre-commit"
+check "I7 link target untouched" [ "$(cat "$TMP/i7-target")" = outside ]
+
 # R1 real Betterleaks
 if command -v betterleaks >/dev/null 2>&1 && betterleaks version 2>/dev/null | head -n1 | grep -q '^v\{0,1\}1\.'; then
   begin R1 "$TMP/r1"
@@ -190,8 +246,18 @@ if command -v betterleaks >/dev/null 2>&1 && betterleaks version 2>/dev/null | h
   printf 'token = "%s"\n' "$token" > "$TMP/r1/secret.txt"
   git -C "$TMP/r1" add secret.txt
   code=0
-  (cd "$TMP/r1" && git -c user.name=t -c user.email=t@example.invalid commit -q --no-gpg-sign -m leak >/dev/null 2>&1) || code=$?
+  r1_out="$(cd "$TMP/r1" && git -c user.name=t -c user.email=t@example.invalid commit -q --no-gpg-sign -m leak 2>&1)" || code=$?
   check "R1 commit with secret fails" [ "$code" -ne 0 ]
+  check "R1 names the file" contains "$r1_out" '"File": "secret.txt"'
+  check "R1 names the rule" contains "$r1_out" '"RuleID": "github-pat"'
+  check "R1 gives the fingerprint" contains "$r1_out" '"Fingerprint": "secret.txt:github-pat:1"'
+  if contains "$r1_out" "$token"; then fail "R1 output leaks the token"; else pass; fi
+  # An inline allow comment does not silence the finding.
+  printf 'token = "%s" # gitleaks:allow\n' "$token" > "$TMP/r1/secret.txt"
+  git -C "$TMP/r1" add secret.txt
+  code=0
+  (cd "$TMP/r1" && git -c user.name=t -c user.email=t@example.invalid commit -q --no-gpg-sign -m leak >/dev/null 2>&1) || code=$?
+  check "R1 inline allow comment is ignored" [ "$code" -ne 0 ]
   git -C "$TMP/r1" reset -q
   code=0
   (cd "$TMP/r1" && git -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty --no-gpg-sign -m ok >/dev/null 2>&1) || code=$?

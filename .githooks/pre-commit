@@ -2,9 +2,11 @@
 # Secret scan of the staged changes with Betterleaks.
 #
 # This hook is installed as a copy in the clone's hooks directory by
-# .githooks/install.sh, never through core.hooksPath: that setting would
-# redirect every hook of the clone, including the ones other tools install
-# (see cli/lib/laptop/replay.ts and the open-source design spec, section 3).
+# .githooks/install.sh, never through core.hooksPath: a core.hooksPath pointing
+# into the repository would run whatever hook code is checked out, so an
+# agent's branch could run code on the maintainer's machine, next to their SSH
+# agent and signing key (see cli/lib/laptop/replay.ts and the open-source
+# design spec, section 3).
 #
 # A missing or non-1.x Betterleaks skips the scan with a warning: CI runs the
 # same scan, so the hook stays a convenience and never blocks a contributor
@@ -29,16 +31,26 @@ fi
 
 top="$(git rev-parse --show-toplevel)"
 
-args=(git --pre-commit --staged --redact --no-banner)
+# --ignore-gitleaks-allow: inline allow comments cannot silence a finding; the
+# only suppression is a fingerprint in .betterleaksignore.
+args=(git --pre-commit --staged --redact --no-banner --ignore-gitleaks-allow)
 if [ -f "$top/.betterleaksignore" ]; then
   args+=(--gitleaks-ignore-path "$top/.betterleaksignore")
 fi
+
+# Without --verbose (banned: in 2.x it means --validate) Betterleaks prints no
+# detail of a finding, so the redacted JSON report goes to a temp file and its
+# identifying fields are printed on a finding. --redact keeps the secret out.
+report="$(mktemp "${TMPDIR:-/tmp}/forge-betterleaks.XXXXXX")"
+trap 'rm -f "$report"' EXIT
+args+=(--report-format json --report-path "$report")
 
 # No validation or analysis: they would send candidate secrets to remote
 # services, so the environment switches for them are removed.
 code=0
 env -u BETTERLEAKS_VALIDATE -u BETTERLEAKS_ANALYZE betterleaks "${args[@]}" "$top" || code=$?
 if [ "$code" -ne 0 ]; then
+  grep -E '^ *"(File|RuleID|StartLine|Fingerprint)":' "$report" >&2 || true
   echo "pre-commit: betterleaks found a possible secret in the staged changes. See CONTRIBUTING.md for false positives." >&2
   exit 1
 fi
