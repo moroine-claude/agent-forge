@@ -23,7 +23,8 @@ issues go through [SECURITY.md](SECURITY.md), not public issues.
   [signing commits](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits).
 - To re-sign a branch before pushing again:
   `git rebase --force-rebase --gpg-sign <base>`, then push your own branch
-  with `git push --force-with-lease`.
+  with `git push --force-with-lease`. `<base>` is the branch your work
+  started from: `origin/main`, or `upstream/main` from a fork.
 
 ## Running the tests
 
@@ -50,21 +51,42 @@ clone:
 npm run hooks:install
 ```
 
-The hook scans staged changes and blocks the commit on a finding. If
+The hook scans staged changes and blocks the commit on a finding, printing the
+file, rule, line and fingerprint of each one (never the secret). If
 Betterleaks is missing or is not 1.x, it says so and lets the commit through.
-CI runs the same scan on the commits a pull request adds (job `secrets`), so
-the hook is a convenience: `git commit --no-verify` skips it, CI does not.
+CI runs the same scan on the commits a pull request adds, merge commits
+included (job `secrets`), so the hook is a convenience: `git commit
+--no-verify` skips it, CI does not.
 
-Never run Betterleaks with `--validation` or `-v`: they can send what looks
-like a secret to a remote service or print it.
+To update the hook, run `npm run hooks:install` again from a checkout of `main`.
+If a different hook is already installed, replace it with
+`npm run hooks:install -- --force` (the `--` is needed for npm to pass the
+flag on).
 
-For a false positive, add its fingerprint, as Betterleaks prints it, to
-`.betterleaksignore` at the repository root: one fingerprint per line, each
-with a comment saying why it is not a secret.
+To see a finding yourself, run this from the repository root:
 
-Changes to `.github/`, `.githooks/` and `.betterleaksignore` get extra
-scrutiny in review: on a pull request, the workflow and the ignore file come
-from the pull request's own branch.
+```
+betterleaks git --pre-commit --staged --redact --report-format json --report-path - .
+```
+
+Never run Betterleaks with `--validation` or `-v`: `--validation` sends what
+looks like a secret to the live API of its issuer, and `-v` is `--verbose` in
+1.x (it prints findings in clear) and becomes `--validate` in 2.x.
+
+For a false positive, add its `Fingerprint` to `.betterleaksignore` at the
+repository root: one fingerprint per line, each with a comment saying why it
+is not a secret. The format is `<path>:<rule>:<line>` for the pre-commit hook
+(for example `docs/example.md:github-pat:12`) and
+`<commit>:<path>:<rule>:<line>` for a commit scanned by CI. Inline
+`gitleaks:allow` and `betterleaks:allow` comments are ignored
+(`--ignore-gitleaks-allow`): the fingerprint is the only way to suppress a
+finding.
+
+Changes to `.github/`, `.githooks/`, `.betterleaksignore`, `betterleaks.toml`
+and `.gitleaksignore` get extra scrutiny in review: on a pull request, the
+workflow, the ignore files and the Betterleaks configuration come from the
+pull request's own branch, and Betterleaks loads `betterleaks.toml` and
+`.gitleaksignore` from the scanned repository by default.
 
 ## Rules worth knowing
 

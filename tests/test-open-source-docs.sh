@@ -63,7 +63,10 @@ done
 for t in 'fork' 'signed' '--force-rebase --gpg-sign' '--force-with-lease' \
   'npm test' 'npm run check' 'npm run test:ansible' 'FORGE_INTEGRATION=1' \
   'ansible/tests/vm-test.sh' 'npm run hooks:install' 'betterleaks version' \
-  '--validation' '.betterleaksignore' 'CLAUDE.md' 'SECURITY.md' \
+  '--validation' '.betterleaksignore' '--ignore-gitleaks-allow' \
+  '--report-format json --report-path -' 'betterleaks.toml' '.gitleaksignore' \
+  'npm run hooks:install -- --force' 'from a checkout of `main`' 'upstream/main' \
+  'CLAUDE.md' 'SECURITY.md' \
   'AGPL-3.0-only' 'feat:'; do
   assert_contains CONTRIBUTING.md "$t"
 done
