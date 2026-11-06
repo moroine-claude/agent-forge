@@ -53,5 +53,26 @@ assert_contains README.md '[LICENSE](LICENSE)'
 last_heading="$(grep '^## ' "$ROOT/README.md" | tail -n 1)"
 assert_equals "dernier titre ## du README" "## License" "$last_heading"
 
+# --- SECURITY.md ---
+for t in 'Report a vulnerability' '7 days' 'main' 'not maintained' \
+  'not a security boundary' 'container/pre-bash.sh' 'upstream'; do
+  assert_contains SECURITY.md "$t"
+done
+
+# --- CONTRIBUTING.md ---
+for t in 'fork' 'signed' '--force-rebase --gpg-sign' '--force-with-lease' \
+  'npm test' 'npm run check' 'npm run test:ansible' 'FORGE_INTEGRATION=1' \
+  'ansible/tests/vm-test.sh' 'npm run hooks:install' 'betterleaks version' \
+  '--validation' '.betterleaksignore' 'CLAUDE.md' 'SECURITY.md' \
+  'AGPL-3.0-only' 'feat:'; do
+  assert_contains CONTRIBUTING.md "$t"
+done
+
+# --- README : section Developing agent-forge ---
+dev_section="$(sed -n '/^## Developing agent-forge/,/^## License/p' "$ROOT/README.md")"
+for t in 'CONTRIBUTING.md' 'npm run hooks:install'; do
+  case "$dev_section" in *"$t"*) pass ;; *) fail "README Developing: manque $t" ;; esac
+done
+
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

@@ -574,6 +574,8 @@ Known limits:
 
 ## Developing agent-forge
 
+- Read [CONTRIBUTING.md](CONTRIBUTING.md) first, and install the
+  secret-scanning pre-commit hook once with `npm run hooks:install`.
 - `npm test` (unit, contract and bash tests), `npm run check` (types),
   `npm run test:ansible` (the playbook's unit tests) and
   `ansible-lint ansible/`.
