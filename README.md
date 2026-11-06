@@ -584,3 +584,10 @@ Known limits:
   for a fresh cloud VM, or a VM on an Incus host with KVM. See
   `ansible/README.md`.
 - Designs and plans live in `docs/superpowers/`.
+
+## License
+
+Copyright (C) 2026 the agent-forge contributors.
+
+agent-forge is free software, licensed under the GNU Affero General Public
+License, version 3 only (`AGPL-3.0-only`). See [LICENSE](LICENSE).
