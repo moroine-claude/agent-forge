@@ -1,0 +1,44 @@
+#!/bin/bash
+# Secret scan of the staged changes with Betterleaks.
+#
+# This hook is installed as a copy in the clone's hooks directory by
+# .githooks/install.sh, never through core.hooksPath: that setting would
+# redirect every hook of the clone, including the ones other tools install
+# (see cli/lib/laptop/replay.ts and the open-source design spec, section 3).
+#
+# A missing or non-1.x Betterleaks skips the scan with a warning: CI runs the
+# same scan, so the hook stays a convenience and never blocks a contributor
+# who has not installed the tool.
+set -e
+
+# The major version this hook is written for (flags and exit codes).
+BETTERLEAKS_MAJOR=1
+
+if ! command -v betterleaks >/dev/null 2>&1; then
+  echo "pre-commit: betterleaks is not installed, the secret scan is skipped (CI still runs it). See CONTRIBUTING.md." >&2
+  exit 0
+fi
+
+version="$(betterleaks version 2>/dev/null)" || version=""
+version="${version%%$'\n'*}"
+version="${version#v}"
+if [ "${version%%.*}" != "$BETTERLEAKS_MAJOR" ]; then
+  echo "pre-commit: betterleaks $version is not ${BETTERLEAKS_MAJOR}.x, the secret scan is skipped (CI still runs it). See CONTRIBUTING.md." >&2
+  exit 0
+fi
+
+top="$(git rev-parse --show-toplevel)"
+
+args=(git --pre-commit --staged --redact --no-banner)
+if [ -f "$top/.betterleaksignore" ]; then
+  args+=(--gitleaks-ignore-path "$top/.betterleaksignore")
+fi
+
+# No validation or analysis: they would send candidate secrets to remote
+# services, so the environment switches for them are removed.
+code=0
+env -u BETTERLEAKS_VALIDATE -u BETTERLEAKS_ANALYZE betterleaks "${args[@]}" "$top" || code=$?
+if [ "$code" -ne 0 ]; then
+  echo "pre-commit: betterleaks found a possible secret in the staged changes. See CONTRIBUTING.md for false positives." >&2
+  exit 1
+fi
