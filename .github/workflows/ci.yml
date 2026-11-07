@@ -1,4 +1,5 @@
-# Light CI: the CLI's tests and type check, ansible-lint, and the host
+# Light CI: the CLI's tests and type check, ansible-lint, a Betterleaks secret
+# scan of the commits being added, and the host
 # playbook's controller-only unit tests. The playbook's real test is
 # ansible/tests/vm-test.sh, run on a host with KVM (not in CI).
 name: ci
@@ -6,7 +7,7 @@ name: ci
 on:
   pull_request:
   push:
-    branches: [next, main]
+    branches: [main]
 
 permissions:
   contents: read
@@ -59,3 +60,25 @@ jobs:
           pipx install 'ansible-core>=2.20,<2.21'
       - name: Run the controller-only unit tests
         run: ansible-playbook -i ansible/tests/unit-inventory.yml ansible/tests/unit.yml
+
+  # Secret scan of the commits being added (the history is scanned once by
+  # hand, see docs/superpowers/specs/2026-11-06-open-source-publication-design.md).
+  secrets:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install Betterleaks (pinned)
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/betterleaks.tar.gz" https://github.com/betterleaks/betterleaks/releases/download/v1.10.0/betterleaks_1.10.0_linux_x64.tar.gz
+          echo "9d9ad503cd5d80d18a939352266c3fcca52f10da9b83cd5cfe646989b13940fe  $RUNNER_TEMP/betterleaks.tar.gz" | sha256sum -c -
+          mkdir -p "$HOME/.local/bin"
+          tar -xzf "$RUNNER_TEMP/betterleaks.tar.gz" -C "$HOME/.local/bin" betterleaks
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Scan the commits being added
+        env:
+          SCAN_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          SCAN_HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: bash .github/scripts/scan-secrets.sh "$SCAN_BASE" "$SCAN_HEAD"
