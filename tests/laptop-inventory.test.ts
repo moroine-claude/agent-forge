@@ -122,3 +122,47 @@ test("writeInventoryOnce keeps an existing file", () => {
   assert.equal(writeInventoryOnce(file, "two"), "kept");
   assert.equal(readFileSync(file, "utf8"), "one");
 });
+
+test("a cloud inventory carries the contributor variables as quoted scalars", () => {
+  const cloud: LaptopHost = { ...remote, name: "forge-dev", kind: "cloud" };
+  const t = renderInventory(cloud, {
+    ...opts(),
+    contributor: { upstream: "acme/forge", fork: "bot/forge", gitName: 'Bot "One"', gitEmail: "bot@example.org" },
+  });
+  assert.match(t, /^ {4}forge_contributor_upstream: "acme\/forge"$/m);
+  assert.match(t, /^ {4}forge_contributor_fork: "bot\/forge"$/m);
+  assert.match(t, /^ {4}forge_contributor_git_name: "Bot \\"One\\""$/m);
+  assert.match(t, /^ {4}forge_contributor_git_email: "bot@example.org"$/m);
+  assert.match(t, /forge_exposure: "public"/);
+  assert.doesNotMatch(t, /ansible_port|HostKeyAlias/);
+});
+
+// site.yml sets the forge user's groups exactly: kvm (vm-test.sh --lima runs
+// QEMU with KVM) comes from the inventory, or each run would drop it.
+test("a cloud inventory adds the forge user to kvm, another host's does not", { skip: !hasAnsible }, () => {
+  const dir = mkdtempSync(join(tmpdir(), "inv-"));
+  const hostvars = (h: LaptopHost) => {
+    const file = join(dir, `${h.name}.yml`);
+    writeFileSync(file, renderInventory(h, opts()));
+    const r = spawnSync("ansible-inventory", ["-i", file, "--list"], { encoding: "utf8" });
+    assert.equal(r.status, 0, r.stderr);
+    return JSON.parse(r.stdout)._meta.hostvars[h.name];
+  };
+  assert.deepEqual(hostvars({ ...remote, name: "forge-dev", kind: "cloud" }).forge_users_extra_groups, ["kvm"]);
+  assert.equal("forge_users_extra_groups" in hostvars(remote), false);
+  assert.equal("forge_users_extra_groups" in hostvars(lima), false);
+});
+
+// The playbook connects by address, not by the alias: the alias's
+// ForwardAgent no would not apply, and a `Host *` of the developer's could
+// forward the agent to the dev VM. A -o on the command line wins over it.
+test("a cloud inventory turns agent forwarding off, whatever ~/.ssh/config says", { skip: !hasSsh }, () => {
+  const cloud: LaptopHost = { ...remote, name: "forge-dev", kind: "cloud" };
+  const args = commonArgs(renderInventory(cloud, opts()));
+  assert.ok(args.join(" ").includes("-o ForwardAgent=no"), args.join(" "));
+  const config = join(mkdtempSync(join(tmpdir(), "inv-")), "config");
+  writeFileSync(config, "Host *\n  ForwardAgent yes\n");
+  const r = spawnSync("ssh", ["-F", config, "-G", ...args, "203.0.113.20"], { encoding: "utf8" });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /^forwardagent no$/m);
+});

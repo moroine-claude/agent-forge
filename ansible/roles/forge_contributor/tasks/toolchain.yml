@@ -1,0 +1,68 @@
+---
+# ansible-core: Ubuntu 26.04 (resolute) packages ansible-core 2.20.1
+# (packages.ubuntu.com/resolute/ansible-core), which vm-test.sh accepts, so
+# the `ansible` package installed by forge_users is enough: no pipx fallback.
+- name: Add OpenTofu's repository
+  ansible.builtin.include_role:
+    name: base
+    tasks_from: apt_repo.yml
+  vars:
+    base_apt_repo_name: opentofu
+    base_apt_repo_key_url: "{{ forge_contributor_tofu_key_url }}"
+    base_apt_repo_fingerprint: "{{ forge_contributor_tofu_fingerprint }}"
+    base_apt_repo_uris: ["{{ forge_contributor_tofu_uri }}"]
+    base_apt_repo_suites: [any]
+    base_apt_repo_components: [main]
+
+- name: Install QEMU, OpenTofu, ansible-lint and jq
+  ansible.builtin.apt:
+    name: "{{ forge_contributor_apt_packages }}"
+    state: present
+
+- name: Download Lima
+  ansible.builtin.get_url:
+    url: "{{ forge_contributor_lima_url }}"
+    dest: "/var/tmp/lima-{{ forge_contributor_lima_version }}.tar.gz"
+    checksum: "sha256:{{ forge_contributor_lima_sha256 }}"
+    mode: "0644"
+
+- name: Unpack Lima under /usr/local (bin/ and share/lima go together)
+  ansible.builtin.unarchive:
+    src: "/var/tmp/lima-{{ forge_contributor_lima_version }}.tar.gz"
+    dest: /usr/local
+    remote_src: true
+
+- name: Download Betterleaks
+  ansible.builtin.get_url:
+    url: "{{ forge_contributor_betterleaks_url }}"
+    dest: "/var/tmp/betterleaks-{{ forge_contributor_betterleaks_version }}.tar.gz"
+    checksum: "sha256:{{ forge_contributor_betterleaks_sha256 }}"
+    mode: "0644"
+
+- name: Install the betterleaks binary
+  ansible.builtin.unarchive:
+    src: "/var/tmp/betterleaks-{{ forge_contributor_betterleaks_version }}.tar.gz"
+    dest: /usr/local/bin
+    remote_src: true
+    include: [betterleaks]
+
+# vm-test.sh --lima runs QEMU with KVM as the forge user. site.yml sets that
+# user's groups exactly, kvm included through forge_users_extra_groups (which
+# forge cloud create writes in the inventory): adding it here would remove and
+# re-add it on every run. Only checked.
+- name: Read the kvm group
+  ansible.builtin.getent:
+    database: group
+    key: kvm
+    fail_key: false
+
+- name: Check the forge user can use /dev/kvm
+  ansible.builtin.assert:
+    that:
+      - getent_group.kvm is not none
+      - forge_contributor_user in getent_group.kvm[2].split(',')
+    fail_msg: >-
+      {{ forge_contributor_user }} is not in the kvm group, which
+      ansible/tests/vm-test.sh --lima needs: set forge_users_extra_groups: [kvm]
+      in the inventory's vars.
+    quiet: true

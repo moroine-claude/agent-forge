@@ -14,7 +14,9 @@ const q = (s: string): string => JSON.stringify(s);
 
 export function renderInventory(
   h: LaptopHost,
-  o: { forgeKey: string; adminKeyFile: string; knownHosts: string },
+  o: { forgeKey: string; adminKeyFile: string; knownHosts: string;
+    contributor?: { upstream: string; fork: string; gitName: string; gitEmail: string };
+  },
 ): string {
   // Two splits: Ansible splits ansible_ssh_common_args with shlex, then ssh
   // splits each -o value again, like a config line. A path or a socket is
@@ -22,6 +24,10 @@ export function renderInventory(
   const path = (name: string, v: string): string => `-o ${shellQuote(sshOption(name, v))}`;
   const args = ["-o IdentitiesOnly=yes", path("UserKnownHostsFile", o.knownHosts)];
   if (h.kind === "lima") args.push(`-o HostKeyAlias=${HOST_KEY_ALIAS}`, "-o StrictHostKeyChecking=accept-new");
+  // Ansible connects by address, not by the alias whose ForwardAgent no would
+  // apply: a Host * of ~/.ssh/config must not forward the agent to the dev VM
+  // (a -o on the command line wins over the config files).
+  if (h.kind === "cloud") args.push("-o ForwardAgent=no");
   if (h.identityAgent) args.push(path("IdentityAgent", h.identityAgent));
   // No ansible_port for a remote host: an explicit one would stop the preflight
   // from probing forge_ssh_port, locking out a developer who edits it. Lima
@@ -42,6 +48,17 @@ export function renderInventory(
     `      ansible_ssh_common_args: ${q(args.join(" "))}`,
     "  vars:",
     `    forge_exposure: ${q(h.exposure)}`,
+    ...(o.contributor
+      ? [
+        `    forge_contributor_upstream: ${q(o.contributor.upstream)}`,
+        `    forge_contributor_fork: ${q(o.contributor.fork)}`,
+        `    forge_contributor_git_name: ${q(o.contributor.gitName)}`,
+        `    forge_contributor_git_email: ${q(o.contributor.gitEmail)}`,
+      ]
+      : []),
+    // site.yml sets the forge user's groups exactly; vm-test.sh --lima on the
+    // dev VM runs QEMU with KVM as that user.
+    ...(h.kind === "cloud" ? ['    forge_users_extra_groups: ["kvm"]'] : []),
     "    forge_users:",
     `      - name: ${q(h.user)}`,
     "        ssh_keys:",
