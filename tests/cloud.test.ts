@@ -1,6 +1,6 @@
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cmdCloud } from "../cli/lib/commands/cloud.ts";
@@ -8,6 +8,7 @@ import { ForgeError } from "../cli/lib/context.ts";
 import { loadCloudSettings, saveCloudSettings, type CloudSettings } from "../cli/lib/laptop/cloud.ts";
 import { forgeKeyPath, hostDir, knownHostsPath, loadHosts, saveHost, type InstallStep, type LaptopHost } from "../cli/lib/laptop/state.ts";
 import { fakeContext, type ExecRule, type FakeContext } from "./lib/fake-context.ts";
+import { hostKeyOf, withKnownHosts } from "./lib/fake-known-hosts.ts";
 
 // Every laptop path lives in a temporary home, like install.test.ts.
 const ENV: Record<string, string> = {
@@ -30,11 +31,14 @@ afterEach(() => {
 const CHECKOUT = "/src/agent-forge";
 const KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKeyOne alice@laptop";
 const HEAD = "1111111111111111111111111111111111111111";
-const CLOUD_ALL: InstallStep[] = ["vm", "inventory", "playbook", "ssh", "claude"];
+const CLOUD_ALL: InstallStep[] = ["vm", "inventory", "playbook", "ssh", "claude", "relay"];
+// A classic token's shape, built here so that no secret scanner takes this file for a leak.
+const BOT_TOKEN = `ghp_${"Ab3".repeat(12)}`;
 const SETTINGS: CloudSettings = {
   awsProfile: "forge-dev", region: "eu-west-3", instanceType: "m7i.2xlarge", diskGb: 200, budgetUsd: 60,
   alertEmail: "ops@example.com", upstream: "example/agent-forge", fork: "bot-example/agent-forge",
   botName: "Example Bot", botEmail: "1+bot-example@users.noreply.github.com", sshCidr: "192.0.2.9/32",
+  trustedLogins: ["maintainer-example"], coAuthorEmails: ["noreply@anthropic.com"],
 };
 const RULES: ExecRule[] = [
   { match: "tofu version", stdout: "OpenTofu v1.10.0\n" },
@@ -42,7 +46,10 @@ const RULES: ExecRule[] = [
   { match: "describe-instance-types", stdout: '["nested-virtualization"]' },
   { match: "checkip.amazonaws.com", stdout: "198.51.100.7\n" },
   { match: "show -json", stdout: '{"resource_changes":[{"address":"aws_ec2_instance_state.dev","change":{"actions":["update"]}}]}' },
-  { match: "output -raw address", stdout: "203.0.113.20\n" },
+  { match: " output -json", stdout: JSON.stringify({
+    address: { value: "203.0.113.20" }, relay_address: { value: "203.0.113.21" },
+    relay_private_ip: { value: "10.100.1.11" }, subnet_cidr: { value: "10.100.1.0/24" },
+  }) },
   { match: "ssh-keyscan", stdout: "203.0.113.20 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHostKey\n" },
   { match: "'test' '-s' '.config/agent-forge/claude-token'", code: 1 },
   { match: "ssh-add -L", stdout: `${KEY}\n` },
@@ -50,13 +57,17 @@ const RULES: ExecRule[] = [
   { match: `git -C ${CHECKOUT} rev-parse HEAD`, stdout: `${HEAD}\n` },
 ];
 const host = (o: Partial<LaptopHost> = {}): LaptopHost => ({
-  name: "forge-dev", kind: "cloud", address: "203.0.113.20", port: 22, user: "alice", admin: "ubuntu",
-  adminKey: forgeKeyPath("forge-dev"), exposure: "public", done: CLOUD_ALL, ...o,
+  name: "forge-dev", kind: "cloud", address: "203.0.113.20", relayAddress: "203.0.113.21", port: 22, user: "alice",
+  admin: "ubuntu", adminKey: forgeKeyPath("forge-dev"), exposure: "public", done: CLOUD_ALL, ...o,
 });
+// Both VMs reached: forge's known_hosts holds their keys.
 function install(h: LaptopHost = host()): void {
   saveHost(h);
   saveCloudSettings(h.name, SETTINGS);
   writeFileSync(forgeKeyPath(h.name), `${KEY}\n`);
+  writeFileSync(knownHostsPath(), `203.0.113.20 ${hostKeyOf("203.0.113.20")}\n203.0.113.21 ${hostKeyOf("203.0.113.21")}\n`);
+  // OpenTofu's state, as the first apply left it.
+  writeFileSync(join(hostDir(h.name), "terraform.tfstate"), "{}\n");
 }
 // `ssh -G <alias>` as ssh answers it once forge's file is included: that file's block for the alias.
 function sshG(name: string): string {
@@ -71,19 +82,24 @@ function sshG(name: string): string {
     return [`${m[1].toLowerCase()} ${m[1] === "HostName" ? v.toLowerCase() : v}`];
   }).join("\n") + "\n";
 }
-function laptop(o: { answers?: (number | string | null)[] } = {}): FakeContext {
-  const ctx = fakeContext({ rules: RULES, answers: o.answers });
+function laptop(o: { answers?: (number | string | null)[]; rules?: ExecRule[] } = {}): FakeContext {
+  const ctx = fakeContext({ rules: [...(o.rules ?? []), ...RULES], answers: o.answers });
   const exec = ctx.exec;
   ctx.exec = async (argv, opts) => {
-    if (argv[0] === "ssh" && argv[1] === "-G") { ctx.calls.push(argv); return { code: 0, stdout: sshG(argv[2]), stderr: "" }; }
+    if (argv[0] === "ssh" && argv[1] === "-G") {
+      ctx.calls.push(argv);
+      ctx.execOptions.push(opts);
+      return { code: 0, stdout: sshG(argv[2]), stderr: "" };
+    }
     return exec(argv, opts);
   };
-  return ctx;
+  return withKnownHosts(ctx, knownHostsPath);
 }
 const called = (ctx: FakeContext) => ctx.calls.map((c) => c.join(" "));
 const attached = (ctx: FakeContext) => ctx.attachCalls.map((a) => a.argv.join(" "));
 const noWait = async (): Promise<void> => {};
 const tfvars = () => JSON.parse(readFileSync(join(hostDir("forge-dev"), "tofu.tfvars.json"), "utf8"));
+const metadataFlags = (): unknown[] => [tfvars().dev_metadata_enabled, tfvars().relay_metadata_enabled];
 
 test("start: records this machine's address, starts the VM, waits for SSH, opens herdr", async () => {
   install();
@@ -100,6 +116,7 @@ test("start: records this machine's address, starts the VM, waits for SSH, opens
   assert.equal(loadCloudSettings("forge-dev").sshCidr, "198.51.100.7/32");
   assert.equal(tfvars().running, true);
   assert.equal(tfvars().ssh_cidr, "198.51.100.7/32");
+  assert.deepEqual(metadataFlags(), [false, false]);
   assert.deepEqual(slept, [5000, 5000]);
   assert.equal(attached(ctx).at(-1), "herdr --remote forge-dev --remote-keybindings server");
 });
@@ -118,6 +135,7 @@ test("stop: stops the VM with the saved address, without looking up this machine
   assert.equal(await cmdCloud(ctx, "stop", { checkout: CHECKOUT, sleep: noWait }), 0);
   assert.equal(tfvars().running, false);
   assert.equal(tfvars().ssh_cidr, "192.0.2.9/32");
+  assert.deepEqual(metadataFlags(), [false, false]);
   assert.ok(!called(ctx).some((c) => c.includes("checkip")));
   assert.ok(ctx.out_lines.some((l) => /disks are kept/.test(l)), ctx.out_lines.join("\n"));
 });
@@ -131,28 +149,98 @@ test("rebuild: refused without confirmation, nothing touched", async () => {
 
 test("rebuild: replaces the instance, forgets both host keys, installs again", async () => {
   install();
-  writeFileSync(knownHostsPath(), "forge-dev ssh-ed25519 AAAA\n");
-  // Confirm, accept the SSH Include, the Claude token, decline the link and herdr's notifications.
-  const ctx = laptop({ answers: [1, 1, "tok-abc", 2, 2] });
+  appendFileSync(knownHostsPath(), "forge-dev ssh-ed25519 AAAA\n");
+  // Confirm, accept the SSH Include, the Claude token, keep the bot's token,
+  // decline the link and herdr's notifications.
+  const ctx = laptop({ answers: [1, 1, "tok-abc", 1, 2, 2] });
+  // The variables of the replacing apply, read as it runs: the install's own apply rewrites them.
+  let replacing: unknown[] = [];
+  const attach = ctx.attach;
+  ctx.attach = async (argv, o) => {
+    if (argv.includes("-replace=aws_instance.dev")) replacing = metadataFlags();
+    return attach(argv, o);
+  };
   assert.equal(await cmdCloud(ctx, "rebuild", { checkout: CHECKOUT, sleep: noWait }), 0);
   const replace = attached(ctx).findIndex((a) => a.startsWith("tofu ") && a.includes("apply") && a.includes("-replace=aws_instance.dev"));
   assert.ok(replace >= 0, attached(ctx).join("\n"));
+  // The new dev VM's cloud-init needs its metadata service; the relay's stays off.
+  assert.deepEqual(replacing, [true, false]);
   const keygen = called(ctx).filter((c) => c.startsWith("ssh-keygen -R"));
   assert.deepEqual(keygen.map((c) => c.split(" ")[2]), ["forge-dev", "203.0.113.20"]);
   assert.ok(keygen.every((c) => c.endsWith(knownHostsPath())));
   assert.ok(attached(ctx).some((a) => a.includes("contributor.yml")));
+  // The relay, reached already, keeps its metadata service off.
+  assert.deepEqual(metadataFlags(), [true, false]);
   assert.deepEqual(loadHosts()[0].done, CLOUD_ALL);
+});
+
+// Installed before the relay existed: OpenTofu creates the relay in the
+// rebuild's own apply, whose cloud-init needs the metadata service.
+test("rebuild of a host with no relay yet creates the relay with its metadata service on", async () => {
+  install(host({ done: ["vm", "inventory", "playbook", "ssh", "claude"], relayAddress: undefined }));
+  // Confirm, accept the SSH Include, the Claude token, the bot's token, decline the link and herdr's notifications.
+  const ctx = laptop({ answers: [1, 1, "tok-abc", BOT_TOKEN, 2, 2], rules: [{ match: "'sudo' 'test' '-s' '/etc/forge-relay/github-token'", code: 1 }] });
+  let replacing: unknown[] = [];
+  const attach = ctx.attach;
+  ctx.attach = async (argv, o) => {
+    if (argv.includes("-replace=aws_instance.dev")) replacing = metadataFlags();
+    return attach(argv, o);
+  };
+  assert.equal(await cmdCloud(ctx, "rebuild", { checkout: CHECKOUT, sleep: noWait }), 0);
+  assert.deepEqual(replacing, [true, true]);
+  assert.equal(loadHosts()[0].relayAddress, "203.0.113.21");
+  assert.deepEqual(loadHosts()[0].done, CLOUD_ALL);
+});
+
+test("rebuild-relay replaces only the relay and redoes the playbook and the relay step", async () => {
+  install();
+  // Confirm, accept the SSH Include, paste the new token, decline the link and herdr's notifications.
+  const ctx = laptop({ answers: [1, 1, BOT_TOKEN, 2, 2], rules: [{ match: "'sudo' 'test' '-s' '/etc/forge-relay/github-token'", code: 1 }] });
+  // Each apply's variables and the steps recorded then, read as it runs.
+  const applies: { argv: string; metadata: unknown[]; done: InstallStep[] }[] = [];
+  const attach = ctx.attach;
+  ctx.attach = async (argv, o) => {
+    if (argv[0] === "tofu") applies.push({ argv: argv.join(" "), metadata: metadataFlags(), done: loadHosts()[0].done });
+    return attach(argv, o);
+  };
+  assert.equal(await cmdCloud(ctx, "rebuild-relay", { checkout: CHECKOUT, sleep: noWait }), 0);
+  // The new relay's cloud-init needs its metadata service; the dev VM's stays off.
+  assert.ok(applies[0].argv.includes("-replace=aws_instance.relay"), applies[0].argv);
+  assert.deepEqual(applies[0].metadata, [false, true]);
+  assert.ok(!called(ctx).some((c) => c.includes("aws_instance.dev")), called(ctx).join("\n"));
+  // Only the relay's key is forgotten, then asked about again.
+  assert.deepEqual(called(ctx).filter((c) => c.startsWith("ssh-keygen -R")).map((c) => c.split(" ")[2]), ["203.0.113.21"]);
+  assert.ok(attached(ctx).some((a) => a.endsWith("ubuntu@203.0.113.21 true")), attached(ctx).join("\n"));
+  assert.ok(!attached(ctx).some((a) => a.endsWith("ubuntu@203.0.113.20 true")), attached(ctx).join("\n"));
+  assert.match(readFileSync(knownHostsPath(), "utf8"), /^203\.0\.113\.20 /m);
+  // The install starts again without the playbook and the relay step.
+  assert.deepEqual(applies[1].done, ["vm", "inventory", "ssh", "claude"]);
+  assert.ok(attached(ctx).some((a) => a.includes("contributor.yml")) && attached(ctx).some((a) => a.includes("relay.yml")));
+  assert.ok(called(ctx).some((c) => c.includes("cat > /etc/forge-relay/github-token.new")), called(ctx).join("\n"));
+  assert.deepEqual(loadHosts()[0].done, CLOUD_ALL);
+  // Last, the rotation runbook: the old credentials still work on GitHub.
+  const runbook = ctx.out_lines.slice(-5).join("\n");
+  assert.match(runbook, /revoke the old token/);
+  assert.match(runbook, /remove both old keys, the authentication key and the signing key/);
+  assert.match(runbook, /register the two new keys/);
 });
 
 test("create --host updates the listed cloud host, create alone starts a new one", async () => {
   install();
-  const ctx = laptop({ answers: [1, 2, 2] });
+  // The Include accepted, the stored bot token kept, the link and herdr's notifications declined.
+  const ctx = laptop({ answers: [1, 1, 2, 2] });
   assert.equal(await cmdCloud(ctx, "create", { host: "forge-dev", checkout: CHECKOUT, sleep: noWait }), 0);
   // What start and stop refuse to apply, create --host shows and applies.
   const apply = attached(ctx).findIndex((a) => a.startsWith("tofu ") && a.includes(" apply ") && !a.includes("-replace"));
   assert.ok(apply >= 0, attached(ctx).join("\n"));
   assert.ok(apply < attached(ctx).findIndex((a) => a.includes("contributor.yml")), attached(ctx).join("\n"));
-  assert.ok(!attached(ctx).some((a) => a.includes("ubuntu@")), attached(ctx).join("\n"));
+  // No first connection again.
+  assert.ok(!attached(ctx).some((a) => /ubuntu@\S+ true$/.test(a)), attached(ctx).join("\n"));
+  // The relay step runs again: this is how a revoked bot token is replaced.
+  assert.ok(ctx.err_lines.some((l) => l.startsWith("A bot token is already stored on the relay> ")), ctx.err_lines.join("\n"));
+  assert.ok(attached(ctx).some((a) => a.endsWith("ubuntu@203.0.113.21 -- 'sudo' '-u' 'forge-relay' '/usr/local/bin/forge-relay' 'setup'")),
+    attached(ctx).join("\n"));
+  assert.deepEqual(loadHosts()[0].done, CLOUD_ALL);
 
   // No --host: the first question of a new cloud host (its name), unanswered here.
   const fresh = fakeContext({ rules: RULES, answers: [] });
@@ -175,11 +263,17 @@ test("no cloud host: start fails, and a remote host is never offered", async () 
   assert.ok(!existsSync(join(hostDir("forge-acme"), "tofu.tfvars.json")));
 });
 
-// An unfinished install (the token never pasted, say) has nothing start or
-// stop should touch on their own: the install resumes first.
-test("start and stop refuse a host whose install is not finished, before any command", async () => {
-  install(host({ done: ["vm", "inventory", "playbook", "ssh"] }));
-  for (const sub of ["start", "stop"]) {
+// An unfinished install (the token never pasted, say) has nothing start
+// should touch on its own: the install resumes first. Stop needs only what
+// OpenTofu acts on: its state, and the SSH address its variables carry.
+test("start refuses an unfinished install, stop a host with no OpenTofu state or no SSH address, before any command", async () => {
+  const cases: [string, () => void][] = [
+    ["start", () => install(host({ done: ["vm", "inventory", "playbook", "ssh"] }))],
+    ["stop", () => { install(); rmSync(join(hostDir("forge-dev"), "terraform.tfstate")); }],
+    ["stop", () => { install(); saveCloudSettings("forge-dev", { ...SETTINGS, sshCidr: undefined }); }],
+  ];
+  for (const [sub, prepare] of cases) {
+    prepare();
     const ctx = fakeContext({ rules: RULES });
     await assert.rejects(cmdCloud(ctx, sub, { checkout: CHECKOUT, sleep: noWait }), (e: Error) =>
       e instanceof ForgeError && /forge cloud create --host forge-dev/.test(e.message), sub);
@@ -187,8 +281,27 @@ test("start and stop refuse a host whose install is not finished, before any com
   }
 });
 
-test("an unknown subcommand lists the four", async () => {
+// Running instances cost money: whatever step an install or an update
+// stopped at (the SSH wait of a first create, the relay step, the reinstall
+// of a rebuild), stop stops them once OpenTofu's state exists.
+test("stop: a host whose install recorded no step is stopped", async () => {
+  install(host({ done: [] }));
+  const ctx = fakeContext({ rules: RULES });
+  assert.equal(await cmdCloud(ctx, "stop", { checkout: CHECKOUT, sleep: noWait }), 0);
+  assert.equal(tfvars().running, false);
+});
+
+// Installed before the relay existed: forge cloud create --host adds it first.
+test("start refuses a host whose install lacks the relay step", async () => {
+  install(host({ done: ["vm", "inventory", "playbook", "ssh", "claude"], relayAddress: undefined }));
+  const ctx = fakeContext({ rules: RULES });
+  await assert.rejects(cmdCloud(ctx, "start", { checkout: CHECKOUT, sleep: noWait }), (e: Error) =>
+    e instanceof ForgeError && /forge cloud create --host forge-dev/.test(e.message));
+  assert.deepEqual(ctx.calls, []);
+});
+
+test("an unknown subcommand lists the five", async () => {
   const ctx = fakeContext();
-  await assert.rejects(cmdCloud(ctx, "nope"), /create\|start\|stop\|rebuild/);
-  await assert.rejects(cmdCloud(ctx, undefined), /create\|start\|stop\|rebuild/);
+  await assert.rejects(cmdCloud(ctx, "nope"), /create\|start\|stop\|rebuild\|rebuild-relay/);
+  await assert.rejects(cmdCloud(ctx, undefined), /create\|start\|stop\|rebuild\|rebuild-relay/);
 });

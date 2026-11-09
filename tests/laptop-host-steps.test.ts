@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { createContext, ForgeError } from "../cli/lib/context.ts";
 import type { Context } from "../cli/lib/context.ts";
 import {
-  ensureClaudeLogin, ensureClaudeToken, ensureGitIdentity, ensureImage, imageDecision, runSetup,
+  ensureClaudeLogin, ensureClaudeToken, ensureGitIdentity, ensureImage, ensureRelayCredentials, imageDecision, runSetup,
 } from "../cli/lib/laptop/host-steps.ts";
 import type { LaptopHost } from "../cli/lib/laptop/state.ts";
 import { fakeContext } from "./lib/fake-context.ts";
@@ -119,6 +119,43 @@ test("an empty or malformed Claude token is refused, without quoting it, and not
       e instanceof ForgeError && !e.message.includes("s3cr3t"), String(answer));
     assert.equal(ctx.calls.length, 1, String(answer));
   }
+});
+
+// A fine-grained token cannot fork for the bot nor be scoped as the relay
+// needs: only a classic one passes, and the refusal never quotes it.
+test("the relay step refuses a token that is not a classic one, and never prints it", async () => {
+  const cloud: LaptopHost = { ...host, name: "forge-dev", kind: "cloud", relayAddress: "203.0.113.21" };
+  const fineGrained = `github_pat_${"Xy7".repeat(10)}`;
+  const ctx = fakeContext({ rules: [{ match: "'sudo' 'test' '-s' '/etc/forge-relay/github-token'", code: 1 }], answers: [fineGrained] });
+  await assert.rejects(ensureRelayCredentials(ctx, cloud), (e: Error) =>
+    e instanceof ForgeError && /classic/.test(e.message) && !e.message.includes(fineGrained));
+  assert.ok(![...ctx.out_lines, ...ctx.err_lines].some((l) => l.includes(fineGrained)));
+  assert.ok(!ctx.calls.some((c) => c.join(" ").includes(fineGrained)));
+  // Nothing written, no setup.
+  assert.equal(ctx.calls.length, 1);
+  assert.equal(ctx.attachCalls.length, 0);
+});
+
+// A stored token may be one the relay's setup refused (wrong scopes, another
+// account) or one revoked since: the next run offers to replace it.
+test("a token already on the relay can be replaced: the new one goes on stdin, neither is printed", async () => {
+  const cloud: LaptopHost = { ...host, name: "forge-dev", kind: "cloud", relayAddress: "203.0.113.21" };
+  const fresh = `ghp_${"Cd4".repeat(12)}`;
+  const ctx = fakeContext({ rules: [{ match: "'sudo' 'test' '-s' '/etc/forge-relay/github-token'", code: 0 }], answers: [2, fresh] });
+  assert.equal(await ensureRelayCredentials(ctx, cloud), "stored");
+  assert.ok(ctx.err_lines.includes("A bot token is already stored on the relay> [keep it | paste a new one]"), ctx.err_lines.join("\n"));
+  const i = ctx.calls.findIndex((c) => c.join(" ").includes("github-token.new"));
+  assert.ok(i > 0, ctx.calls.map((c) => c.join(" ")).join("\n"));
+  assert.deepEqual(ctx.execOptions[i], { input: `${fresh}\n` });
+  // The stored token is never read; the new one is in no argv and no printed line.
+  assert.ok(!ctx.calls.some((c) => c.join(" ").includes(fresh) || c.join(" ").includes("cat /etc/forge-relay")));
+  assert.ok(![...ctx.out_lines, ...ctx.err_lines].some((l) => l.includes(fresh)));
+  assert.match(ctx.attachCalls[0].argv.join(" "), /'\/usr\/local\/bin\/forge-relay' 'setup'$/);
+  // The steps ask for the token the relay's setup takes, and name both keys it prints.
+  const steps = ctx.out_lines.join("\n");
+  assert.match(steps, /token with only the public_repo scope, and no expiration/);
+  assert.doesNotMatch(steps, /workflow/);
+  assert.match(steps, /Authentication Key.*\n?.*Signing Key/);
 });
 
 test("runSetup attaches forge setup and fails on a non-zero code", async () => {

@@ -1,0 +1,242 @@
+import { test, beforeEach, afterEach } from "node:test";
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { parseRelayConfig } from "../cli/lib/relay/config.ts";
+import type { GitHub } from "../cli/lib/relay/github.ts";
+import { RELAY_PATHS } from "../cli/lib/relay/paths.ts";
+import type { RelayDeps } from "../cli/lib/relay/publish.ts";
+import { serve } from "../cli/lib/relay/serve.ts";
+import { withState } from "../cli/lib/relay/state.ts";
+import { hybridContext } from "./lib/git-layout.ts";
+import type { FakeContext } from "./lib/fake-context.ts";
+
+const fakeBetterleaks = path.join(import.meta.dirname, "fixtures", "fake-betterleaks");
+const HEAD = "0123456789abcdef0123456789abcdef01234567";
+// GitHub's IDs as they are now: a review comment's near 2e9, an Actions job's past 1e10.
+const COMMENT_ID = 2_874_512_345;
+const JOB_ID = 41_234_567_890;
+
+let root: string;
+let calls: string[];
+let ctx: FakeContext;
+let d: RelayDeps;
+let finding: string | null;
+
+// A GitHub that records every call and answers what the bot's own pull
+// request 7 needs.
+const github: GitHub = {
+  async request(method, p) {
+    calls.push(`${method} ${p}`);
+    const ok = (json: unknown) => ({ status: 200, headers: new Headers(), json, text: "" });
+    if (method === "GET" && p === "/repos/acme/widgets/pulls/7") return ok({ user: { login: "bot" }, head: { sha: HEAD, repo: { full_name: "bot/widgets" } } });
+    if (method === "POST" && p === "/repos/acme/widgets/issues/7/comments") return ok({ html_url: "https://github.com/acme/widgets/pull/7#c1" });
+    if (method === "POST" && p === "/repos/acme/widgets/pulls") return ok({ number: 8, html_url: "https://github.com/acme/widgets/pull/8" });
+    if (method === "GET" && p === `/repos/acme/widgets/pulls/comments/${COMMENT_ID}`) return ok({ pull_request_url: "https://api.github.com/repos/acme/widgets/pulls/7" });
+    if (method === "POST" && p === `/repos/acme/widgets/pulls/7/comments/${COMMENT_ID}/replies`) return ok({ html_url: "https://github.com/acme/widgets/pull/7#r1" });
+    if (method === "GET" && p.startsWith(`/repos/acme/widgets/commits/${HEAD}/check-runs`)) return ok({ check_runs: [{ id: JOB_ID, name: "test", status: "completed", conclusion: "failure" }] });
+    if (method === "GET" && p === `/repos/acme/widgets/actions/jobs/${JOB_ID}/logs`) return { status: 200, headers: new Headers(), json: null, text: "the log\n" };
+    return { status: 599, headers: new Headers(), json: null, text: "" };
+  },
+};
+
+beforeEach(() => {
+  root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "forge-relay-serve-")));
+  const bin = path.join(root, "bin");
+  fs.mkdirSync(bin);
+  fs.symlinkSync(fakeBetterleaks, path.join(bin, "betterleaks"));
+  finding = null;
+  ctx = hybridContext();
+  const exec = ctx.exec;
+  ctx.exec = (argv, o) => exec(argv, { ...o, env: { PATH: `${bin}:${process.env.PATH}`, FAKE_BL_LOG: path.join(root, "bl.log"), ...(finding === null ? {} : { FAKE_BL_FIND: "1", FAKE_BL_FIND_ON: finding }), ...o?.env } });
+  calls = [];
+  const stateDir = path.join(root, "state");
+  const mirror = path.join(root, "mirror.git");
+  fs.mkdirSync(stateDir);
+  execFileSync("git", ["init", "-q", "--bare", mirror]);
+  d = {
+    ctx,
+    cfg: parseRelayConfig({
+      upstream: "acme/widgets", fork: "bot/widgets", botLogin: "bot", botName: "Bot", botEmail: "1+bot@users.noreply.github.com",
+      trustedLogins: ["maint"], coAuthorEmails: ["noreply@anthropic.com"], writesPerHour: 2,
+    }),
+    paths: { ...RELAY_PATHS, mirror, stateDir, audit: path.join(root, "logs", "audit.log") },
+    github,
+    sleep: async () => {},
+    now: () => Date.now(),
+  };
+});
+afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+
+const json = (o: unknown) => Buffer.from(JSON.stringify(o));
+const answer = async (op: string, o: unknown) => {
+  const line = await serve(d, op, json(o));
+  assert.ok(line.endsWith("\n") && line.indexOf("\n") === line.length - 1, "one line");
+  return JSON.parse(line) as Record<string, unknown>;
+};
+const audit = () => fs.readFileSync(d.paths.audit, "utf8").trim().split("\n").map((l) => JSON.parse(l) as Record<string, unknown>);
+
+test("an unknown operation is refused and audited", async () => {
+  const a = await answer("merge", {});
+  assert.equal(a.ok, false);
+  assert.equal(audit().at(-1)?.outcome, "refused");
+  assert.equal((fs.statSync(d.paths.audit).mode & 0o777).toString(8), "600");
+  assert.deepEqual(calls, []);
+});
+
+test("a malformed request or an unknown field is refused, with its reason", async () => {
+  for (const [op, body, why] of [
+    ["comment", { pr: 7, body: "x", extra: 1 }, /unknown field/],
+    ["comment", { pr: "7", body: "x" }, /pr must be an integer/],
+    ["comment", { pr: 0, body: "x" }, /pr must be an integer/],
+    ["comment", { pr: 1.5, body: "x" }, /pr must be an integer/],
+    ["comment", { pr: 2e9, body: "x" }, /pr must be an integer/],
+    ["comment", { pr: 7 }, /body must be a string/],
+    ["comment", { pr: 7, body: 3 }, /body must be a string/],
+    ["ci-log", { pr: 7, job: -1 }, /job must be a positive integer/],
+    ["ci-log", { pr: 7, job: 2 ** 53 }, /job must be a positive integer/],
+    ["reply", { pr: 7, commentId: 1.5, body: "x" }, /commentId must be a positive integer/],
+    ["publish", { branch: "agent/t", bundle: "not base64!" }, /not base64/],
+    ["publish", { branch: "agent/t", bundle: "" }, /bundle is empty/],
+    ["publish", { branch: "t", bundle: "AAAA" }, /agent\/<task>/],
+  ] as [string, unknown, RegExp][]) {
+    const a = await answer(op, body);
+    assert.equal(a.ok, false, `${op} ${JSON.stringify(body)}`);
+    assert.match(String(a.error), why, `${op} ${JSON.stringify(body)}`);
+  }
+  for (const raw of ["not json", "[]", "null"]) {
+    const a = JSON.parse(await serve(d, "read", Buffer.from(raw)));
+    assert.equal(a.ok, false);
+    assert.match(a.error, /not valid JSON|must be a JSON object/);
+  }
+  assert.deepEqual(calls, []);
+});
+
+test("a text over its cap is refused at once, before the quadratic checks", async () => {
+  const t0 = Date.now();
+  const a = await answer("comment", { pr: 7, body: "-".repeat(65536) + "/" });
+  assert.equal(a.ok, false);
+  assert.match(String(a.error), /comment: longer than 10000 characters/);
+  assert.ok(Date.now() - t0 < 1000, "refused quickly");
+  assert.deepEqual(calls, []);
+});
+
+test("a comment referring to another repository is refused before any GitHub call", async () => {
+  const a = await answer("comment", { pr: 7, body: "see other/repo#3" });
+  assert.equal(a.ok, false);
+  assert.match(String(a.error), /another repository/);
+  assert.deepEqual(calls, []);
+});
+
+test("a Betterleaks finding in a pull request body refuses it before any GitHub call", async () => {
+  await withState(d.paths.stateDir, async (s) => { s.published.t = HEAD; });
+  // The fake finds only in a text holding this marker, which only the body has.
+  finding = "BODY-MARKER";
+  const a = await answer("open-pr", { branch: "agent/t", title: "title", body: "a body BODY-MARKER" });
+  assert.equal(a.ok, false);
+  assert.match(String(a.error), /Betterleaks found a possible secret in the pull request body \(rule generic-api-key\)/);
+  assert.deepEqual(calls, []);
+  // A refused request does not use the cap.
+  await withState(d.paths.stateDir, async (s) => assert.deepEqual(s.writes, []));
+});
+
+test("open-pr is refused for a branch the relay has not published", async () => {
+  const a = await answer("open-pr", { branch: "agent/t", title: "title", body: "body" });
+  assert.equal(a.ok, false);
+  assert.match(String(a.error), /has not been published/);
+  assert.deepEqual(calls, []);
+  await withState(d.paths.stateDir, async (s) => assert.deepEqual(s.writes, []));
+  // Pending is not published.
+  await withState(d.paths.stateDir, async (s) => { s.pending.t = HEAD; });
+  assert.equal((await answer("open-pr", { branch: "agent/t", title: "title", body: "body" })).ok, false);
+  assert.deepEqual(calls, []);
+});
+
+test("open-pr and comment answer on one line", async () => {
+  await withState(d.paths.stateDir, async (s) => { s.published.t = HEAD; });
+  assert.deepEqual(await answer("open-pr", { branch: "agent/t", title: "title", body: "body" }), { ok: true, number: 8, url: "https://github.com/acme/widgets/pull/8" });
+  assert.deepEqual(await answer("comment", { pr: 7, body: "hi" }), { ok: true, url: "https://github.com/acme/widgets/pull/7#c1" });
+});
+
+test("reply and ci-log take GitHub's real comment and job IDs, past 1e9", async () => {
+  assert.deepEqual(await answer("reply", { pr: 7, commentId: COMMENT_ID, body: "done" }), { ok: true, url: "https://github.com/acme/widgets/pull/7#r1" });
+  assert.deepEqual(await answer("ci-log", { pr: 7, job: JOB_ID }), { ok: true, log: "the log\n" });
+  assert.ok(calls.includes(`GET /repos/acme/widgets/actions/jobs/${JOB_ID}/logs`), calls.join("\n"));
+  assert.ok(audit().some((l) => l.commentId === COMMENT_ID) && audit().some((l) => l.job === JOB_ID));
+});
+
+test("publish attempts are capped at 60 an hour, counted before the bundle is read", async () => {
+  // A state file from before the cap, without `attempts`.
+  fs.writeFileSync(path.join(d.paths.stateDir, "state.json"), JSON.stringify({ published: {}, pending: {}, writes: [] }));
+  // Refused at GitHub (the fake knows no fork), the attempt still counts.
+  assert.equal((await answer("publish", { branch: "agent/t", bundle: "AAAA" })).ok, false);
+  await withState(d.paths.stateDir, async (s) => {
+    assert.equal(s.attempts.length, 1);
+    const now = Date.now();
+    s.attempts = Array.from({ length: 60 }, (_, i) => now - i * 1000);
+  });
+  const before = { github: calls.length, exec: ctx.calls.length };
+  const a = await answer("publish", { branch: "agent/t", bundle: "not base64!" });
+  assert.equal(a.ok, false);
+  assert.match(String(a.error), /^publish attempt cap reached: 60 in the last hour/);
+  assert.deepEqual({ github: calls.length, exec: ctx.calls.length }, before);
+});
+
+test("the write cap refuses the third comment of the hour", async () => {
+  assert.equal((await answer("comment", { pr: 7, body: "one" })).ok, true);
+  assert.equal((await answer("comment", { pr: 7, body: "two" })).ok, true);
+  const before = calls.length;
+  const a = await answer("comment", { pr: 7, body: "three" });
+  assert.equal(a.ok, false);
+  assert.match(String(a.error), /write cap reached/);
+  assert.equal(calls.length, before);
+});
+
+test("an internal error answers without its stack, which goes to the audit log", async () => {
+  d.github = { request: async () => { throw new Error("boom at /secret/place"); } };
+  const a = await answer("read", { number: 7 });
+  assert.deepEqual(a, { ok: false, error: "internal error (logged on the relay)" });
+  const last = audit().at(-1)!;
+  assert.equal(last.outcome, "error");
+  assert.equal(last.detail, "error");
+  assert.match(String(last.stack), /boom at/);
+});
+
+test("an audit failure does not hide the answer and is reported on stderr", async () => {
+  fs.writeFileSync(path.join(root, "logs"), "a file, not a directory");
+  const errs: string[] = [];
+  ctx.err = (l) => { errs.push(l); };
+  const a = await answer("comment", { pr: 7, body: "hi" });
+  assert.equal(a.ok, true);
+  assert.match(errs.join("\n"), /audit log/);
+});
+
+test("the audit log never holds the texts", async () => {
+  await serve(d, "comment", json({ pr: 7, body: "SECRET-BODY-TEXT" }));
+  await withState(d.paths.stateDir, async (s) => { s.published.t = HEAD; });
+  await serve(d, "open-pr", json({ branch: "agent/t", title: "SECRET-TITLE-TEXT", body: "SECRET-BODY-TEXT" }));
+  const log = fs.readFileSync(d.paths.audit, "utf8");
+  assert.doesNotMatch(log, /SECRET-(BODY|TITLE)-TEXT/);
+  assert.match(log, /sha256/);
+});
+
+test("the audit log holds no agent text on the refusal paths either", async () => {
+  const M = "MARKER-ghp_LEAK";
+  await answer("comment", { pr: 7, body: `see other/repo#3 ${M}` });
+  await answer("open-pr", { branch: `${M}`, title: "t", body: "b" });
+  await answer("publish", { branch: `agent/${M}/..`, bundle: "AAAA" });
+  await answer("comment", { pr: 7, body: "x", [`${M}-field`]: 1 });
+  await serve(d, `pub\u009b2J${M}`, json({}));
+  await serve(d, `${M} `, json({}));
+  await serve(d, "read", Buffer.from(M));
+  // A publish refused for authorship, past the branch check: its message quotes the agent.
+  await serve(d, "publish", json({ branch: "agent/t", bundle: Buffer.from(M).toString("base64") }));
+  const log = fs.readFileSync(d.paths.audit, "utf8");
+  assert.doesNotMatch(log, /MARKER|ghp_LEAK/);
+  const lines = audit();
+  assert.ok(lines.length >= 8);
+  for (const l of lines.slice(0, 7)) assert.ok(l.outcome === "refused" && l.detail === "refused", JSON.stringify(l));
+  assert.deepEqual(lines.filter((l) => l.op === "unknown").length, 2);
+});

@@ -1,10 +1,11 @@
-// Cloud settings of the dev VM and the OpenTofu driver behind `forge cloud` and
-// `forge install`. OpenTofu only creates cloud objects; the state and the data
-// directory live in the host's laptop state directory, never in the checkout.
+// Cloud settings of the dev VM and its relay, and the OpenTofu driver behind
+// `forge cloud` and `forge install`. OpenTofu only creates cloud objects; the
+// state and the data directory live in the host's laptop state directory, never
+// in the checkout.
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { ForgeError, mustSucceed, type Context } from "../context.ts";
-import { parseAddress } from "../ipv4.ts";
+import { parseAddress, parseCidr } from "../ipv4.ts";
 import { forgeKeyPath, hostDir } from "./state.ts";
 
 export type CloudSettings = {
@@ -20,11 +21,22 @@ export type CloudSettings = {
   botEmail: string;
   // The /32 allowed to reach SSH; `forge cloud start` sets it to this machine's address.
   sshCidr?: string;
+  // The relay's: the GitHub logins it takes the agent's instructions from, and
+  // the Co-authored-by emails it lets through. Asked by the inventory step of
+  // a host created before the relay existed, hence optional.
+  trustedLogins?: string[];
+  coAuthorEmails?: string[];
 };
 
 export type Infra = { name: string; checkout: string; settings: CloudSettings; adminKey: string };
 
 export const DEV_INSTANCE = "aws_instance.dev";
+export const RELAY_INSTANCE = "aws_instance.relay";
+
+// Whether each instance's metadata service answers. cloud-init reads the admin
+// key from it on the first boot only: an instance is created with it on, and
+// every later apply turns it off.
+export type Metadata = { dev: boolean; relay: boolean };
 
 const DEFAULT_INSTANCE_TYPE = "m7i.2xlarge";
 const DEFAULT_DISK_GB = 200;
@@ -52,9 +64,11 @@ const STR_FIELDS = ["awsProfile", "region", "instanceType", "alertEmail", "upstr
 function isSettings(v: unknown): v is CloudSettings {
   if (typeof v !== "object" || v === null) return false;
   const o = v as Record<string, unknown>;
+  const strings = (k: string) => o[k] === undefined || (Array.isArray(o[k]) && (o[k] as unknown[]).every((s) => typeof s === "string"));
   return STR_FIELDS.every((k) => typeof o[k] === "string") &&
     Number.isInteger(o.diskGb) && Number.isInteger(o.budgetUsd) &&
-    (o.sshCidr === undefined || typeof o.sshCidr === "string");
+    (o.sshCidr === undefined || typeof o.sshCidr === "string") &&
+    strings("trustedLogins") && strings("coAuthorEmails");
 }
 
 export function loadCloudSettings(name: string): CloudSettings {
@@ -117,6 +131,21 @@ export async function askCloudSettings(ctx: Context): Promise<CloudSettings> {
   return { awsProfile, region, instanceType, diskGb, budgetUsd, alertEmail, upstream, fork, botName, botEmail };
 }
 
+// GitHub's login syntax, which the relay checks again.
+const LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
+// Claude Code's commits name it as their co-author.
+const CO_AUTHOR_EMAILS = ["noreply@anthropic.com"];
+
+// The relay's settings forge cannot guess: whose GitHub comments and reviews
+// the agent acts on. The co-author emails take their default.
+export async function askRelaySettings(ctx: Context): Promise<{ trustedLogins: string[]; coAuthorEmails: string[] }> {
+  const answer = await ask(ctx, "GitHub logins the agent takes instructions from (yours), comma-separated");
+  const trustedLogins = answer.split(",").map((l) => l.trim()).filter((l) => l !== "");
+  if (trustedLogins.length === 0) throw new ForgeError("trusted logins: none given, expected your GitHub login");
+  for (const login of trustedLogins) checked("trusted login", login, (v) => LOGIN.test(v), "a GitHub login");
+  return { trustedLogins, coAuthorEmails: [...CO_AUTHOR_EMAILS] };
+}
+
 export function infraFor(name: string, checkout: string): Infra {
   const settings = loadCloudSettings(name);
   const keyPath = forgeKeyPath(name);
@@ -129,7 +158,7 @@ export function infraFor(name: string, checkout: string): Infra {
   return { name, checkout, settings, adminKey };
 }
 
-export function renderTfvars(infra: Infra, running: boolean): string {
+export function renderTfvars(infra: Infra, running: boolean, metadata: Metadata): string {
   const s = infra.settings;
   if (!s.sshCidr) throw new ForgeError("no SSH source address recorded yet; run forge cloud start to set it");
   return JSON.stringify({
@@ -143,6 +172,8 @@ export function renderTfvars(infra: Infra, running: boolean): string {
     disk_gb: s.diskGb,
     budget_usd: s.budgetUsd,
     alert_email: s.alertEmail,
+    dev_metadata_enabled: metadata.dev,
+    relay_metadata_enabled: metadata.relay,
   }, null, 2) + "\n";
 }
 
@@ -194,29 +225,34 @@ function tofuEnv(infra: Infra): Record<string, string> {
   return { ...awsEnv(infra.settings), TF_DATA_DIR: join(hostDir(infra.name), "tofu") };
 }
 
+// OpenTofu's state for a host: its local backend's file, there once an apply
+// has run.
+export const tofuStatePath = (name: string): string => join(hostDir(name), "terraform.tfstate");
+
 // Writes the variables and initializes the backend; returns the tfvars path.
-async function prepare(ctx: Context, infra: Infra, running: boolean): Promise<string> {
+async function prepare(ctx: Context, infra: Infra, running: boolean, metadata: Metadata): Promise<string> {
   const dir = hostDir(infra.name);
   const tfvars = join(dir, "tofu.tfvars.json");
-  writePrivate(tfvars, renderTfvars(infra, running));
+  writePrivate(tfvars, renderTfvars(infra, running, metadata));
   await mustSucceed("tofu init", ctx.exec(
-    tofuArgs(infra, "init", "-input=false", `-backend-config=path=${join(dir, "terraform.tfstate")}`),
+    tofuArgs(infra, "init", "-input=false", `-backend-config=path=${tofuStatePath(infra.name)}`),
     { env: tofuEnv(infra) },
   ));
   return tfvars;
 }
 
 // OpenTofu shows its plan and asks for `yes` itself.
-export async function applyInteractive(ctx: Context, infra: Infra, extra: string[] = []): Promise<void> {
-  const tfvars = await prepare(ctx, infra, true);
+export async function applyInteractive(ctx: Context, infra: Infra, metadata: Metadata, extra: string[] = []): Promise<void> {
+  const tfvars = await prepare(ctx, infra, true, metadata);
   const code = await ctx.attach(tofuArgs(infra, "apply", `-var-file=${tfvars}`, ...extra), { env: tofuEnv(infra) });
   if (code !== 0) throw new ForgeError(`tofu apply failed (exit code ${code})`);
 }
 
 type PlanChange = { address: string; change: { actions: string[]; before?: unknown; after?: unknown } };
 
-const INSTANCE_STATE = "aws_ec2_instance_state.dev";
-const SECURITY_GROUP = "aws_security_group.dev";
+const INSTANCE_STATES = ["aws_ec2_instance_state.dev", "aws_ec2_instance_state.relay"];
+const SECURITY_GROUPS = ["aws_security_group.dev", "aws_security_group.relay"];
+const INSTANCES = [DEV_INSTANCE, RELAY_INSTANCE];
 
 // JSON with sorted keys: two values are equal when their texts are.
 function canonical(v: unknown): string {
@@ -228,43 +264,74 @@ function canonical(v: unknown): string {
   return JSON.stringify(v) ?? "null";
 }
 
-// The security group's update only sets the SSH source: before and after are
-// the same once every ingress rule's cidr_blocks is left out (the rules are a
-// set, compared in any order), and every rule after it opens to `sshCidr`
-// only. An attribute OpenTofu does not know yet is missing from `after`, so
-// the two differ.
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+
+function without(o: Record<string, unknown>, key: string): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(o).filter(([k]) => k !== key));
+}
+
+// A rule that lets another security group in (the relay's, from the dev VM's).
+const fromGroup = (r: Record<string, unknown>): boolean => Array.isArray(r.security_groups) && r.security_groups.length > 0;
+
+// The security group's update only sets the maintainer's SSH source. A rule
+// from another group must stay as it is, its cidr_blocks included; every
+// other rule opens to `sshCidr` only after it, and is otherwise the same as
+// before: before and after are equal once those rules' cidr_blocks are left
+// out (the rules are a set, compared in any order). An attribute OpenTofu does
+// not know yet is missing from `after`, so the two differ.
 function setsSshSourceOnly(c: PlanChange, sshCidr: string): boolean {
   const ingress = (sg: unknown): Record<string, unknown>[] | null => {
-    if (typeof sg !== "object" || sg === null) return null;
-    const rules = (sg as Record<string, unknown>).ingress;
-    return Array.isArray(rules) && rules.every((r) => typeof r === "object" && r !== null && !Array.isArray(r))
-      ? (rules as Record<string, unknown>[]) : null;
+    if (!isRecord(sg)) return null;
+    return Array.isArray(sg.ingress) && sg.ingress.every(isRecord) ? sg.ingress : null;
   };
   const before = ingress(c.change.before);
   const after = ingress(c.change.after);
   if (!before || !after) return false;
   const withoutSources = (sg: unknown, rules: Record<string, unknown>[]): string => canonical({
     ...(sg as Record<string, unknown>),
-    ingress: rules.map((r) => canonical(Object.fromEntries(Object.entries(r).filter(([k]) => k !== "cidr_blocks")))).sort(),
+    ingress: rules.map((r) => canonical(fromGroup(r) ? r : without(r, "cidr_blocks"))).sort(),
   });
   return withoutSources(c.change.before, before) === withoutSources(c.change.after, after) &&
-    after.every((r) => canonical(r.cidr_blocks) === canonical([sshCidr]));
+    after.every((r) => fromGroup(r) || canonical(r.cidr_blocks) === canonical([sshCidr]));
 }
 
-// What start and stop apply without review: reads, no-ops, the instance's
-// state, and the SSH rule's source.
+// The instance's update only turns its metadata service off: before and after
+// are equal once metadata_options is left out, and metadata_options (a list
+// of one block) differs only in http_endpoint, from enabled to disabled.
+// Turning it back on is refused: only `forge cloud create` and `rebuild` may.
+function turnsMetadataOffOnly(c: PlanChange): boolean {
+  const { before, after } = c.change;
+  if (!isRecord(before) || !isRecord(after)) return false;
+  if (canonical(without(before, "metadata_options")) !== canonical(without(after, "metadata_options"))) return false;
+  const block = (o: Record<string, unknown>): Record<string, unknown> | null => {
+    const m = o.metadata_options;
+    return Array.isArray(m) && m.length === 1 && isRecord(m[0]) ? m[0] : null;
+  };
+  const was = block(before);
+  const is = block(after);
+  return was !== null && is !== null && was.http_endpoint === "enabled" && is.http_endpoint === "disabled" &&
+    canonical(without(was, "http_endpoint")) === canonical(without(is, "http_endpoint"));
+}
+
+// What start and stop apply without review: reads, no-ops, the instances'
+// state, the SSH rules' source, and an instance's metadata service turned off.
 function quietAction(c: PlanChange, action: string, sshCidr: string): boolean {
   if (action === "no-op" || action === "read") return true;
   if (action !== "update") return false;
-  return c.address === INSTANCE_STATE || (c.address === SECURITY_GROUP && setsSshSourceOnly(c, sshCidr));
+  if (INSTANCE_STATES.includes(c.address)) return true;
+  if (SECURITY_GROUPS.includes(c.address)) return setsSshSourceOnly(c, sshCidr);
+  if (INSTANCES.includes(c.address)) return turnsMetadataOffOnly(c);
+  return false;
 }
 
 // Start and stop run without review, so they apply only a plan that starts or
-// stops the instance and sets the SSH rule's source: a plan that would create,
-// destroy or change anything else, such as a replaced VM or a widened rule
-// after a git pull of infra/aws, is refused and left to `forge cloud create`.
+// stops the instances, sets the SSH rules' source and turns metadata services
+// off: a plan that would create, destroy or change anything else, such as a
+// replaced VM or a widened rule after a git pull of infra/aws, is refused and
+// left to `forge cloud create`. Both metadata services are off in the
+// variables, so that a start or stop never turns one on.
 export async function applyQuiet(ctx: Context, infra: Infra, running: boolean): Promise<void> {
-  const tfvars = await prepare(ctx, infra, running);
+  const tfvars = await prepare(ctx, infra, running, { dev: false, relay: false });
   const plan = join(hostDir(infra.name), "start.tfplan");
   const env = tofuEnv(infra);
   await mustSucceed("tofu plan", ctx.exec(tofuArgs(infra, "plan", "-input=false", `-var-file=${tfvars}`, `-out=${plan}`), { env }));
@@ -283,16 +350,38 @@ export async function applyQuiet(ctx: Context, infra: Infra, running: boolean): 
     const verbs = [...new Set(unsafe.flatMap(refused))].join("/");
     throw new ForgeError(
       `this checkout's infra/aws would also ${verbs} ${unsafe.map((c) => c.address).join(", ")}: ` +
-      `forge cloud start and stop only start and stop the VM and set the SSH address. ` +
+      `forge cloud start and stop only start and stop the VMs, set the SSH address and turn metadata services off. ` +
       `Run forge cloud create --host ${infra.name} to review and apply it.`,
     );
   }
   await mustSucceed("tofu apply", ctx.exec(tofuArgs(infra, "apply", "-input=false", plan), { env }));
 }
 
-export async function infraAddress(ctx: Context, infra: Infra): Promise<string> {
-  const r = await mustSucceed("tofu output", ctx.exec(tofuArgs(infra, "output", "-raw", "address"), { env: tofuEnv(infra) }));
-  const address = r.stdout.trim();
-  if (parseAddress(address) === null) throw new ForgeError(`tofu output address: "${address.slice(0, 80)}" is not an IPv4 address`);
-  return address;
+export type InfraOutputs = { address: string; relayAddress: string; relayPrivateIp: string; subnetCidr: string };
+
+// What OpenTofu created, for hosts.json, the inventories and known_hosts: an
+// output that is not an IPv4 address (a CIDR for the subnet) never gets there.
+export async function infraOutputs(ctx: Context, infra: Infra): Promise<InfraOutputs> {
+  const r = await mustSucceed("tofu output", ctx.exec(tofuArgs(infra, "output", "-json"), { env: tofuEnv(infra) }));
+  let outputs: unknown;
+  try {
+    outputs = JSON.parse(r.stdout);
+  } catch {
+    throw new ForgeError("tofu output: not readable JSON");
+  }
+  const value = (name: string, ok: (v: string) => boolean, expected: string): string => {
+    const o = isRecord(outputs) ? outputs[name] : undefined;
+    const v = isRecord(o) ? o.value : undefined;
+    if (typeof v !== "string" || !ok(v)) {
+      throw new ForgeError(`tofu output ${name}: ${(JSON.stringify(v) ?? "missing").slice(0, 80)} is not ${expected}`);
+    }
+    return v;
+  };
+  const ipv4 = (v: string) => parseAddress(v) !== null;
+  return {
+    address: value("address", ipv4, "an IPv4 address"),
+    relayAddress: value("relay_address", ipv4, "an IPv4 address"),
+    relayPrivateIp: value("relay_private_ip", ipv4, "an IPv4 address"),
+    subnetCidr: value("subnet_cidr", (v) => parseCidr(v) !== null, "an IPv4 CIDR"),
+  };
 }
