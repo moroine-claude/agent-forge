@@ -721,7 +721,8 @@ test("a host defined by hand after its install still stops at the SSH step", asy
 
 test("declining the Include stops the install, ~/.ssh/config unchanged", async () => {
   const config = join(home, ".ssh/config");
-  writeFileSync(config, "Host *\n  ServerAliveInterval 60\n", { mode: 0o644 });
+  writeFileSync(config, "Host *\n  ServerAliveInterval 60\n");
+  chmodSync(config, 0o644); // not writeFileSync's mode, which a hardened umask (027) narrows
   const ctx = laptop({ vm: null }, { answers: [2] });
   await assert.rejects(cmdInstall(ctx, OPTS), (e: Error) =>
     e instanceof ForgeError && /Include config\.d\/agent-forge\.config/.test(e.message) && /forge-local/.test(e.message));
@@ -744,7 +745,8 @@ test("an accepted Include keeps the rest of ~/.ssh/config and its mode", async (
 test("an existing Include under Match all covers forge's file: ~/.ssh/config untouched", async () => {
   const config = join(home, ".ssh/config");
   const text = 'Host *\n  IdentityAgent "/run/user agent.sock"\n\nMatch All\nInclude ~/.ssh/config.d/*.config\n';
-  writeFileSync(config, text, { mode: 0o644 });
+  writeFileSync(config, text);
+  chmodSync(config, 0o644); // not writeFileSync's mode, which a hardened umask (027) narrows
   const ctx = laptop({ vm: null }, { answers: [2] });
   assert.equal(await cmdInstall(ctx, OPTS), 0);
   assert.ok(!asked(ctx).includes(INCLUDE), asked(ctx).join("\n"));
@@ -1144,7 +1146,12 @@ test("a re-run of a finished cloud host applies OpenTofu and the playbook again,
   ]);
   // This machine's address may have moved since the last run.
   assert.equal(loadCloudSettings("forge-dev").sshCidr, "198.51.100.8/32");
-  assert.ok(called(ctx).includes("ssh-keyscan -T 5 203.0.113.20"), called(ctx).join("\n"));
+  // Installed, the host runs fail2ban in aggressive mode, which bans this
+  // machine for ssh-keyscan's connections: the wait is the admin's login.
+  assert.ok(!called(ctx).some((c) => c.startsWith("ssh-keyscan")), called(ctx).join("\n"));
+  assert.ok(called(ctx).includes(
+    `ssh -o UserKnownHostsFile=${knownHostsPath()} -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=5 ` +
+    `-o ForwardAgent=no -i ${forgeKeyPath("forge-dev")} ubuntu@203.0.113.20 true`), called(ctx).join("\n"));
   assert.ok(!called(ctx).some((c) => c.includes("claude-token")), called(ctx).join("\n"));
   assert.deepEqual(asked(ctx), [LINK, TOASTS()]);
   assert.deepEqual(loadHosts()[0].done, CLOUD_ALL);
