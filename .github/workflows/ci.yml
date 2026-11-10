@@ -1,3 +1,4 @@
+# Recette du relais (#103) : un changement de CI publié par SSH.
 # Light CI: the CLI's tests and type check, ansible-lint, a Betterleaks secret
 # scan of the commits being added, and the host
 # playbook's controller-only unit tests. The playbook's real test is
