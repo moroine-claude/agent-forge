@@ -223,3 +223,30 @@ test("a container without agent branches says so", async () => {
   assert.equal(await cmdFetch(ctx, { cwd: layout.clone }), 0);
   assert.deepEqual(listing(ctx), ["no agent branches yet"]);
 });
+
+// U+009B is the 8-bit CSI: git accepts it in a ref name, a terminal reads it as an escape.
+const CSI = "\u009b";
+
+test("a task name with a C1 control is not listed raw: it is reported once, filtered", async () => {
+  saveHost(host("forge-local"));
+  layout.commit(layout.container, "agent/login", "a.txt");
+  layout.commit(layout.container, `agent/evil${CSI}31m`, "b.txt");
+  const ctx = hybridContext({ rules: [taskBase("login\torigin/main\n")] });
+  assert.equal(await cmdFetch(ctx, { cwd: layout.clone }), 0);
+  assert.deepEqual(listing(ctx), [
+    "skipped an agent branch whose task name is not [A-Za-z0-9._-]: agent/evil31m",
+    "agent/login  1 commits on origin/main",
+  ]);
+  assert.ok(![...ctx.out_lines, ...ctx.err_lines].some((l) => l.includes(CSI)));
+});
+
+test("a tag with a C1 control is warned about without the control", async () => {
+  saveHost(host("forge-local"));
+  layout.commit(layout.container, "agent/login", "a.txt");
+  git(layout.clone, "tag", `origin/x${CSI}31m`, git(layout.clone, "rev-parse", "HEAD"));
+  const ctx = hybridContext({ rules: [taskBase("login\torigin/main\n")] });
+  assert.equal(await cmdFetch(ctx, { cwd: layout.clone }), 0);
+  assert.ok(![...ctx.out_lines, ...ctx.err_lines].some((l) => l.includes(CSI)));
+  assert.deepEqual(ctx.err_lines.filter((l) => l.startsWith("WARNING")),
+    ["WARNING: tag origin/x31m hides the branch origin/x31m in git commands: delete it with git tag -d, unless you made it (its name holds control characters)"]);
+});
