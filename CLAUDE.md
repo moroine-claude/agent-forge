@@ -102,7 +102,6 @@ profil `agent-super`) n'existe que dans la v1, sur `main`.
 Les suites restent légères.
 - Pas de tests sur le contenu de la documentation : `README.md`, `CLAUDE.md`, `container/CLAUDE.md`, `LICENSE`, `SECURITY.md`, `CONTRIBUTING.md`…
 - Pour un script (hook git, `pre-bash.sh`, scripts shell), seulement les quelques cas qui protègent un choix important : les garde-fous de sécurité, un cas nominal, un cas d'échec. Pas de balayage de cas limites : ceux-là se vérifient à la main en relecture.
-- Les tests de documentation qui existent déjà (`tests/test-readme-docs.sh`, `tests/test-claude-template.sh`) restent tant que le mainteneur ne demande pas de les retirer. Quand un changement de texte en casse une assertion, on la supprime au lieu de l'inverser.
 
 ### Sécurité
 - Ne jamais hardcoder de credentials, clés, tokens
