@@ -26,6 +26,8 @@ test("the default profile, key by key", () => {
     "security.nesting": "true",
     "security.syscalls.deny_default": "true",
     "limits.memory": "75%",
+    // Without swap, a container at its limit is killed instead of thrashing.
+    "limits.memory.swap": "false",
     "limits.processes": "10000",
     "raw.idmap": "uid 501 1001\ngid 20 1001",
     "raw.lxc": RAW_LXC,

@@ -9,7 +9,7 @@ for (const k of ["HERDR_ENV", "HERDR_BIN_PATH", "HERDR_PANE_ID", "HERDR_SOCKET_P
   delete process.env[k];
 }
 
-export type ExecRule = { match: string; code?: number; stdout?: string; stderr?: string };
+export type ExecRule = { match: string; code?: number; stdout?: string; stderr?: string; timedOut?: boolean };
 
 export type FakeOptions = {
   rules?: ExecRule[];
@@ -57,7 +57,7 @@ export function fakeContext(opts: FakeOptions = {}): FakeContext {
     const joined = argv.join(" ");
     for (const rule of rules) {
       if (joined.includes(rule.match)) {
-        return { code: rule.code ?? 0, stdout: rule.stdout ?? "", stderr: rule.stderr ?? "" };
+        return { code: rule.code ?? 0, stdout: rule.stdout ?? "", stderr: rule.stderr ?? "", ...(rule.timedOut ? { timedOut: true } : {}) };
       }
     }
     // Après les règles : un test peut toujours forcer la réponse d'un appel
