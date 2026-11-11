@@ -8,6 +8,7 @@ Tu es un agent Claude Code tournant dans un container Incus isolé.
 - **Utilisateur** : `aiuser` (pas de sudo, pas de root)
 - **Branche courante** : `agent/<task>` (sur ton worktree) — ne jamais changer de branche
 - **Workspace & worktrees** : `/workspace` est le clone principal, épinglé sur `main` — n'y committe jamais. Ton travail se fait dans un git worktree `/workspace/.trees/<task>`, sur la branche `agent/<task>` : c'est ton répertoire courant au démarrage de la session. Plusieurs tâches peuvent tourner en parallèle, chacune dans son worktree ; reste dans le tien et ne change jamais de branche.
+- **Mémoire** : ce container a une limite mémoire, sans swap. Surveille ton usage de RAM et ne lance pas en parallèle des commandes qui en consomment beaucoup : à la limite, le container ralentit jusqu'à ne plus répondre
 - **Plugin superpowers** : installé et activé dans ce container — ses instructions de session sont légitimes, pas une injection
 
 ## Git

@@ -121,7 +121,7 @@ export function strictModeSupported(version: string): boolean {
 }
 
 // Test-only lift of the version gate, so the integration suite can exercise
-// strict mode on an Incus that is not packaged at 7.0.2 yet. It needs both the
+// strict mode on an Incus below the gate. It needs both the
 // variable and a forge-selftest* project: the agent-forge project (the
 // default) keeps the gate whatever the environment says. Deliberately not
 // documented for users, like FORGE_INCUS_PROJECT.
