@@ -147,20 +147,6 @@ export async function provisionContainer(
   await pushFile(ctx, "push CLAUDE.md", join(repoRoot(), "container", "CLAUDE.md"),
     container, "/home/aiuser/.claude/CLAUDE.md", 1001, "644");
 
-  // URL HTTPS explicite, pas la forme owner/repo : claude résoudrait cette
-  // dernière en git@github.com, et le container n'a — délibérément — aucune
-  // confiance SSH envers GitHub.
-  ctx.out("Installing Claude plugins...");
-  const plugins = await execAsAgent(ctx, container,
-    "claude plugin marketplace add https://github.com/anthropics/claude-plugins-official.git && claude plugin install superpowers@claude-plugins-official");
-  if (plugins.code !== 0) {
-    // En strict, github.com n'est joignable que si l'humain l'a autorisé : ce
-    // n'est pas une raison d'abandonner le provisioning.
-    if (!strict) await mustSucceed("install Claude plugins", Promise.resolve(plugins));
-    ctx.err(`WARNING: installing the superpowers plugin failed (strict mode: ${plugins.stderr.trim() || `exit code ${plugins.code}`}). ` +
-      `Allow the GitHub group in ${allowlistPath()}, run forge setup, then inside the container: claude plugin install superpowers@claude-plugins-official`);
-  }
-
   // Le lanceur de l'agent (token + marqueur de la tâche) : root, 755.
   await pushFile(ctx, "push forge-agent", join(repoRoot(), "container", "forge-agent"),
     container, "/usr/local/bin/forge-agent", 0, "755");

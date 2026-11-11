@@ -258,14 +258,6 @@ test("provisioning prints no retrieval hint", async () => {
   assert.deepEqual(ctx.notified, []);
 });
 
-test("the plugin marketplace is added over HTTPS, never over SSH", async () => {
-  const { ctx, run } = provision();
-  await run();
-  const add = flat(ctx).find((l) => l.includes("plugin marketplace add"));
-  assert.ok(add?.includes("https://github.com/anthropics/claude-plugins-official"), add);
-  assert.ok(!add?.includes("git@github.com"), add);
-});
-
 // Kept from v1: the LFS filters are fatal, the repo's own hooks best-effort,
 // the .trees/ exclude a step of its own.
 test("failing to install the LFS filters aborts provisioning, with git's message", async () => {
@@ -424,14 +416,14 @@ test("--strict launches with every override in the same call; there is no launch
     ...strictLaunchArgs(proxyPlan("10.77.0.1/24", 0), egressNames("agent-forge"))]);
 });
 
-test("--strict applies the settings right after waitReady, before the plugin install", async () => {
+test("--strict applies the settings right after waitReady, before the token push", async () => {
   const { ctx, run } = strictProvision();
   await run();
   const calls = flat(ctx);
   const ready = calls.findIndex((l) => l.includes("is-system-running --wait"));
   const settings = calls.findIndex((l) => l.includes("file push") && l.includes("agent-x/etc/profile.d/agent-forge-proxy.sh"));
-  const plugin = calls.findIndex((l) => l.includes("claude plugin marketplace add"));
-  assert.ok(ready >= 0 && settings > ready && settings < plugin, calls.join("\n"));
+  const token = calls.findIndex((l) => l.includes("file push") && l.includes("claude-token"));
+  assert.ok(ready >= 0 && settings > ready && settings < token, calls.join("\n"));
 });
 
 for (const [what, fake] of [
@@ -446,13 +438,6 @@ for (const [what, fake] of [
   });
 }
 
-test("--strict: a failed plugin install is a warning naming the GitHub group", async () => {
-  const { fake, ctx, run } = strictProvision({ rules: [{ match: "claude plugin", code: 1, stderr: "fetch failed\n" }] });
-  await run();
-  assert.ok(ctx.err_lines.some((l) => /WARNING: .*superpowers.*fetch failed.*egress-allowlist.*forge setup/.test(l)), ctx.err_lines.join("\n"));
-  assert.equal(fake.instances.get("agent-forge")!.get("agent-x")!.config["user.forge.repo"], "o/r");
-});
-
 test("--strict: the Claude refresh reads only Anthropic's apt source", async () => {
   const { ctx, run } = strictProvision();
   await run();
@@ -461,9 +446,17 @@ test("--strict: the Claude refresh reads only Anthropic's apt source", async () 
   assert.ok(flat(ctx).some((l) => l.endsWith("-- apt-get install --only-upgrade -y claude-code")));
 });
 
+test("no plugin is installed, in either mode (DX 5 decision 15)", async () => {
+  for (const make of [provision, strictProvision]) {
+    const { ctx, run } = make();
+    await run();
+    assert.ok(!flat(ctx).some((l) => l.includes("claude plugin")), flat(ctx).join("\n"));
+  }
+});
+
 test("without --strict, provisioning is unchanged", async () => {
-  const { ctx, run } = provision({ rules: [{ match: "claude plugin", code: 1, stderr: "fetch failed\n" }] });
-  await assert.rejects(run, /install Claude plugins/);
+  const { ctx, run } = provision();
+  await run();
   assert.ok(!flat(ctx).some((l) => l.includes(" launch ") && l.includes(" -d ")));
   assert.ok(!flat(ctx).some((l) => l.includes("agent-forge-proxy.sh")));
 });

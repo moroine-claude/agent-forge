@@ -31,7 +31,8 @@ except Exception as e:
 echo "JSON validity..."
 python3 -m json.tool "$FILE" > /dev/null
 
-check "superpowers enabled" "d['enabledPlugins']['superpowers@claude-plugins-official']" "True"
+# forge enables no plugin by default (DX 5, decision 15): a role declares its own.
+check "no plugin enabled by default" "'enabledPlugins' in d" "False"
 check "pre-bash hook still wired" "d['hooks']['PreToolUse'][0]['hooks'][0]['command']" "bash /home/aiuser/.claude/hooks/pre-bash.sh"
 # The image installs claude-code from the apt `stable` repository; the update
 # notice must compare against the same channel, not `latest`.
