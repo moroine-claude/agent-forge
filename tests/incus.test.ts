@@ -112,7 +112,7 @@ test("attachArgv runs the agent command directly under incus exec", () => {
     "--user", "1001", "--group", "1001",
     "--cwd", "/workspace/.trees/cli",
     "--env", "TERM=xterm-256color",
-    "--", "bash", "-lc", "exec claude --permission-mode auto --remote-control agent-x-cli",
+    "--", "bash", "-lc", "exec forge-agent --forge-task agent-x-cli --permission-mode auto",
   ]);
   // Invariant du commit c34a145 : aucun `su` entre incus exec et l'agent.
   assert.ok(!argv.includes("su"));

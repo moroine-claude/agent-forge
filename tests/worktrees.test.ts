@@ -41,22 +41,22 @@ test("parseAgentBranches strips both agent/ and origin/agent/", () => {
 
 test("parseRunningTasks finds the tasks of this container's agents", () => {
   const ps = [
-    "claude --permission-mode auto --remote-control agent-x-cli",
-    "node /usr/lib/node_modules/@anthropic-ai/claude-code/cli.js --remote-control agent-x-docs --continue",
+    "/bin/bash /usr/local/bin/forge-agent --forge-task agent-x-cli",
+    "node /usr/lib/node_modules/@anthropic-ai/claude-code/cli.js --forge-task agent-x-docs --continue",
     "bash",
   ].join("\n");
   assert.deepEqual([...parseRunningTasks(ps, "agent-x")].sort(), ["cli", "docs"]);
 });
 
 test("parseRunningTasks ignores another container, an unsafe name and an empty name", () => {
-  assert.equal(parseRunningTasks("claude --remote-control agent-y-cli", "agent-x").size, 0);
-  assert.equal(parseRunningTasks("claude --remote-control agent-x-a;rm", "agent-x").size, 0);
-  assert.equal(parseRunningTasks("claude --remote-control agent-x-", "agent-x").size, 0);
+  assert.equal(parseRunningTasks("/bin/bash /usr/local/bin/forge-agent --forge-task agent-y-cli", "agent-x").size, 0);
+  assert.equal(parseRunningTasks("/bin/bash /usr/local/bin/forge-agent --forge-task agent-x-a;rm", "agent-x").size, 0);
+  assert.equal(parseRunningTasks("/bin/bash /usr/local/bin/forge-agent --forge-task agent-x-", "agent-x").size, 0);
   assert.equal(parseRunningTasks("", "agent-x").size, 0);
 });
 
 test("parseRunningTasks only returns names of the safe charset", () => {
-  const found = parseRunningTasks("claude --remote-control agent-x-fix.v2_1 --continue", "agent-x");
+  const found = parseRunningTasks("/bin/bash /usr/local/bin/forge-agent --forge-task agent-x-fix.v2_1 --continue", "agent-x");
   assert.deepEqual([...found], ["fix.v2_1"]);
   for (const t of found) assert.match(t, /^[A-Za-z0-9._-]+$/);
 });
@@ -77,7 +77,7 @@ test("branchExists uses show-ref's exit code as the answer", async () => {
 
 test("runningTasks probes the agent's processes and survives ps failing", async () => {
   const ok = fakeContext({
-    rules: [{ match: "ps -u 1001 -o args=", stdout: "claude --remote-control agent-x-cli\n" }],
+    rules: [{ match: "ps -u 1001 -o args=", stdout: "/bin/bash /usr/local/bin/forge-agent --forge-task agent-x-cli\n" }],
   });
   assert.deepEqual([...await runningTasks(ok, "agent-x")], ["cli"]);
   const bad = fakeContext({ rules: [{ match: "ps -u 1001", code: 1, stderr: "boom" }] });
@@ -86,7 +86,7 @@ test("runningTasks probes the agent's processes and survives ps failing", async 
 
 test("probeRunningTasks reports a failing ps instead of an empty set", async () => {
   const ok = fakeContext({
-    rules: [{ match: "ps -u 1001 -o args=", stdout: "claude --remote-control agent-x-cli\n" }],
+    rules: [{ match: "ps -u 1001 -o args=", stdout: "/bin/bash /usr/local/bin/forge-agent --forge-task agent-x-cli\n" }],
   });
   const found = await probeRunningTasks(ok, "agent-x");
   assert.ok(found.ok);

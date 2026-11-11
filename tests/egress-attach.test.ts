@@ -46,7 +46,7 @@ const lines = (c: ReturnType<typeof fakeContext>) => c.calls.map((x) => x.join("
 const started = (c: ReturnType<typeof fakeContext>, name: string) =>
   lines(c).findIndex((l) => l.endsWith(` start ${name}`));
 const proxyPush = (l: string) => l.includes("file push") && l.includes("agent-forge-proxy.sh");
-const agentRun = (l: string) => l.includes("exec claude");
+const agentRun = (l: string) => l.includes("exec forge-agent");
 
 test("ensureRunning refuses a strict container on an Incus below the gate, before any start", async () => {
   const c = fakeContext({ incus: egressFake({ mode: "strict", version: "7.0.1" }) });

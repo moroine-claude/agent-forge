@@ -78,6 +78,14 @@ test("without a token file, provisioning stops before launch", async () => {
   assert.equal(launched(ctx), false);
 });
 
+test("the forge-agent launcher is pushed, root-owned and executable", async () => {
+  const { fake, run } = provision();
+  await run();
+  const launcher = fake.files.get("agent-forge/agent-x/usr/local/bin/forge-agent");
+  assert.ok(launcher, [...fake.files.keys()].join("\n"));
+  assert.deepEqual([launcher.uid, launcher.gid, launcher.mode], ["0", "0", "755"]);
+});
+
 test("the token is pushed, mode 600, and no credentials file", async () => {
   const { fake, ctx, run } = provision();
   await run();

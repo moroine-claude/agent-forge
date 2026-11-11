@@ -42,7 +42,7 @@ test("the agent's exit code is returned", async () => {
 
 test("a second agent for the task is refused, naming the stored repo", async () => {
   const c = fakeContext({ rules: [
-    { match: "ps -u 1001 -o args=", stdout: "claude --remote-control agent-x-cli --continue\n" },
+    { match: "ps -u 1001 -o args=", stdout: "/bin/bash /usr/local/bin/forge-agent --forge-task agent-x-cli --continue\n" },
     ...BASE, { match: "test -e", code: 0 },
   ] });
   await assert.rejects(cmdAttach(c, "agent-x", "cli"), (e: Error) => e.message ===

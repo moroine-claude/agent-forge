@@ -161,6 +161,10 @@ export async function provisionContainer(
       `Allow the GitHub group in ${allowlistPath()}, run forge setup, then inside the container: claude plugin install superpowers@claude-plugins-official`);
   }
 
+  // Le lanceur de l'agent (token + marqueur de la tâche) : root, 755.
+  await pushFile(ctx, "push forge-agent", join(repoRoot(), "container", "forge-agent"),
+    container, "/usr/local/bin/forge-agent", 0, "755");
+
   // Le hook et les réglages appartiennent à root : l'agent ne peut pas les
   // réécrire en place.
   ctx.out("Installing Claude security hooks...");
