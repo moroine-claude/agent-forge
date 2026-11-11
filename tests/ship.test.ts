@@ -605,3 +605,14 @@ test("no script of the agent's tree runs through the clone's own hooks during sh
   await shipTwice();
   assert.equal(fs.existsSync(marker), false, "a script from the agent's tree ran");
 });
+
+test("a task name with a C1 control is neither proposed nor shipped, and is reported without the control", async () => {
+  const CSI = "\u009b";
+  layout.commit(layout.container, "agent/login", "a.txt");
+  layout.commit(layout.container, `agent/evil${CSI}31m`, "b.txt");
+  const ctx = hybridContext({ rules: [taskBase("login\torigin/main\n"), prs("agent/login")] });
+  await assert.rejects(shipNow(ctx, `evil${CSI}31m`), (e: Error) =>
+    e instanceof ForgeError && !e.message.includes(CSI) && /unknown task/.test(e.message));
+  assert.ok(!ctx.out_lines.concat(ctx.err_lines).some((l) => l.includes(CSI)));
+  assert.ok(ctx.out_lines.includes("skipped an agent branch whose task name is not [A-Za-z0-9._-]: agent/evil31m"));
+});

@@ -5,6 +5,8 @@ import { ensureForgeRemote, forgeRemoteHost, openClone } from "../laptop/clone.t
 import { remoteExec } from "../laptop/remote.ts";
 import { agentRef, githubRef, limitRef, refExists, resolveBase } from "../laptop/ship-plan.ts";
 import { loadHosts, selectHost, type LaptopHost } from "../laptop/state.ts";
+import { printable } from "../printable.ts";
+import { isTaskName } from "../validate.ts";
 
 export type Fetched = {
   root: string; ownerRepo: string; container: string; host: LaptopHost;
@@ -57,6 +59,22 @@ export async function fetchAgents(ctx: Context, opts: { host?: string; cwd?: str
   return { root, ownerRepo, container, host, bases };
 }
 
+// The agent's tasks in the clone: the branches refs/remotes/<container>/agent/*.
+// The agent picks those names, and git takes C1 controls in a ref name (U+009B
+// is the 8-bit CSI), so only names `forge start` could have given are kept; the
+// others are said once, filtered, and neither listed nor offered to ship.
+export async function agentTasks(
+  ctx: Context, git: (...args: string[]) => Promise<string>, container: string,
+): Promise<string[]> {
+  const prefix = `refs/remotes/${container}/agent/`;
+  const all = (await git("for-each-ref", "--format=%(refname)", prefix)).split("\n").filter(Boolean)
+    .map((r) => r.slice(prefix.length));
+  for (const name of all.filter((n) => !isTaskName(n))) {
+    ctx.out(`skipped an agent branch whose task name is not [A-Za-z0-9._-]: agent/${printable(name)}`);
+  }
+  return all.filter(isTaskName);
+}
+
 export async function cmdFetch(ctx: Context, opts: { host?: string; cwd?: string } = {}): Promise<number> {
   const { root, container, bases: recorded } = await fetchAgents(ctx, opts);
   const git = async (...args: string[]) =>
@@ -71,10 +89,16 @@ export async function cmdFetch(ctx: Context, opts: { host?: string; cwd?: string
   const shadowing = await git("for-each-ref", "--format=%(refname:strip=2)",
     "refs/tags/origin", `refs/tags/${container}`, "refs/tags/main", "refs/tags/refs");
   for (const tag of shadowing.split("\n").filter(Boolean)) {
+    // Not a name the clone's own tags would have: shown filtered, with no
+    // command to paste.
+    if (printable(tag) !== tag) {
+      ctx.err(`WARNING: tag ${printable(tag)} hides the branch ${printable(tag)} in git commands: delete it with git tag -d, unless you made it (its name holds control characters)`);
+      continue;
+    }
     ctx.err(`WARNING: tag ${tag} hides the branch ${tag} in git commands: delete it (git tag -d ${tag}) unless you made it`);
   }
 
-  const tasks = await names(`refs/remotes/${container}/agent/`);
+  const tasks = await agentTasks(ctx, git, container);
   if (tasks.length === 0) ctx.out("no agent branches yet");
   // The base as ship reads it: a tag, a SHA or a branch gone from GitHub is main, assumed.
   const known = new Set(tasks);

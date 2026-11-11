@@ -13,8 +13,10 @@ export function validateRepo(ownerRepo: string): void {
   }
 }
 
+export const isTaskName = (name: string): boolean => TASK.test(name);
+
 export function validateTaskName(name: string): void {
-  if (!TASK.test(name)) {
+  if (!isTaskName(name)) {
     throw new ForgeError(`task-name must only contain [A-Za-z0-9._-], got: ${name}`);
   }
 }

@@ -2,7 +2,7 @@
 // yet on GitHub, push agent/<task> as a fast-forward and open or find its PR.
 // A stacked task ships with the whole chain under it, bottom first.
 import { ForgeError, mustSucceed, type Context } from "../context.ts";
-import { fetchAgents } from "./fetch.ts";
+import { agentTasks, fetchAgents } from "./fetch.ts";
 import { printable } from "../printable.ts";
 import { ensurePr, prState, requireGh } from "../laptop/pr.ts";
 import { replayAndPush } from "../laptop/replay.ts";
@@ -25,7 +25,7 @@ export async function cmdShip(
   const names = async (prefix: string) =>
     (await git("for-each-ref", "--format=%(refname)", prefix)).split("\n").filter(Boolean).map((r) => r.slice(prefix.length));
 
-  const tasks = await names(`refs/remotes/${container}/agent/`);
+  const tasks = await agentTasks(ctx, git, container);
   const wanted = await pickTask(ctx, tasks, task);
 
   // A recorded base names a branch on GitHub when the fetch brought it as
@@ -136,7 +136,7 @@ async function pickTask(ctx: Context, tasks: string[], task: string | undefined)
   }
   // agent/<t> as printed by fetch and ship: task names never hold a slash.
   const name = task.replace(/^agent\//, "");
-  if (!tasks.includes(name)) throw new ForgeError(`unknown task ${task}: the agents' tasks are ${tasks.join(", ")}`);
+  if (!tasks.includes(name)) throw new ForgeError(`unknown task ${printable(task)}: the agents' tasks are ${tasks.join(", ")}`);
   return name;
 }
 
