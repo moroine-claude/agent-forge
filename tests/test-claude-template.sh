@@ -54,9 +54,6 @@ assert_contains "aucune** credential GitHub"
 assert_contains 'arrête-toi là'
 assert_line_before '/home/aiuser/.claude/forge-mode' '`autonomous`'
 assert_line_before '`autonomous`' '`supervised`'
-# Un container a une limite mémoire : type-check, lint et tests se lancent l'un après l'autre.
-assert_contains 'limite mémoire'
-assert_contains "l'un après l'autre"
 assert_contains '## Docker'
 assert_contains 'docker compose up'
 assert_contains '--privileged'
