@@ -556,3 +556,63 @@ test("start --strict on a new repo provisions it strict", async () => {
     rmSync(home, { recursive: true, force: true });
   }
 });
+
+// A container thrashing at its memory limit never OOMs: `incus exec` into it
+// stays blocked (#128). start gives those calls a deadline and says why.
+function fakeCgroup(): string {
+  const root = mkdtempSync(join(tmpdir(), "forge-cgroup-"));
+  const dir = join(root, "lxc.payload.agent-forge_agent-alice-project");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "memory.current"), `${11249 * 1048576}\n`);
+  writeFileSync(join(dir, "memory.max"), `${11250 * 1048576}\n`);
+  writeFileSync(join(dir, "memory.pressure"),
+    "some avg10=56.11 avg60=54.59 avg300=53.86 total=1\nfull avg10=51.87 avg60=50.50 avg300=49.77 total=2\n");
+  return root;
+}
+
+test("a container that does not answer fails start with its cgroup's numbers and the way out", async () => {
+  const root = fakeCgroup();
+  process.env.FORGE_CGROUP_ROOT = root;
+  try {
+    const c = fakeContext({ rules: rules([{ match: "-C /workspace fetch origin", code: 124, timedOut: true }]) });
+    await assert.rejects(() => cmdStart(c, "alice/project", "fresh"), (e: Error) => {
+      assert.match(e.message, /agent-alice-project does not answer: a command in it was stuck for 180 s/);
+      assert.match(e.message, /memory\.current 11249 MiB/);
+      assert.match(e.message, /memory\.max {5}11250 MiB/);
+      assert.match(e.message, /full avg10=51\.87/);
+      assert.match(e.message, /kill <pid>/);
+      assert.match(e.message, /incus --project agent-forge restart --force agent-alice-project/);
+      assert.match(e.message, /agent running in it is lost/);
+      return true;
+    });
+    assert.ok(!c.calls.some((call) => call.join(" ").includes("worktree add")));
+    assert.equal(c.attachCalls.length, 0);
+  } finally {
+    delete process.env.FORGE_CGROUP_ROOT;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a cgroup that cannot be read still gives the way out", async () => {
+  process.env.FORGE_CGROUP_ROOT = join(tmpdir(), "forge-no-such-cgroup");
+  try {
+    const c = fakeContext({ rules: rules([{ match: "worktree list", code: 124, timedOut: true }]) });
+    await assert.rejects(() => cmdStart(c, "alice/project", "fresh"),
+      /memory\.current unreadable[^]*restart --force agent-alice-project/);
+  } finally {
+    delete process.env.FORGE_CGROUP_ROOT;
+  }
+});
+
+test("the commands start runs in the container have a deadline, the host's and the agent's do not", async () => {
+  const c = fakeContext({ rules: rules() });
+  await cmdStart(c, "alice/project", "fresh");
+  // The agent is attached, not exec'd: it runs for as long as the session does.
+  const attached = new Set(c.attachCalls.map((a) => a.argv));
+  const execs = c.calls.map((call, i) => ({ call, line: call.join(" "), opts: c.execOptions[i] }))
+    .filter((x) => !attached.has(x.call));
+  const inContainer = execs.filter((x) => x.line.startsWith("incus --project agent-forge exec agent-alice-project"));
+  assert.ok(inContainer.length >= 3, "refresh, probes and worktree add run in the container");
+  for (const x of inContainer) assert.equal(x.opts?.timeoutMs, 180_000, x.line);
+  for (const x of execs.filter((x) => !inContainer.includes(x))) assert.equal(x.opts?.timeoutMs, undefined, x.line);
+});
