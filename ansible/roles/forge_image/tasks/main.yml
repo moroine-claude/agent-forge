@@ -23,6 +23,9 @@
 - name: Install Chrome and chrome-devtools-mcp
   ansible.builtin.import_tasks: chrome.yml
 
+- name: Install herdr-core
+  ansible.builtin.import_tasks: hc.yml
+
 - name: Install Docker
   ansible.builtin.import_tasks: docker.yml
 

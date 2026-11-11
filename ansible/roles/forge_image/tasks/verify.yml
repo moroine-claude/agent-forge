@@ -18,6 +18,20 @@
     - jq --version
   changed_when: false
 
+# As aiuser, through a login shell: proves hc is on its PATH, which the spike
+# found it was not when `hc --install` put it in ~/.local/bin.
+- name: Read the herdr-core version, as aiuser
+  ansible.builtin.command:
+    cmd: su - aiuser -c 'hc --version'
+  register: forge_image_hc_version_out
+  changed_when: false
+
+- name: Check the herdr-core version
+  ansible.builtin.assert:
+    that: forge_image_hc_version in forge_image_hc_version_out.stdout
+    fail_msg: "hc is {{ forge_image_hc_version_out.stdout }}, expected {{ forge_image_hc_version }}"
+    quiet: true
+
 - name: Read Node's major version
   ansible.builtin.command:
     cmd: node -p "process.versions.node.split('.')[0]"
