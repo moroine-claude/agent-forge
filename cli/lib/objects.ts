@@ -75,6 +75,11 @@ export function desiredProfile(cfg: ForgeConfig, ids: Ids, opts: { rawLxc: boole
     "security.nesting": "true",
     "security.syscalls.deny_default": "true",
     "limits.memory": cfg.limits.memory,
+    // Without swap, a container's anonymous memory never goes to disk, so it
+    // does not prolong the thrashing at the limit. That is not an OOM kill:
+    // the kernel still reclaims file pages (program code, read again from disk
+    // at once), and the host's memory watchdog kills the process (#126, #128).
+    "limits.memory.swap": "false",
     "limits.processes": String(cfg.limits.processes),
     // The caller (the forge user) is aiuser inside: workspace files keep
     // belonging to the caller on the host, with no shift and no chown.

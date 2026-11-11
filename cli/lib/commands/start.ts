@@ -16,6 +16,7 @@ import { runTask } from "../tabs.ts";
 import { configSet, execAsAgent, instanceExists } from "../incus.ts";
 import { agentBranches, branchExists, taskNames, worktreeAbsPath, worktreeExists } from "../worktrees.ts";
 import { egressMode } from "../strict.ts";
+import { withExecDeadline } from "../unresponsive.ts";
 import { discardHalfProvisioned, provisionContainer } from "./provision.ts";
 
 const USAGE = "Usage: forge start [--strict] <owner/repo> [<task>]";
@@ -81,10 +82,13 @@ export async function cmdStart(
   // Avant le menu, pas après : les branches d'origin qu'il propose doivent
   // être à jour. L'URL du miroir vient du repo enregistré (user.forge.repo),
   // pas de l'argument tel que tapé.
-  await refreshMain(ctx, container, await containerRepo(ctx, container), { mirror: !justCreated });
+  // From here every step runs in the container: a saturated one must not
+  // freeze start (#128).
+  const live = withExecDeadline(ctx, container);
+  await refreshMain(live, container, await containerRepo(ctx, container), { mirror: !justCreated });
 
   if (!taskName) {
-    const choice = await pickStartTask(ctx, container);
+    const choice = await pickStartTask(live, container);
     taskName = choice.task;
     ref = choice.ref;
   }
@@ -92,12 +96,12 @@ export async function cmdStart(
   validateTaskName(taskName);
   if (ref) validateGitRef(ref);
 
-  await addWorktree(ctx, container, taskName, ref);
+  await addWorktree(live, container, taskName, ref);
 
   // Les réglages stricts suivent le mode à l'attache (attachTask), dans ce
   // terminal comme dans un onglet herdr.
   ctx.out(`Attaching to ${container} session '${taskName}' as aiuser...`);
-  return runTask(ctx, { container, ownerRepo: await containerRepo(ctx, container), task: taskName });
+  return runTask(live, { container, ownerRepo: await containerRepo(ctx, container), task: taskName });
 }
 
 // Comme resolveRepo, mais avec une entrée de plus : `forge start` est la seule

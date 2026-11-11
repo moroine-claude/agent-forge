@@ -139,15 +139,13 @@ A run that fails stops with the step to fix; run `forge install` again and it
 resumes. `forge install` refuses a `forge-local` Lima VM or a `Host` entry it
 did not create, and says what to remove.
 
-On a fresh host, `forge setup` prints two notices:
+On a fresh host, `forge setup` prints one notice:
 
 ```
-NOTICE: Incus 7.0.1 is too old for strict mode, which needs 7.0.2 or later on the 7.0 LTS line ...
 NOTICE: herdr is not installed on this host yet, which is expected before your first attach ...
 ```
 
-The first goes away once Zabbly publishes Incus 7.0.2 and you update (see
-[Updating](#updating)); the second at your first `herdr --remote`.
+It goes away at your first `herdr --remote`.
 
 With a touch-to-use hardware key, a first install asks for about a dozen
 touches: one per SSH connection.
@@ -446,10 +444,17 @@ reaches nothing.
 - Docker in a strict container pulls through the proxy; builds and containers
   get no proxy unless you pass `HTTPS_PROXY` to them.
 - Strict mode needs Incus 7.0.2 or newer on the 7.0 LTS line, or 7.5.0 or
-  newer. 7.0.2 is not published yet on Zabbly's lts-7.0 channel, which the
-  playbook installs from (October 2026): until it is, `forge setup` prints a
-  notice and skips the strict objects, and `forge start --strict` is refused.
-  Re-running the playbook upgrades Incus once 7.0.2 is out.
+  newer. Zabbly's lts-7.0 channel, which the playbook installs from, has
+  published 7.0.2 since October 2026, so a host provisioned now has it. On an
+  older host, `forge setup` prints a notice and skips the strict objects, and
+  `forge start --strict` is refused:
+
+  ```
+  NOTICE: Incus 7.0.1 is too old for strict mode, which needs 7.0.2 or later on the 7.0 LTS line ...
+  ```
+
+  Re-run the playbook (see [Updating](#updating)) to upgrade Incus, then
+  `forge setup`.
 
 ### Docker, Compose and the browser
 
