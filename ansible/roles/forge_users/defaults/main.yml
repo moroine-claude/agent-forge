@@ -16,7 +16,7 @@ forge_users_nodesource_uri: https://deb.nodesource.com/node_24.x
 forge_users_claude_key_url: https://downloads.claude.ai/keys/claude-code.asc
 forge_users_claude_fingerprint: 31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE
 forge_users_claude_uri: https://downloads.claude.ai/claude-code/apt/stable
-# nodejs from NodeSource (Node 24); claude-code for `claude auth login`;
+# nodejs from NodeSource (Node 24); claude-code, the agent itself;
 # Ubuntu's ansible (with community.general) for `forge image build`.
 # nodejs carries cli/forge's floor as its minimum: with a bare name,
 # state: present would keep a Node already installed from Ubuntu (22 on

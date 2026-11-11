@@ -111,6 +111,7 @@ test("an invalid schema is a ForgeError naming the file", () => {
     [{ ...good, adminKey: undefined }],
     [{ ...good, identityAgent: 3 }],
     [{ ...good, deployed: 3 }],
+    [{ ...good, sshPersist: "8 hours" }],
     // A name that is a path would turn hostDir(name) into the state directory or outside it.
     [{ ...good, name: ".." }],
     [{ ...good, name: "../x" }],
@@ -120,6 +121,11 @@ test("an invalid schema is a ForgeError naming the file", () => {
     const path = writeState(JSON.stringify(c));
     assert.throws(() => loadHosts(), (e: unknown) => e instanceof ForgeError && (e as Error).message.includes(path));
   }
+});
+
+test("a valid sshPersist is kept", () => {
+  writeState(JSON.stringify([{ ...host("forge-acme"), sshPersist: "30m" }]));
+  assert.equal(loadHosts()[0].sshPersist, "30m");
 });
 
 test("selectHost with no host asks for forge install", async () => {

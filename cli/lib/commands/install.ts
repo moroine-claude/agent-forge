@@ -36,14 +36,14 @@ import {
 } from "../laptop/ssh-config.ts";
 import {
   forgeKeyPath, forgetHost, hostDir, inventoryPath, knownHostsPath, loadHosts, relayClientKeyPath, relayInventoryPath,
-  relayLinkPath, saveHost, selectHost, validHostName, type InstallStep, type LaptopHost,
+  PERSIST, relayLinkPath, saveHost, selectHost, validHostName, type InstallStep, type LaptopHost,
 } from "../laptop/state.ts";
 import { cmdOpen } from "./open.ts";
 
 // `lima` lets the tests skip ensureLimaVm's waits, `sleep` the wait for a
 // cloud VM's sshd. `cloud` installs a new cloud host (forge cloud create).
 export type InstallOptions = {
-  remote?: string; host?: string; cloud?: boolean; checkout?: string; lima?: LimaOptions;
+  remote?: string; host?: string; cloud?: boolean; checkout?: string; lima?: LimaOptions; sshPersist?: string;
   sleep?: (ms: number) => Promise<void>;
 };
 
@@ -89,6 +89,9 @@ const resumeCommand = (host: LaptopHost): string =>
 
 export async function cmdInstall(ctx: Context, opts: InstallOptions = {}): Promise<number> {
   const checkout = opts.checkout ?? repoRoot();
+  if (opts.sshPersist !== undefined && !PERSIST.test(opts.sshPersist)) {
+    throw new ForgeError(`--ssh-persist takes a number and s, m, h, d or w (30m, 8h, 2d), not ${opts.sshPersist}`);
+  }
   // 1-3. Which host, the laptop's tools, the key GitHub accepts.
   const target = await whichHost(ctx, opts);
   await checkPrerequisites(ctx, target.kind);
@@ -104,6 +107,13 @@ export async function cmdInstall(ctx: Context, opts: InstallOptions = {}): Promi
   if (target.kind === "lima") ({ host, vm } = await limaHost(ctx, target.listed, key, agent));
   else if (target.kind === "cloud") host = target.listed ?? (await newCloudHost(ctx, key, agent));
   else host = target.listed ?? (await newRemoteHost(ctx, target.address, key, agent));
+
+  // The shared SSH connection's duration, kept on the host record: the ssh
+  // step below writes it into forge's SSH file.
+  if (opts.sshPersist !== undefined && host.sshPersist !== opts.sshPersist) {
+    host.sshPersist = opts.sshPersist;
+    saveHost(host);
+  }
 
   const steps = stepsFor(host.kind);
   const finished = steps.every((s) => host.done.includes(s));

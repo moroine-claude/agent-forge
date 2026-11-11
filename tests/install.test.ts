@@ -239,6 +239,15 @@ test("a finished host without a token file is asked for it on the next install",
   assert.equal(tokenInput(ctx), "tok-456\n");
 });
 
+test("--ssh-persist is kept on the host and written to forge's SSH file; a bad value is refused", async () => {
+  const world: World = { vm: null };
+  await assert.rejects(cmdInstall(laptop(world), { ...OPTS, sshPersist: "8 hours" }), /--ssh-persist/);
+  const ctx = laptop(world, { answers: [1, 1, 1] });
+  assert.equal(await cmdInstall(ctx, { ...OPTS, sshPersist: "2h" }), 0);
+  assert.equal(loadHosts()[0].sshPersist, "2h");
+  assert.match(readFileSync(join(home, ".ssh/config.d/agent-forge.config"), "utf8"), /^ {2}ControlPersist 2h$/m);
+});
+
 test("a Lima VM whose creation failed is created again without asking", async () => {
   const world: World = { vm: null };
   const first = laptop(world, { attachRules: [{ match: "limactl create", code: 1 }] });
@@ -887,7 +896,7 @@ function changedOutsideForge(before: Map<string, string>, after: Map<string, str
   const forge = (p: string) =>
     p === ".config/agent-forge" || p.startsWith(".config/agent-forge/") ||
     p === ".local/share/agent-forge" || p.startsWith(".local/share/agent-forge/") ||
-    p === ".ssh/config.d" || p === ".ssh/config.d/agent-forge.config";
+    p === ".ssh/config.d" || p === ".ssh/config.d/agent-forge.config" || p === ".ssh/forge-cm";
   return { changed, outside: changed.filter((p) => !forge(p)) };
 }
 
