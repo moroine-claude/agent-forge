@@ -98,6 +98,11 @@ profil `agent-super`) n'existe que dans la v1, sur `main`.
 - Commenter les blocs non évidents
 - Tester les préconditions en début de script (ex: vérifier qu'un container existe avant d'y entrer)
 
+### Tests
+Les suites restent légères.
+- Pas de tests sur le contenu de la documentation : `README.md`, `CLAUDE.md`, `container/CLAUDE.md`, `LICENSE`, `SECURITY.md`, `CONTRIBUTING.md`…
+- Pour un script (hook git, `pre-bash.sh`, scripts shell), seulement les quelques cas qui protègent un choix important : les garde-fous de sécurité, un cas nominal, un cas d'échec. Pas de balayage de cas limites : ceux-là se vérifient à la main en relecture.
+
 ### Sécurité
 - Ne jamais hardcoder de credentials, clés, tokens
 - Aucune valeur personnelle (nom, login, chemin, UID, identité, hôte, adresse) dans le repo — code, tests, docs — ni dans l'image : tout ce qui est personnel est injecté au `forge start` ou vit dans la config de l'utilisateur. Seule exception : l'adresse GitHub du projet et ses références de PR (`<owner>/agent-forge#N`), qui désignent le projet lui-même
