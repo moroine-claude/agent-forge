@@ -52,7 +52,9 @@ assert_contains 'claude auth login'
 assert_contains 'forge setup'
 assert_contains 'forge image build'
 assert_contains 'known_hosts'
-# La sortie attendue de forge setup sur un hôte neuf, notices comprises.
+# La sortie attendue de forge setup sur un hôte neuf : la seule notice est celle
+# de herdr ; celle d'un Incus trop ancien n'est documentée que pour un hôte
+# pas encore mis à jour.
 assert_contains 'is too old for strict mode'
 assert_contains 'herdr is not installed on this host yet'
 assert_contains 'herdr --remote forge-local --remote-keybindings server'
@@ -98,12 +100,11 @@ assert_not_contains 'Port 2222'
 
 # Corrections de la relecture finale : la v2 est sortie sur main (la branche
 # next est retirée, on clone la branche par défaut), le mode strict dépend
-# d'un Incus pas encore publié en lts-7.0, le port Lima se change, et les
+# d'un Incus 7.0.2 désormais publié en lts-7.0, le port Lima se change, et les
 # pièges d'une première heure ont leur ligne de dépannage.
 assert_contains 'git clone https://github.com/moroine/agent-forge.git'
 assert_not_contains 'git clone -b next'
 assert_contains 'Incus 7.0.2'
-assert_contains 'not published yet'
 assert_contains 'forge attach'
 assert_not_contains 'Host key verification failed'
 assert_contains 'REMOTE HOST IDENTIFICATION HAS CHANGED'
