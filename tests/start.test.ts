@@ -168,8 +168,8 @@ test("no host git touches the workspace", async () => {
 
 test("right after a fresh mirror clone, start does not fetch GitHub again", async () => {
   const home = mkdtempSync(join(tmpdir(), "forge-start-"));
-  mkdirSync(join(home, ".claude"), { recursive: true });
-  writeFileSync(join(home, ".claude", ".credentials.json"), "{}");
+  mkdirSync(join(home, ".config", "agent-forge"), { recursive: true });
+  writeFileSync(join(home, ".config", "agent-forge", "claude-token"), "tok-test\n");
   process.env.FORGE_HOME = home;
   process.env.FORGE_REPO_DIR = process.cwd();
   process.env.FORGE_WORKSPACES = join(home, "workspaces");
@@ -198,8 +198,8 @@ test("right after a fresh mirror clone, start does not fetch GitHub again", asyn
 // The very first prefix+f: no forge container yet, nothing typed on a command line.
 test("with no forge container yet, start asks owner/repo and provisions it", async () => {
   const home = mkdtempSync(join(tmpdir(), "forge-start-"));
-  mkdirSync(join(home, ".claude"), { recursive: true });
-  writeFileSync(join(home, ".claude", ".credentials.json"), "{}");
+  mkdirSync(join(home, ".config", "agent-forge"), { recursive: true });
+  writeFileSync(join(home, ".config", "agent-forge", "claude-token"), "tok-test\n");
   process.env.FORGE_HOME = home;
   process.env.FORGE_REPO_DIR = process.cwd();
   process.env.FORGE_WORKSPACES = join(home, "workspaces");
@@ -237,8 +237,8 @@ function halfProvisioned(): FakeIncus {
 
 test("a half-provisioned container is recreated on yes, then provisioned again", async () => {
   const home = mkdtempSync(join(tmpdir(), "forge-start-"));
-  mkdirSync(join(home, ".claude"), { recursive: true });
-  writeFileSync(join(home, ".claude", ".credentials.json"), "{}");
+  mkdirSync(join(home, ".config", "agent-forge"), { recursive: true });
+  writeFileSync(join(home, ".config", "agent-forge", "claude-token"), "tok-test\n");
   process.env.FORGE_HOME = home;
   process.env.FORGE_REPO_DIR = process.cwd();
   process.env.FORGE_WORKSPACES = join(home, "workspaces");
@@ -535,8 +535,8 @@ test("start --strict on a new repo provisions it strict", async () => {
   fake.acls.set("forge-egress-strict", { name: "forge-egress-strict", description: "", config: {}, ingress: [], egress: [] });
   fake.addInstance("agent-forge", "forge-proxy", { config: { "user.forge.proxy_recipe": "1" } });
   const home = mkdtempSync(join(tmpdir(), "forge-start-home-"));
-  mkdirSync(join(home, ".claude"), { recursive: true });
-  writeFileSync(join(home, ".claude", ".credentials.json"), "{}");
+  mkdirSync(join(home, ".config", "agent-forge"), { recursive: true });
+  writeFileSync(join(home, ".config", "agent-forge", "claude-token"), "tok-test\n");
   process.env.FORGE_HOME = home;
   process.env.FORGE_REPO_DIR = process.cwd();
   process.env.FORGE_WORKSPACES = join(home, "workspaces");

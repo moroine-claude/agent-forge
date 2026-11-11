@@ -47,16 +47,7 @@ export async function ensureGitIdentity(ctx: Context, host: LaptopHost): Promise
   return "set";
 }
 
-export async function ensureClaudeLogin(ctx: Context, host: LaptopHost): Promise<"logged-in" | "already"> {
-  // ssh lands in the forge user's home: the path is relative to it.
-  if ((await remoteExec(ctx, host, ["test", "-e", ".claude/.credentials.json"])).code === 0) return "already";
-  if ((await remoteAttach(ctx, host, ["claude", "auth", "login"], true)) !== 0) {
-    throw new ForgeError("claude auth login did not finish");
-  }
-  return "logged-in";
-}
-
-// A cloud host's Claude credential (spec §5.3): a `claude setup-token` token,
+// A host's Claude credential (spec §5.3, DX 5 decision 20): a `claude setup-token` token,
 // one year, model requests only, revocable in claude.ai (Settings > Claude
 // Code). Relative to the forge user's home; the agent's launcher reads it.
 export const CLAUDE_TOKEN_FILE = ".config/agent-forge/claude-token";

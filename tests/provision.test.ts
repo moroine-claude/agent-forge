@@ -13,8 +13,8 @@ import { provisioningMarker } from "../cli/lib/containers.ts";
 let home: string;
 beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), "forge-prov-"));
-  mkdirSync(join(home, ".claude"), { recursive: true });
-  writeFileSync(join(home, ".claude", ".credentials.json"), "{}");
+  mkdirSync(join(home, ".config", "agent-forge"), { recursive: true });
+  writeFileSync(join(home, ".config", "agent-forge", "claude-token"), "tok-test\n");
   process.env.FORGE_HOME = home;
   process.env.FORGE_REPO_DIR = process.cwd();
   process.env.FORGE_WORKSPACES = join(home, "workspaces");
@@ -71,12 +71,29 @@ test("a new container is launched from agent-base under the agent-forge profile,
   assert.ok(launch >= 0 && ready > launch, calls.join("\n"));
 });
 
-test("it refuses without host Claude credentials, before creating anything", async () => {
-  rmSync(join(home, ".claude", ".credentials.json"));
+test("without a token file, provisioning stops before launch", async () => {
+  rmSync(join(home, ".config", "agent-forge", "claude-token"));
   const { ctx, run } = provision();
-  await assert.rejects(run, /credentials\.json not found/);
+  await assert.rejects(run, /forge install/);
   assert.equal(launched(ctx), false);
 });
+
+test("the token is pushed, mode 600, and no credentials file", async () => {
+  const { fake, ctx, run } = provision();
+  await run();
+  const token = fake.files.get("agent-forge/agent-x/home/aiuser/.config/forge/claude-token");
+  assert.ok(token, [...fake.files.keys()].join("\n"));
+  assert.deepEqual([token.uid, token.gid, token.mode], ["1001", "1001", "600"]);
+  assert.ok(![...fake.files.keys()].some((k) => k.endsWith(".credentials.json")));
+  // The directory is private, made as the agent, before the push.
+  const calls = flat(ctx);
+  const mkdir = calls.findIndex((c) => c.includes("mkdir -p -m 700 /home/aiuser/.config/forge"));
+  const push = calls.findIndex((c) => c.includes("file push") && c.includes("claude-token"));
+  assert.ok(mkdir >= 0 && push > mkdir, calls.join("\n"));
+  // The value is never in an argv.
+  assert.ok(!calls.some((c) => c.includes("tok-test")));
+});
+
 
 test("it refuses without a host git identity, with the commands to run", async () => {
   const { ctx, run } = provision({ rules: [{ match: "git config --global --includes user.email", code: 1 }] });

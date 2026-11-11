@@ -20,7 +20,7 @@ import {
   loadCloudSettings, saveCloudSettings,
 } from "../laptop/cloud.ts";
 import {
-  ensureClaudeLogin, ensureClaudeToken, ensureGitIdentity, ensureImage, ensureRelayCredentials, runSetup,
+  ensureClaudeToken, ensureGitIdentity, ensureImage, ensureRelayCredentials, runSetup,
 } from "../laptop/host-steps.ts";
 import { renderInventory, renderRelayInventory, writeInventoryOnce } from "../laptop/inventory.ts";
 import { chooseKey, githubAgent, keyLabel, listAgentKeys } from "../laptop/keys.ts";
@@ -66,7 +66,7 @@ const stepsFor = (kind: LaptopHost["kind"]): InstallStep[] => (kind === "cloud" 
 const UPDATE: InstallStep[] = ["playbook", "setup", "image", "relay"];
 const LABELS: Record<InstallStep, string> = {
   vm: "VM", inventory: "inventory", playbook: "playbook", ssh: "SSH configuration", identity: "git identity",
-  claude: "Claude login", setup: "forge setup", image: "agent-base image", relay: "relay setup",
+  claude: "Claude token", setup: "forge setup", image: "agent-base image", relay: "relay setup",
 };
 const USER_NAME = /^[a-z_][a-z0-9_-]*$/;
 // A host name or an IP address: never an ssh option, never user@host.
@@ -77,12 +77,9 @@ const CLOUD_ADMIN = "ubuntu";
 const SSH_WAIT_MS = 5000;
 const SSH_TRIES = 36;
 
-// A remote's VM step is its first connection (it has no VM to create); a cloud
-// host's Claude step stores a token, not a login.
+// A remote's VM step is its first connection (it has no VM to create).
 const label = (step: InstallStep, kind: LaptopHost["kind"]): string =>
-  step === "vm" && kind === "remote" ? "first SSH connection"
-    : step === "claude" && kind === "cloud" ? "Claude token"
-    : LABELS[step];
+  step === "vm" && kind === "remote" ? "first SSH connection" : LABELS[step];
 
 // The command that resumes a host's install.
 const resumeCommand = (host: LaptopHost): string =>
@@ -174,9 +171,10 @@ export async function cmdInstall(ctx: Context, opts: InstallOptions = {}): Promi
   await step("ssh", () => sshConfig(ctx, host), true);
   // 10. The host's account and runtime, over the alias.
   await step("identity", async () => ((await ensureGitIdentity(ctx, host)) === "set" ? "done" : "already there"));
-  await step("claude", async () => (host.kind === "cloud"
-    ? ((await ensureClaudeToken(ctx, host)) === "stored" ? "done" : "already there")
-    : ((await ensureClaudeLogin(ctx, host)) === "logged-in" ? "done" : "already there")));
+  // Every run: a host installed before the token has this step recorded done
+  // with a login and no token file. The call probes first, so a host that has
+  // its token is not asked again.
+  await step("claude", async () => ((await ensureClaudeToken(ctx, host)) === "stored" ? "done" : "already there"), true);
   await step("setup", async () => { await runSetup(ctx, host); return "done"; });
   await step("image", async () => ((await ensureImage(ctx, host, checkout)) === "built" ? "done" : "already there"));
   // A cloud host's relay: the bot's token, then its setup, as the admin.

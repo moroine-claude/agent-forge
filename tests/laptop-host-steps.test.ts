@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { createContext, ForgeError } from "../cli/lib/context.ts";
 import type { Context } from "../cli/lib/context.ts";
 import {
-  ensureClaudeLogin, ensureClaudeToken, ensureGitIdentity, ensureImage, ensureRelayCredentials, imageDecision, runSetup,
+  ensureClaudeToken, ensureGitIdentity, ensureImage, ensureRelayCredentials, imageDecision, runSetup,
 } from "../cli/lib/laptop/host-steps.ts";
 import type { LaptopHost } from "../cli/lib/laptop/state.ts";
 import { fakeContext } from "./lib/fake-context.ts";
@@ -74,24 +74,7 @@ test("the same identity asks nothing", async () => {
   assert.deepEqual(ctx.err_lines, []);
 });
 
-test("the Claude login is skipped when the credentials exist", async () => {
-  const ctx = fakeContext({ rules: [{ match: "'test' '-e' '.claude/.credentials.json'", code: 0 }] });
-  assert.equal(await ensureClaudeLogin(ctx, host), "already");
-  assert.equal(ctx.attachCalls.length, 0);
-});
-
-test("the Claude login is attached with a tty when the credentials are missing", async () => {
-  const ctx = fakeContext({ rules: [{ match: "'test' '-e'", code: 1 }] });
-  assert.equal(await ensureClaudeLogin(ctx, host), "logged-in");
-  assert.deepEqual(ctx.attachCalls[0].argv, ["ssh", "-o", "ForwardAgent=no", "-t", "forge-acme", "--", "'claude' 'auth' 'login'"]);
-});
-
-test("a failed Claude login names the step", async () => {
-  const ctx = fakeContext({ rules: [{ match: "'test' '-e'", code: 1 }], attachCode: 1 });
-  await assert.rejects(ensureClaudeLogin(ctx, host), (e: Error) => e instanceof ForgeError && /claude auth login/.test(e.message));
-});
-
-// The cloud host's Claude credential: a setup-token, pasted on the laptop.
+// A host's Claude credential: a setup-token, pasted on the laptop.
 const TOKEN_PROBE = "'test' '-s' '.config/agent-forge/claude-token'";
 
 test("a stored Claude token is kept and nothing is asked", async () => {

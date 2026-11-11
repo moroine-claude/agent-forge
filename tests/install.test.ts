@@ -64,7 +64,9 @@ const BASE: ExecRule[] = [
   { match: "git config --global user.email", stdout: "alice@example.com\n" },
   { match: `git -C ${CHECKOUT} rev-parse HEAD`, stdout: `${HEAD}\n` },
 ];
-const NO_LOGIN: ExecRule = { match: "'test' '-e' '.claude/.credentials.json'", code: 1 };
+const TOKEN_PROBE = "'test' '-s' '.config/agent-forge/claude-token'";
+const TOKEN_STORED: ExecRule = { match: TOKEN_PROBE, code: 0 };
+const NO_TOKEN: ExecRule = { match: TOKEN_PROBE, code: 1 };
 
 // The Lima VM outlives a run: `limactl list` answers from this world, which
 // `limactl create` and `limactl start` change.
@@ -137,7 +139,7 @@ async function finishedLocal(world: World): Promise<void> {
 
 test("a first local install runs every step in order and ends in herdr", async () => {
   const world: World = { vm: null };
-  const ctx = laptop(world, { rules: [NO_LOGIN], answers: [1, 1] });
+  const ctx = laptop(world, { rules: [NO_TOKEN], answers: [1, "tok-123", 1] });
   assert.equal(await cmdInstall(ctx, OPTS), 0);
 
   const collections = join(home, ".local/share/agent-forge/collections");
@@ -146,7 +148,6 @@ test("a first local install runs every step in order and ends in herdr", async (
     ["limactl", "start", "--tty=false", "forge-local"],
     ["ansible-galaxy", "collection", "install", "-r", `${CHECKOUT}/ansible/requirements.yml`, "-p", collections],
     ["ansible-playbook", "-i", inventoryPath("forge-local"), `${CHECKOUT}/ansible/site.yml`],
-    ["ssh", "-o", "ForwardAgent=no", "-t", "forge-local", "--", "'claude' 'auth' 'login'"],
     ["ssh", "-o", "ForwardAgent=no", "forge-local", "--", "'forge' 'setup'"],
     ["ssh", "-o", "ForwardAgent=no", "-t", "forge-local", "--", "'forge' 'image' 'build'"],
     HERDR_LOCAL,
@@ -185,7 +186,7 @@ test("a first local install runs every step in order and ends in herdr", async (
   // The summary: the host, then one line per step.
   assert.ok(ctx.out_lines.includes("forge-local:"), ctx.out_lines.join("\n"));
   assert.ok(ctx.out_lines.includes("  VM: done"), ctx.out_lines.join("\n"));
-  assert.ok(ctx.out_lines.includes("  Claude login: done"), ctx.out_lines.join("\n"));
+  assert.ok(ctx.out_lines.includes("  Claude token: done"), ctx.out_lines.join("\n"));
 });
 
 test("a re-run after a failed playbook resumes at the playbook with the saved answers", async () => {
@@ -210,22 +211,32 @@ test("a re-run after a failed playbook resumes at the playbook with the saved an
   assert.deepEqual(loadHosts()[0].done, ALL);
 });
 
-test("a re-run after an interrupted claude login resumes at the login", async () => {
-  const world: World = { vm: null };
-  const first = laptop(world, { rules: [NO_LOGIN], answers: [1], attachRules: [{ match: "'claude' 'auth' 'login'", code: 130 }] });
-  await assert.rejects(cmdInstall(first, OPTS), /claude auth login[\s\S]*The Claude login step failed: run forge install to resume there\./);
-  assert.deepEqual(loadHosts()[0].done, ["vm", "inventory", "playbook", "ssh", "identity"]);
+// What was written to the host's token file, over ssh's stdin.
+function tokenInput(ctx: FakeContext): string | undefined {
+  const execs = ctx.calls.filter((c) => !ctx.attachCalls.some((a) => a.argv === c));
+  const write = execs.findIndex((c) => c.join(" ").includes("cat > .config/agent-forge/claude-token"));
+  return write < 0 ? undefined : ctx.execOptions[write]?.input;
+}
 
-  const second = laptop(world, { rules: [NO_LOGIN], answers: [2] });
-  assert.equal(await cmdInstall(second, OPTS), 0);
-  assert.ok(!attached(second).some((a) => a.startsWith("ansible")));
-  assert.deepEqual(asked(second), [LINK, TOASTS()]);
-  assert.deepEqual(attached(second), [
-    "ssh -o ForwardAgent=no -t forge-local -- 'claude' 'auth' 'login'",
-    "ssh -o ForwardAgent=no forge-local -- 'forge' 'setup'",
-    "ssh -o ForwardAgent=no -t forge-local -- 'forge' 'image' 'build'",
-    HERDR_LOCAL.join(" "),
-  ]);
+test("a host is asked for the Claude token, never for claude auth login", async () => {
+  {
+    const ctx = laptop({ vm: null }, { rules: [NO_TOKEN], answers: [1, "tok-123", 1] });
+    assert.equal(await cmdInstall(ctx, OPTS), 0);
+    // The token goes over ssh's stdin, and only there.
+    assert.equal(tokenInput(ctx), "tok-123\n");
+    assert.ok(!called(ctx).some((c) => c.includes("tok-123")), "token in an argv");
+    assert.ok(!attached(ctx).some((a) => a.includes("claude' 'auth")), attached(ctx).join("\n"));
+  }
+});
+
+test("a finished host without a token file is asked for it on the next install", async () => {
+  const world: World = { vm: null };
+  await finishedLocal(world);
+  // Recorded done by a version that logged in with claude auth login.
+  assert.ok(loadHosts()[0].done.includes("claude"));
+  const ctx = laptop(world, { rules: [NO_TOKEN], answers: ["tok-456", 1, 1] });
+  assert.equal(await cmdInstall(ctx, OPTS), 0);
+  assert.equal(tokenInput(ctx), "tok-456\n");
 });
 
 test("a Lima VM whose creation failed is created again without asking", async () => {
@@ -1131,7 +1142,7 @@ test("the relay's first connection happens while its key is unknown", async () =
   saveHost({ ...cloudHost(), address: "203.0.113.20", done: ["vm", "inventory", "playbook", "ssh", "claude"], deployed: HEAD2 });
   saveCloudSettings("forge-dev", CLOUD_SETTINGS);
   writeFileSync(knownHostsPath(), `203.0.113.20 ${hostKeyOf("203.0.113.20")}\n`);
-  const ctx = cloudLaptop({ answers: [TRUSTED, 1, BOT_TOKEN, 2, 2] });
+  const ctx = cloudLaptop({ rules: [TOKEN_STORED], answers: [TRUSTED, 1, BOT_TOKEN, 2, 2] });
   assert.equal(await cmdInstall(ctx, { checkout: CHECKOUT, host: "forge-dev", sleep: noWait }), 0);
   assert.deepEqual(metadataFlags(), [false, true]);
   // The dev VM's wait is the admin's login, the relay's a key scan.
@@ -1243,7 +1254,7 @@ const KEEP_OR_PASTE = "A bot token is already stored on the relay";
 test("a re-run of a finished cloud host applies OpenTofu, the playbooks and the relay's setup again, never the first connection", async () => {
   await newCloud();
   const ctx = cloudLaptop({
-    rules: [{ match: "checkip.amazonaws.com", stdout: "198.51.100.8\n" }, BOT_TOKEN_STORED], answers: [1, 2, 2],
+    rules: [{ match: "checkip.amazonaws.com", stdout: "198.51.100.8\n" }, BOT_TOKEN_STORED, TOKEN_STORED], answers: [1, 2, 2],
   });
   assert.equal(await cmdInstall(ctx, { checkout: CHECKOUT, host: "forge-dev", sleep: noWait }), 0);
   assert.ok(called(ctx).some((c) => c.startsWith(`tofu -chdir=${CHECKOUT}/infra/aws init`)), called(ctx).join("\n"));
@@ -1267,8 +1278,8 @@ test("a re-run of a finished cloud host applies OpenTofu, the playbooks and the 
   assert.ok(called(ctx).includes(
     `ssh -o UserKnownHostsFile=${knownHostsPath()} -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=5 ` +
     `-o ForwardAgent=no -i ${forgeKeyPath("forge-dev")} ubuntu@203.0.113.21 true`), called(ctx).join("\n"));
-  // The bot's token kept: its file is only checked.
-  assert.ok(!called(ctx).some((c) => c.includes("claude-token") || c.includes("github-token.new")), called(ctx).join("\n"));
+  // The tokens kept: their files are only checked.
+  assert.ok(!called(ctx).some((c) => c.includes("cat > .config/agent-forge/claude-token") || c.includes("github-token.new")), called(ctx).join("\n"));
   assert.deepEqual(asked(ctx), [KEEP_OR_PASTE, LINK, TOASTS()]);
   assert.ok(ctx.out_lines.includes("  relay setup: already there"), ctx.out_lines.join("\n"));
   assert.deepEqual(loadHosts()[0].done, CLOUD_ALL);
@@ -1278,7 +1289,7 @@ test("a re-run of a finished cloud host applies OpenTofu, the playbooks and the 
 test("a re-run of a finished cloud host replaces a revoked bot token, then checks it", async () => {
   await newCloud();
   const renewed = `ghp_${"Cd4".repeat(12)}`;
-  const ctx = cloudLaptop({ rules: [BOT_TOKEN_STORED], answers: [2, renewed, 2, 2] });
+  const ctx = cloudLaptop({ rules: [BOT_TOKEN_STORED, TOKEN_STORED], answers: [2, renewed, 2, 2] });
   assert.equal(await cmdInstall(ctx, { checkout: CHECKOUT, host: "forge-dev", sleep: noWait }), 0);
   const execs = ctx.calls.filter((c) => !ctx.attachCalls.some((a) => a.argv === c));
   const write = execs.findIndex((c) => c.join(" ").includes("github-token.new"));

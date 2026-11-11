@@ -5,7 +5,7 @@
 // credential GitHub, aucune clé de signature, aucun compte bot dans le
 // container. Les chemins hôte restent surchargeables par variable
 // d'environnement (paths.ts) pour que les tests ne touchent jamais un vrai home.
-import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Context, ExecResult } from "../context.ts";
 import { ForgeError, mustSucceed } from "../context.ts";
@@ -19,6 +19,7 @@ import {
   cloneWorkspace, ensureMirror, HOST_GIT_CWD, MIRROR_MOUNT, mirrorRepo, ORIGIN_DEVICE, pointOriginAtMirror,
   requireMirrorOf,
 } from "../mirror.ts";
+import { CLAUDE_TOKEN_FILE } from "../laptop/host-steps.ts";
 import { PROFILE } from "../objects.ts";
 import { allowlistPath, forgeHome, mirrorPath, repoRoot, workspacesDir } from "../paths.ts";
 import { applyStrictSettings, requireStrictRuntime, strictLaunchArgs } from "../strict.ts";
@@ -27,6 +28,11 @@ import { egressNames } from "../objects.ts";
 // Le concept de mode reste (pre-bash.sh, CLAUDE.md, user.forge.mode) : le mode
 // autonome pourra revenir sans restructurer. v2 n'en provisionne qu'un.
 const MODE = "supervised";
+// Le token Claude dans le container (DX 5, décision 20) : un fichier mode 600
+// dans un répertoire 700. Le lanceur forge-agent le lit et l'exporte pour le
+// seul processus de l'agent.
+export const CONTAINER_TOKEN_DIR = "/home/aiuser/.config/forge";
+export const CONTAINER_TOKEN_PATH = `${CONTAINER_TOKEN_DIR}/claude-token`;
 // Le miroir ne contient aucun objet LFS (mirror.ts clone déjà avec
 // GIT_LFS_SKIP_SMUDGE=1) : les fichiers LFS restent des pointeurs dans le
 // container. Sans ce drapeau, `git worktree add` (et tout checkout) tente de
@@ -62,9 +68,9 @@ export async function provisionContainer(
 ): Promise<{ mirror: "created" | "kept" }> {
   const strict = opts.strict === true;
   // Préconditions, toutes vérifiées avant de rien créer.
-  const credentials = join(forgeHome(), ".claude", ".credentials.json");
-  if (!existsSync(credentials)) {
-    throw new ForgeError(`${credentials} not found. Run 'claude auth login' on the host first.`);
+  const tokenFile = join(forgeHome(), CLAUDE_TOKEN_FILE);
+  if (!existsSync(tokenFile) || statSync(tokenFile).size === 0) {
+    throw new ForgeError(`${tokenFile} not found or empty. Run 'forge install' from your machine to store the Claude token.`);
   }
   const identity = await hostGitIdentity(ctx);
   await requireRuntime(ctx);
@@ -125,9 +131,13 @@ export async function provisionContainer(
     await mustSucceed(`git config ${key}`, execAsAgentArgv(ctx, container, ["git", "config", "--global", key, value]));
   }
 
-  ctx.out("Reusing Claude Code credentials from host...");
+  // Le token est poussé comme fichier (incus file push lit le fichier hôte) :
+  // jamais dans un argv, un journal ou la mémoire de forge.
+  ctx.out("Pushing the Claude token...");
   await mustSucceed("create .claude directory", execAsAgent(ctx, container, "mkdir -p /home/aiuser/.claude"));
-  await pushFile(ctx, "push Claude credentials", credentials, container, "/home/aiuser/.claude/.credentials.json", 1001, "600");
+  await mustSucceed("create token directory",
+    execAsAgentArgv(ctx, container, ["mkdir", "-p", "-m", "700", CONTAINER_TOKEN_DIR]));
+  await pushFile(ctx, "push Claude token", tokenFile, container, CONTAINER_TOKEN_PATH, 1001, "600");
 
   ctx.out("Pre-accepting Claude Code onboarding...");
   await pushFile(ctx, "push onboarding state", join(repoRoot(), "container", "claude.json"),
