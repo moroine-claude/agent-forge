@@ -519,7 +519,7 @@ Both files live on the host and are optional; `forge setup` reads them.
 | An agent escapes its container | Unprivileged container, seccomp, capability drops, Incus' AppArmor profile. It lands in the host VM, not on your machine |
 | A container reaches your LAN, the cloud metadata service, the host or another container | The `forge-egress` network ACL rejects private, link-local, CGNAT and multicast ranges; IPv6 is off on the bridge |
 | An agent sends code or tokens out | Accepted in the default open mode. Strict mode limits egress to your allowlist |
-| An agent publishes to GitHub | No GitHub credential in containers; `pre-bash.sh` blocks `git push` and `gh` |
+| An agent publishes to GitHub | No GitHub credential in containers, and `origin` is a read-only mirror; only `forge ship`, on your machine, pushes |
 | An agent drives other agents' tabs | herdr's control socket lives on the host, outside every container |
 | SSH brute force on the host | Keys only, fail2ban (not in local mode), a connection rate limit (`public`), an optional source restriction |
 | Your forwarded agent is abused on the host | Containers never receive it; a hardware key asks for a touch per use |
