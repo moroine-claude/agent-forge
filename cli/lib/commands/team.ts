@@ -32,6 +32,8 @@ const MAX_INSTRUCTION = 64 * 1024;
 export type TeamOptions = { json?: boolean; stdin?: () => Promise<string> };
 
 async function readStdin(): Promise<string> {
+  // Un terminal ne donne pas de consigne : le dire plutôt qu'attendre sans rien afficher.
+  if (process.stdin.isTTY) throw new ForgeError("the instruction is read from stdin: forge team assign <container> <task> < instruction.md");
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of process.stdin) {
