@@ -47,18 +47,18 @@ export function prBaseFor(base: Base, below?: { prBase: string; merged: boolean 
 }
 
 // The refs of the developer's clone: a task's branch as fetched from the
-// container, a branch as fetched from GitHub.
-export const agentRef = (container: string, task: string): string => `refs/remotes/${container}/agent/${task}`;
+// remote, a branch as fetched from GitHub.
+export const agentRef = (remote: string, task: string): string => `refs/remotes/${remote}/agent/${task}`;
 export const githubRef = (branch: string): string => `refs/remotes/origin/${branch}`;
 
 // What a task started from, in the clone.
-export function limitRef(container: string, base: Base): string {
-  return base.kind === "task" ? agentRef(container, base.task) : githubRef(base.branch);
+export function limitRef(remote: string, base: Base): string {
+  return base.kind === "task" ? agentRef(remote, base.task) : githubRef(base.branch);
 }
 
 export type TaskPlan = {
   task: string;
-  tip: string;            // refs/remotes/<container>/agent/<task>
+  tip: string;            // refs/remotes/<remote>/agent/<task>
   limit: string;          // what the task started from, as a full ref name
   commits: string[];      // to replay, oldest first
   onto: string;           // a full ref name; the merge-base SHA on the first ship of a branch-based task
@@ -69,19 +69,19 @@ export type TaskPlan = {
 // `below`: the task this one is stacked on, once the caller knows its PR is
 // merged; the task then goes onto that PR's base instead.
 export async function planTask(
-  ctx: Context, root: string, container: string, task: string, base: Base,
+  ctx: Context, root: string, remote: string, task: string, base: Base,
   below?: { prBase: string; merged: boolean },
 ): Promise<TaskPlan> {
   const git = async (...args: string[]) =>
     (await mustSucceed(`git ${args[0]}`, ctx.exec(["git", ...args], { cwd: root }))).stdout.trim();
   const exists = (ref: string) => refExists(ctx, root, ref);
 
-  const tip = agentRef(container, task);
+  const tip = agentRef(remote, task);
   const own = githubRef(`agent/${task}`);
-  const limit = limitRef(container, base);
+  const limit = limitRef(remote, base);
   if (!(await exists(limit))) {
     throw new ForgeError(base.kind === "task"
-      ? `agent/${task}: its base agent/${base.task} is gone from the container`
+      ? `agent/${task}: its base agent/${base.task} is gone from the team mirror`
       : `agent/${task}: its base ${base.branch} is gone from GitHub`);
   }
   const shipped = await exists(own);
@@ -115,14 +115,14 @@ export async function planTask(
 // that cannot be told (a branch gone). A PR squash-merged from several commits
 // and its branch deleted counts them all: the squash matches none of them.
 export async function notShipped(
-  ctx: Context, root: string, container: string, task: string, base: Base,
+  ctx: Context, root: string, remote: string, task: string, base: Base,
   below?: { prBase: string; merged: boolean },
 ): Promise<number | null> {
   const own = githubRef(`agent/${task}`);
   const upstream = (await refExists(ctx, root, own)) ? own : githubRef(prBaseFor(base, below));
-  const limit = limitRef(container, base);
+  const limit = limitRef(remote, base);
   if (!(await refExists(ctx, root, upstream)) || !(await refExists(ctx, root, limit))) return null;
-  const r = await ctx.exec(["git", "cherry", upstream, agentRef(container, task), limit], { cwd: root });
+  const r = await ctx.exec(["git", "cherry", upstream, agentRef(remote, task), limit], { cwd: root });
   return r.code === 0 ? r.stdout.split("\n").filter((l) => l.startsWith("+ ")).length : null;
 }
 

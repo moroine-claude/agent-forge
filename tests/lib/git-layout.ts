@@ -43,7 +43,9 @@ export type Layout = {
   cleanup(): void;
 };
 
-export function createLayout(containerName: string, ownerRepo = "acme/widgets"): Layout {
+// `team` names what the host serves: `forge team upload-pack <team>` answers with the container repository below,
+// standing for the team mirror.
+export function createLayout(team: string, ownerRepo = "acme/widgets"): Layout {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "forge-layout-")));
   const github = path.join(root, "github.git");
   const container = path.join(root, "container");
@@ -69,14 +71,14 @@ export function createLayout(containerName: string, ownerRepo = "acme/widgets"):
   git(clone, "config", `url.${github}.insteadOf`, `git@github.com:${ownerRepo}.git`);
 
   // git spawns ssh itself, not through ctx.exec: the clone's own core.sshCommand
-  // ignores the host and the options and, for `forge upload-pack <c> …`, serves
+  // ignores the host and the options and, for `forge team upload-pack <team> …`, serves
   // the container repository. The real remote.<c>.url and .uploadpack are used.
   const script = path.join(root, "fake-ssh");
   fs.writeFileSync(script, [
     "#!/bin/sh",
     'for a; do last="$a"; done',
     'case "$last" in',
-    `  "forge upload-pack ${containerName}"*) exec git upload-pack '${container}' ;;`,
+    `  "forge team upload-pack ${team}"*) exec git upload-pack '${container}' ;;`,
     "esac",
     'echo "fake-ssh: unexpected command: $last" >&2',
     "exit 1",
