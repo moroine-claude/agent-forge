@@ -151,7 +151,7 @@ test("rebuild: replaces the instance, forgets both host keys, installs again", a
   install();
   appendFileSync(knownHostsPath(), "forge-dev ssh-ed25519 AAAA\n");
   // Confirm, accept the SSH Include, the Claude token, keep the bot's token,
-  // decline the link and herdr's notifications.
+  // decline the link and Herdr App's telemetry.
   const ctx = laptop({ answers: [1, 1, "tok-abc", 1, 2, 2] });
   // The variables of the replacing apply, read as it runs: the install's own apply rewrites them.
   let replacing: unknown[] = [];
@@ -178,7 +178,7 @@ test("rebuild: replaces the instance, forgets both host keys, installs again", a
 // rebuild's own apply, whose cloud-init needs the metadata service.
 test("rebuild of a host with no relay yet creates the relay with its metadata service on", async () => {
   install(host({ done: ["vm", "inventory", "playbook", "ssh", "claude"], relayAddress: undefined }));
-  // Confirm, accept the SSH Include, the Claude token, the bot's token, decline the link and herdr's notifications.
+  // Confirm, accept the SSH Include, the Claude token, the bot's token, decline the link and Herdr App's telemetry.
   const ctx = laptop({ answers: [1, 1, "tok-abc", BOT_TOKEN, 2, 2], rules: [{ match: "'sudo' 'test' '-s' '/etc/forge-relay/github-token'", code: 1 }] });
   let replacing: unknown[] = [];
   const attach = ctx.attach;
@@ -194,7 +194,7 @@ test("rebuild of a host with no relay yet creates the relay with its metadata se
 
 test("rebuild-relay replaces only the relay and redoes the playbook and the relay step", async () => {
   install();
-  // Confirm, accept the SSH Include, paste the new token, decline the link and herdr's notifications.
+  // Confirm, accept the SSH Include, paste the new token, decline the link and Herdr App's telemetry.
   const ctx = laptop({ answers: [1, 1, BOT_TOKEN, 2, 2], rules: [{ match: "'sudo' 'test' '-s' '/etc/forge-relay/github-token'", code: 1 }, { match: "'test' '-s' '.config/agent-forge/claude-token'", code: 0 }] });
   // Each apply's variables and the steps recorded then, read as it runs.
   const applies: { argv: string; metadata: unknown[]; done: InstallStep[] }[] = [];
@@ -227,7 +227,7 @@ test("rebuild-relay replaces only the relay and redoes the playbook and the rela
 
 test("create --host updates the listed cloud host, create alone starts a new one", async () => {
   install();
-  // The Include accepted, the stored bot token kept, the link and herdr's notifications declined.
+  // The Include accepted, the stored bot token kept, the link and Herdr App's telemetry declined.
   const ctx = laptop({ answers: [1, 1, 2, 2], rules: [{ match: "'test' '-s' '.config/agent-forge/claude-token'", code: 0 }] });
   assert.equal(await cmdCloud(ctx, "create", { host: "forge-dev", checkout: CHECKOUT, sleep: noWait }), 0);
   // What start and stop refuse to apply, create --host shows and applies.

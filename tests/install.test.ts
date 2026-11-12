@@ -1042,8 +1042,8 @@ const playbooks = () => [
 ];
 
 // A new cloud host from its questions to herdr: the trusted logins answered,
-// the Include accepted, both tokens pasted, the link and herdr's
-// notifications declined.
+// the Include accepted, both tokens pasted, the link and Herdr App's
+// telemetry declined.
 async function newCloud(): Promise<FakeContext> {
   const ctx = cloudLaptop({ answers: ["dev", "alice", ...CLOUD_ANSWERS, TRUSTED, 1, TOKEN, BOT_TOKEN, 2, 2] });
   assert.equal(await cmdInstall(ctx, { checkout: CHECKOUT, cloud: true, sleep: noWait }), 0);

@@ -131,7 +131,7 @@ export async function provisionMember(ctx: Context, cfg: ForgeConfig, m: Member)
     m.name, "/home/aiuser/.claude.json", 1001, "600");
 
   ctx.out("Installing Claude team instructions...");
-  const instructions = readFileSync(join(repoRoot(), "container", "CLAUDE.team.md"), "utf8");
+  const instructions = readFileSync(join(repoRoot(), "container", "CLAUDE.md"), "utf8");
   await mustSucceed("push CLAUDE.md", pushText(ctx, m.name, "/home/aiuser/.claude/CLAUDE.md",
     rolePrompt === "" ? instructions : `${instructions}\n${rolePrompt}`, { uid: 1001, gid: 1001, mode: "644" }));
   await pushFile(ctx, "push forge-agent", join(repoRoot(), "container", "forge-agent"),
@@ -146,7 +146,7 @@ export async function provisionMember(ctx: Context, cfg: ForgeConfig, m: Member)
     m.name, "/home/aiuser/.claude/hooks/pre-bash.sh", 0, "755");
   await mustSucceed("push Claude settings",
     pushText(ctx, m.name, "/home/aiuser/.claude/settings.json", settingsFor(m), { uid: 0, gid: 0, mode: "644" }));
-  await requireHookBlocks(ctx, m.name, m.repo ?? m.name);
+  await requireHookBlocks(ctx, m.name);
 
   await refreshClaude(ctx, m.name, m.strict);
   await installPlugins(ctx, m);

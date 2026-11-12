@@ -129,7 +129,7 @@ test("delete says the workspace and the mirror are kept", async () => {
     assert.ok(line, c.out_lines.join("\n"));
     assert.ok(line.includes(join(workspacesDir(), "agent-alice-project")), line);
     assert.ok(line.includes(mirrorPath("agent-alice-project")), line);
-    assert.ok(line.includes("forge start alice/project"), line);
+    assert.ok(line.includes("whatever the agent left"), line);
   } finally {
     rmSync(mirrorPath("agent-alice-project"), { recursive: true, force: true });
   }
@@ -140,7 +140,7 @@ test("delete of a container without a mirror names only the workspace", async ()
   const c = fakeContext({ rules: STOPPED });
   await cmdDelete(c, "alice/project", false);
   assert.deepEqual(c.out_lines.filter((l) => l.startsWith("Kept ")), [
-    `Kept ${join(workspacesDir(), "agent-alice-project")}: 'forge start alice/project' reuses it.`,
+    `Kept ${join(workspacesDir(), "agent-alice-project")}: it holds whatever the agent left.`,
   ]);
 });
 
@@ -188,9 +188,9 @@ test("delete asks before removing a container with no forge metadata", async () 
   assert.ok(deleted(forced));
 });
 
-test("delete of an unknown repo still names forge start", async () => {
+test("delete of an unknown repo says no container was found", async () => {
   const c = fakeContext({ incus: FakeIncus.withRuntime() });
-  await assert.rejects(() => cmdDelete(c, "o/r", false), /no container found for o\/r\. Run 'forge start o\/r' first/);
+  await assert.rejects(() => cmdDelete(c, "o/r", false), /no container found for o\/r\./);
 });
 
 test("delete refuses a container that belongs to another repo", async () => {

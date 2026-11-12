@@ -104,7 +104,7 @@ test("without a mode, a half-done switch whose marker agrees is reported with th
 });
 
 test("a switch prints one line per step it applied", async () => {
-  const next = "The settings inside the container follow at the next forge start.";
+  const next = "The settings inside the container follow when it next starts (forge team converge).";
   const toStrict = setup();
   await cmdEgress(toStrict.ctx, "o/r", "strict");
   assert.deepEqual(toStrict.ctx.out_lines, [
@@ -145,7 +145,7 @@ test("→ strict on a stopped open container: override first, then environment, 
     "security.acls.default.egress.action=reject security.acls.default.ingress.action=reject");
   assert.ok(w[1].startsWith(`incus --project agent-forge config set ${NAME} environment.HTTP_PROXY=http://10.77.0.2:3128`));
   assert.equal(w[2], `incus --project agent-forge config set ${NAME} user.forge.egress strict`);
-  assert.ok(ctx.out_lines.join("\n").includes("next forge start"));
+  assert.ok(ctx.out_lines.join("\n").includes("when it next starts"));
   const inst = fake.instances.get(PROJECT)!.get(NAME)!;
   assert.equal(inst.config["environment.NODE_USE_ENV_PROXY"], "1");
   assert.equal(inst.devices.eth0["security.acls"], "forge-egress-strict");

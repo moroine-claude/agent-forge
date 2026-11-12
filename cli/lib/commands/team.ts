@@ -6,7 +6,7 @@ import { ForgeError } from "../context.ts";
 import type { ForgeConfig } from "../config.ts";
 import { loadConfig } from "../config.ts";
 import { baseKey, provisioningMarker } from "../containers.ts";
-import { listInstances, type Instance } from "../incus.ts";
+import { forgeProject, listInstances, type Instance } from "../incus.ts";
 import { refreshMirror } from "../mirror.ts";
 import { configPath } from "../paths.ts";
 import { ensureRunning } from "../session.ts";
@@ -84,7 +84,7 @@ async function converge(ctx: Context, cfg: ForgeConfig, team: string | undefined
       continue;
     }
     if (await provisioningMarker(ctx, m.name) !== null) {
-      ctx.err(`WARNING: ${m.name} is half-provisioned: left as is. Delete it (incus ... delete) and run converge again.`);
+      ctx.err(`WARNING: ${m.name} is half-provisioned: left as is. Delete it (incus --project ${forgeProject()} delete ${m.name} --force) and run converge again.`);
       continue;
     }
     if (instance.status !== "Running") await ensureRunning(ctx, m.name);

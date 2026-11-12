@@ -38,8 +38,5 @@ export function requireSide(cmd: string, side: Side): void {
   if (side === "host") {
     throw new ForgeError(`forge ${cmd} runs on your laptop, in the agent-forge checkout.`);
   }
-  if (cmd === "start") {
-    throw new ForgeError("forge start runs on the forge host: in herdr (forge open), press prefix+f.");
-  }
-  throw new ForgeError(`forge ${cmd} runs on the forge host: ssh <host> forge ${cmd}, or from herdr.`);
+  throw new ForgeError(`forge ${cmd} runs on the forge host: ssh <host> forge ${cmd}.`);
 }

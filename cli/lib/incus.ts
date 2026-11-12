@@ -139,21 +139,6 @@ export function deleteInstance(ctx: Context, name: string): Promise<ExecResult> 
   return ctx.exec(incus("delete", name, "--force"));
 }
 
-// La commande de l'agent doit rester l'enfant direct de `incus exec` : avec un
-// `su - aiuser -c` intermédiaire, SIGWINCH n'atteint jamais l'agent quand le
-// terminal hôte est redimensionné (diagnostiqué le 2026-08-31, commit c34a145).
-// --user/--group/--cwd remplacent `su - aiuser` + `cd`. HOME vient du profil,
-// mais pas TERM : plus aucun shell de login ne le pose, on le transmet.
-export function attachArgv(container: string, task: string, term: string, command: string[]): string[] {
-  return [
-    ...incus("exec", container),
-    "--user", "1001", "--group", "1001",
-    "--cwd", `/workspace/.trees/${task}`,
-    "--env", `TERM=${term}`,
-    "--", ...command,
-  ];
-}
-
 export type ServerInfo = { environment?: { firewall?: string; server_version?: string } };
 
 // `incus query /1.0` rend les infos du serveur en JSON — les mêmes que

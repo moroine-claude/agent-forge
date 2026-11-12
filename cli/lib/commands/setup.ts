@@ -2,13 +2,13 @@
 // Incus. Idempotent: run it once per host, and again after changing the
 // config. Every mode runs it (a VM provisioned by Ansible, remote or Lima); a
 // bare-metal run outside Ansible warns that no VM protects this machine.
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { networkInterfaces, type NetworkInterfaceInfo } from "node:os";
 import type { Context } from "../context.ts";
 import { loadConfig } from "../config.ts";
 import { converge, ensureProject, type Outcome } from "../converge.ts";
 import { loadAllowlist } from "../allowlist.ts";
 import { ForgeError } from "../context.ts";
-import { ensureHerdrConfig } from "../herdr-config.ts";
 import {
   checkHost, checkIpForward, checkStoragePool, detectVirt, exposedHostAddresses, gateOverrideWarning,
   runsOnBareMetalOutsideAnsible, strictGateOverridden, strictModeSupported, type ProcPaths,
@@ -19,7 +19,7 @@ import {
   ACL, BRIDGE, PROFILE, PROXY_PROFILE, desiredAcl, desiredBridge, desiredProfile, desiredProject,
   desiredProxyAcl, desiredProxyProfile, desiredStrictAcl, effectiveEgress, egressNames, proxyInstance, rawLxcAllowed,
 } from "../objects.ts";
-import { allowlistPath, configPath, repoRoot } from "../paths.ts";
+import { allowlistPath, configPath, herdrConfigPath, repoRoot } from "../paths.ts";
 import { convergeProxy } from "../proxy.ts";
 
 export type SetupOptions = {
@@ -65,7 +65,7 @@ export async function cmdSetup(ctx: Context, opts: SetupOptions = {}): Promise<n
     const running = (await listInstances(ctx)).filter((i) => i.status === "Running").map((i) => i.name);
     if (running.length > 0) {
       ctx.err(`WARNING: ${BRIDGE}'s address changed while ${running.join(", ")} run on it: ` +
-        "they have no network until restarted (forge stop, then forge start).");
+        "they have no network until restarted (forge stop, then forge team converge).");
     }
   }
 
@@ -94,7 +94,7 @@ export async function cmdSetup(ctx: Context, opts: SetupOptions = {}): Promise<n
     // published 7.0.2 in lts-7.0 (October 2026) and not updated since.
     ctx.err(`NOTICE: Incus ${version} is too old for strict mode, which needs 7.0.2 or later on the 7.0 LTS line ` +
       "(or 7.5.0 or later). Nothing to fix now: containers get the default open egress (private ranges stay " +
-      "blocked), forge-proxy is not created and `forge start --strict` is refused. To update Incus, re-run " +
+      "blocked), forge-proxy is not created and a strict role (or `forge egress … strict`) is refused. To update Incus, re-run " +
       "the host playbook (ansible/site.yml) from your machine, then `forge setup`.");
   } else {
     const names = egressNames(project);
@@ -115,7 +115,7 @@ export async function cmdSetup(ctx: Context, opts: SetupOptions = {}): Promise<n
     const holder = instances.find((i) => i.name !== proxyInstance() && i.ipv4.includes(plan.proxyAddress));
     if (holder) {
       throw new ForgeError(`${holder.name} holds ${plan.proxyAddress}, the address reserved for ${proxyInstance()}. ` +
-        `Stop it, then restart it (forge stop, forge start) so it takes a DHCP address, and run forge setup again.`);
+        `Stop it, then restart it (forge stop, forge team converge) so it takes a DHCP address, and run forge setup again.`);
     }
 
     const nic = { ...proxyProfile.devices.eth0, "ipv4.address": plan.proxyAddress };
@@ -130,7 +130,7 @@ export async function cmdSetup(ctx: Context, opts: SetupOptions = {}): Promise<n
       if (strict.length > 0) {
         ctx.err(`NOTICE: ${proxyInstance()} moved from ${proxy.previousAddress} to ${plan.proxyAddress}: ` +
           `${strict.join(", ")} still point at the old address and pick up the new one at their next start ` +
-          "(forge stop, then forge start).");
+          "(forge stop, then forge team converge).");
       }
     }
   }
@@ -141,7 +141,23 @@ export async function cmdSetup(ctx: Context, opts: SetupOptions = {}): Promise<n
       `services listening on it, unless a host firewall drops traffic from ${BRIDGE}.`);
   }
 
-  // Last: forge's herdr bindings.
-  await ensureHerdrConfig(ctx);
+  removeHerdrBindings(ctx);
   return 0;
+}
+
+// forge no longer binds keys in herdr (teams replaced the herdr tabs, DX 5 part 1c):
+// a host set up before still holds the block `forge setup` wrote, between these
+// markers. Removed once, then nothing to do. This can go after a release.
+function removeHerdrBindings(ctx: Context): void {
+  const path = herdrConfigPath();
+  try {
+    if (!existsSync(path)) return;
+    const text = readFileSync(path, "utf8");
+    const block = /^# >>> agent-forge >>>[ \t]*\r?\n[\s\S]*?^# <<< agent-forge <<<[ \t]*(?:\r?\n|$)/m.exec(text);
+    if (!block) return;
+    writeFileSync(path, text.slice(0, block.index).replace(/\n+$/, "\n") + text.slice(block.index + block[0].length));
+    ctx.out(`Removed forge's old key bindings from ${path}.`);
+  } catch (e) {
+    ctx.err(`WARNING: could not remove forge's old key bindings from ${path}: ${e instanceof Error ? e.message : String(e)}`);
+  }
 }

@@ -1,7 +1,7 @@
 // forge task-base <container> [<task>]
 //
 // Lu par le laptop (forge fetch, forge ship) à travers SSH : la ref dont est
-// parti le worktree de chaque tâche, enregistrée par `forge start`. Avec une
+// parti le worktree de chaque tâche, enregistrée au démarrage de la tâche. Avec une
 // tâche : sa base, ou rien. Sans : une ligne `<tâche>\t<base>` par tâche
 // enregistrée, triées. stdout est lu par une machine : rien d'autre dessus.
 import { ForgeError, type Context } from "../context.ts";

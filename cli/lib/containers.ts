@@ -70,7 +70,7 @@ export async function containerForRepo(ctx: Context, ownerRepo: string): Promise
 export async function requireContainerForRepo(ctx: Context, ownerRepo: string): Promise<string> {
   const container = await containerForRepo(ctx, ownerRepo);
   if (!container) {
-    throw new ForgeError(`no container found for ${ownerRepo}. Run 'forge start ${ownerRepo}' first.`);
+    throw new ForgeError(`no container found for ${ownerRepo}.`);
   }
   return container;
 }
@@ -93,7 +93,7 @@ export async function nameOccupant(
 }
 
 // Trois réponses : "absent", "ours" ou "half-provisioned" (un lancement
-// interrompu, que `forge start` propose de recréer). Échoue bruyamment pour un
+// interrompu, que `forge delete` défait). Échoue bruyamment pour un
 // container d'un *autre* repo ou sans aucune métadonnée forge (container
 // hérité) — plutôt que de le réutiliser silencieusement.
 export async function checkNameCollision(

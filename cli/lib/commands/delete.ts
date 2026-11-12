@@ -53,7 +53,7 @@ export async function cmdDelete(ctx: Context, repo: string | undefined, force: b
     } else if (occupant === "other-repo") {
       await checkNameCollision(ctx, container, ownerRepo); // lève l'erreur « different repo »
     } else {
-      await requireContainerForRepo(ctx, ownerRepo); // lève l'erreur « forge start »
+      await requireContainerForRepo(ctx, ownerRepo); // lève l'erreur « no container found »
     }
   }
   // Le workspace et le miroir sont hors du container : ils survivent. Un
@@ -63,11 +63,11 @@ export async function cmdDelete(ctx: Context, repo: string | undefined, force: b
   if (discarded === "emptied") {
     // Le workspace n'existait pas avant la tentative échouée : elle l'a créé.
     ctx.out(`Emptied ${workspace}: the failed attempt had created it.` +
-      (existsSync(mirror) ? ` Kept ${mirror}: 'forge start ${ownerRepo}' reuses it.` : ""));
+      (existsSync(mirror) ? ` Kept ${mirror}.` : ""));
     return 0;
   }
   ctx.out(existsSync(mirror)
-    ? `Kept ${workspace} and ${mirror}: 'forge start ${ownerRepo}' reuses them.`
-    : `Kept ${workspace}: 'forge start ${ownerRepo}' reuses it.`);
+    ? `Kept ${workspace} and ${mirror}: they hold whatever the agent left.`
+    : `Kept ${workspace}: it holds whatever the agent left.`);
   return 0;
 }

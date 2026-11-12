@@ -79,7 +79,7 @@ export async function fetchAgents(ctx: Context, opts: { host?: string; cwd?: str
 
 // The agent's tasks in the clone: the branches refs/remotes/<remote>/agent/*.
 // The agent picks those names, and git takes C1 controls in a ref name (U+009B
-// is the 8-bit CSI), so only names `forge start` could have given are kept; the
+// is the 8-bit CSI), so only names forge itself could have given are kept; the
 // others are said once, filtered, and neither listed nor offered to ship.
 export async function agentTasks(
   ctx: Context, git: (...args: string[]) => Promise<string>, remote: string,

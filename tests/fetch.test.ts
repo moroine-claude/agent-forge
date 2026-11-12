@@ -9,7 +9,7 @@ import type { ExecRule, FakeContext } from "./lib/fake-context.ts";
 import { createLayout, git, hybridContext, type Layout } from "./lib/git-layout.ts";
 
 // The host answers `forge team for-repo` with the team the layout stands for.
-const teamContext = (opts: { rules?: ExecRule[] } = {}) =>
+const teamContext = (opts: NonNullable<Parameters<typeof hybridContext>[0]> = {}) =>
   hybridContext({ ...opts, rules: [{ match: "'forge' 'team' 'for-repo'", stdout: "web\n" }, ...(opts.rules ?? [])] });
 
 const T = "web";

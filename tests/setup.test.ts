@@ -1,6 +1,6 @@
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir, type NetworkInterfaceInfo } from "node:os";
 import { join } from "node:path";
 import { fakeContext } from "./lib/fake-context.ts";
@@ -10,7 +10,6 @@ import { cmdSetup, type SetupOptions } from "../cli/lib/commands/setup.ts";
 
 let xdg: string;
 let savedForgeHome: string | undefined;
-// "herdr --version" fails: setup never discovers a real herdr.
 const NO_HERDR = { match: "herdr --version", code: 127 };
 beforeEach(() => {
   xdg = mkdtempSync(join(tmpdir(), "forge-xdg-"));
@@ -50,7 +49,7 @@ const objectWrites = (fake: FakeIncus) => fake.calls.filter((c) => c.argv.includ
 const profile = (fake: FakeIncus) => fake.profiles.get("agent-forge")!.get("agent-forge")!;
 const allowlistFile = () => join(xdg, "agent-forge", "egress-allowlist");
 
-test("an empty Incus gives every creation, then the herdr config, in order", async () => {
+test("an empty Incus gives every creation, in order", async () => {
   const fake = new FakeIncus();
   const c = fakeContext({ incus: fake, rules: [NO_HERDR] });
   assert.equal(await cmdSetup(c, opts()), 0);
@@ -64,7 +63,6 @@ test("an empty Incus gives every creation, then the herdr config, in order", asy
     "profile forge-proxy: created",
     "allowlist: created (default list, 3 entries)",
     "instance forge-proxy: created",
-    `herdr config ${join(xdg, "herdr.toml")}: created`,
   ]);
   assert.equal(profile(fake).config["raw.idmap"], "uid 501 1001\ngid 20 1001");
   assert.ok(profile(fake).config["raw.lxc"]);
@@ -100,13 +98,13 @@ test("an Incus below the version gate skips the strict objects with a notice, an
   fake.serverVersion = "7.0.1";
   const c = fakeContext({ incus: fake, rules: [NO_HERDR] });
   assert.equal(await cmdSetup(c, opts()), 0);
-  assert.equal(c.out_lines.length, 5, c.out_lines.join("\n"));
+  assert.equal(c.out_lines.length, 4, c.out_lines.join("\n"));
   assert.ok(c.err_lines.some((l) => /NOTICE: .*7\.0\.1.*strict mode/.test(l)), c.err_lines.join("\n"));
   // The notice says it is expected, what it changes and what to do later.
   const notice = c.err_lines.find((l) => /NOTICE: .*strict mode/.test(l)) ?? "";
   assert.match(notice, /Nothing to fix now/);
   assert.match(notice, /open egress/);
-  assert.match(notice, /forge start --strict/);
+  assert.match(notice, /strict role/);
   assert.match(notice, /re-run the host playbook/);
   assert.equal(fake.acls.has("forge-proxy"), false);
   assert.equal(fake.acls.has("forge-egress-strict"), false);
@@ -220,7 +218,7 @@ test("a moved proxy names the strict containers that pick it up at their next st
   const c = fakeContext({ incus: fake, rules: [NO_HERDR] });
   await cmdSetup(c, opts());
   const notice = c.err_lines.find((l) => l.startsWith("NOTICE") && l.includes("forge-proxy moved"));
-  assert.ok(notice?.includes("agent-o-s") && notice.includes("forge start"), c.err_lines.join("\n"));
+  assert.ok(notice?.includes("agent-o-s") && notice.includes("forge team converge"), c.err_lines.join("\n"));
 });
 
 test("a changed bridge address gives exactly one edit, of the whole bridge", async () => {
@@ -336,4 +334,21 @@ test("the bare-metal warning comes before a failing host contract", async () => 
     proc: fakeProc({ restrictUserns: "1" }), virt: () => "none", releaseRoot: "/home/alice/agent-forge",
   })));
   assert.ok(c.err_lines.includes(BARE_METAL_WARNING), c.err_lines.join("\n"));
+});
+
+// forge no longer binds keys in herdr: the block an earlier forge setup wrote is
+// removed once, and what the user wrote around it stays.
+test("setup removes the key bindings block of an earlier forge setup, once", async () => {
+  const file = join(xdg, "herdr.toml");
+  const mine = '[keys]\nprefix = "ctrl+a"\n';
+  writeFileSync(file, `${mine}\n# >>> agent-forge >>>\n[[keys.command]]\nkey = "prefix+f"\n# <<< agent-forge <<<\n`);
+  const fake = new FakeIncus();
+  const first = fakeContext({ incus: fake, rules: [NO_HERDR] });
+  assert.equal(await cmdSetup(first, opts()), 0);
+  assert.equal(readFileSync(file, "utf8"), mine);
+  assert.ok(first.out_lines.some((l) => l.startsWith("Removed forge's old key bindings")), first.out_lines.join("\n"));
+  const second = fakeContext({ incus: fake, rules: [NO_HERDR] });
+  assert.equal(await cmdSetup(second, opts()), 0);
+  assert.ok(!second.out_lines.some((l) => l.includes("key bindings")));
+  assert.equal(readFileSync(file, "utf8"), mine);
 });

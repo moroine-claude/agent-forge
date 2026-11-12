@@ -4,7 +4,7 @@
 // keeps connections opened before an ACL change alive). The calls are ordered
 // so that an interruption leaves the container stricter, never looser: the ACL
 // goes on first when going strict and comes off last when going open. The
-// files inside the container follow at the next `forge start`.
+// files inside the container follow when it next starts.
 import type { Context } from "../context.ts";
 import { ForgeError, mustSucceed } from "../context.ts";
 import { validateRepo } from "../validate.ts";
@@ -163,7 +163,7 @@ export async function cmdEgress(ctx: Context, a?: string, b?: string): Promise<n
     ? await toStrict(ctx, container, instance.devices.eth0 !== undefined)
     : await toOpen(ctx, container, instance.config, instance.devices.eth0 !== undefined);
   for (const change of changes) ctx.out(`changed: ${change}`);
-  ctx.out(`${repo}: now ${mode}. The settings inside the container follow at the next forge start.`);
+  ctx.out(`${repo}: now ${mode}. The settings inside the container follow when it next starts (forge team converge).`);
   return 0;
 }
 
