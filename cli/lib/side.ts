@@ -17,10 +17,10 @@ export function currentSide(env: NodeJS.ProcessEnv = process.env, exists: (path:
   return exists(HOST_ROOT) ? "host" : "laptop";
 }
 
-export const LAPTOP_COMMANDS = ["install", "open", "fetch", "ship", "cloud"] as const;
+export const LAPTOP_COMMANDS = ["install", "open", "fetch", "ship", "cloud", "hc-via"] as const;
 
 const HOST_COMMANDS = [
-  "setup", "start", "resume", "finish", "stop", "delete", "list", "egress", "attach", "upload-pack", "task-base", "image", "relay", "team",
+  "setup", "start", "resume", "finish", "stop", "delete", "list", "egress", "attach", "upload-pack", "task-base", "image", "relay", "team", "hc-exec",
 ] as const;
 
 // `completion` is for both sides: it is the current side's own.

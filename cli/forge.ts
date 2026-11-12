@@ -26,6 +26,8 @@ import { cmdFetch } from "./lib/commands/fetch.ts";
 import { cmdShip } from "./lib/commands/ship.ts";
 import { cmdRelay } from "./lib/commands/relay.ts";
 import { cmdTeam } from "./lib/commands/team.ts";
+import { cmdHcVia } from "./lib/commands/hc-via.ts";
+import { cmdHcExec } from "./lib/commands/hc-exec.ts";
 import { currentSide, requireSide } from "./lib/side.ts";
 
 const USAGE = `Usage: forge <command> [args]
@@ -112,6 +114,8 @@ function dispatch(
     case "task-base": return cmdTaskBase(ctx, a, b);
     case "relay": return cmdRelay(ctx, a, positionals.slice(2), relay);
     case "team": return cmdTeam(ctx, positionals.slice(1), { json: relay.json });
+    case "hc-via": return cmdHcVia(ctx, a, b, positionals[3]);
+    case "hc-exec": return cmdHcExec(ctx, a, b);
     case "image": return cmdImage(ctx, a, b);
     case "completion": return cmdCompletion(ctx, a, b);
     case "install": return cmdInstall(ctx, laptop);

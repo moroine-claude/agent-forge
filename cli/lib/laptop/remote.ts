@@ -8,7 +8,7 @@ import { knownHostsPath, type LaptopHost } from "./state.ts";
 
 // ssh joins its arguments with spaces and hands them to the remote shell: each
 // word is quoted so it arrives as one.
-const remoteCommand = (argv: string[]): string => argv.map(shellQuote).join(" ");
+export const remoteCommand = (argv: string[]): string => argv.map(shellQuote).join(" ");
 
 // The alias forwards the agent, for the agents' clones under herdr; none of
 // install's steps on the host needs it, so they turn it off.
