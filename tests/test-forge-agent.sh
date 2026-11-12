@@ -26,6 +26,21 @@ if [ "$out" != "tok-123|--permission-mode auto" ] || [ "$rc" -ne 7 ]; then
   FAIL=1
 fi
 
+# L'instruction d'une tâche arrive en fichier : dernier argument de claude, rien
+# si le fichier est vide.
+printf 'Fais X' > "$TMP/instr"
+: > "$TMP/empty"
+out=$(PATH="$TMP/bin:$PATH" FORGE_TOKEN_FILE="$TMP/token" bash "$LAUNCHER" --forge-task agent-x-a --instruction-file "$TMP/instr" --permission-mode auto) || true
+if [ "$out" != "tok-123|--permission-mode auto Fais X" ]; then
+  echo "FAIL: l'instruction doit être le dernier argument (sortie='$out')"
+  FAIL=1
+fi
+out=$(PATH="$TMP/bin:$PATH" FORGE_TOKEN_FILE="$TMP/token" bash "$LAUNCHER" --forge-task agent-x-a --instruction-file "$TMP/empty" --permission-mode auto) || true
+if [ "$out" != "tok-123|--permission-mode auto" ]; then
+  echo "FAIL: un fichier d'instruction vide ne passe rien (sortie='$out')"
+  FAIL=1
+fi
+
 rc=0
 out=$(PATH="$TMP/bin:$PATH" FORGE_TOKEN_FILE="$TMP/absent" bash "$LAUNCHER" --forge-task agent-x-a 2>&1) || rc=$?
 if [ "$rc" -eq 0 ] || ! printf '%s' "$out" | grep -q 'forge install' || printf '%s' "$out" | grep -q 'tok-123'; then
