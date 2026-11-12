@@ -29,6 +29,8 @@ test("the defaults are the spec's", () => {
     network: { ipv4Address: "10.77.0.1/24" },
     storagePool: "default",
     limits: { cpu: null, memory: "75%", processes: 10000, rootDisk: "50GiB" },
+    teams: {},
+    pilot: null,
   });
 });
 
@@ -64,7 +66,7 @@ test("every key can be set", () => {
     storagePool: "fast",
     limits: { cpu: "0-3", memory: "12GiB", processes: 4096, rootDisk: "100GiB" },
   };
-  assert.deepEqual(parse(raw), raw);
+  assert.deepEqual(parse(raw), { ...raw, teams: {}, pilot: null });
 });
 
 test("parsing never mutates the defaults", () => {

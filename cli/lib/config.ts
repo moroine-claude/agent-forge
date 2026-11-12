@@ -2,20 +2,25 @@
 // file where every key has a default. Validation is strict: a typo must stop
 // forge with the file, the key and the expected form, never be ignored.
 import { readFileSync } from "node:fs";
+import { configHelpers, SIZE } from "./config-fields.ts";
 import { ForgeError } from "./context.ts";
 import { PRIVATE_RANGES, cidrWithin, isHostAddress, parseCidr } from "./ipv4.ts";
+import { parsePilot, parseTeams, type PilotConfig, type TeamConfig } from "./team-config.ts";
 
 export type Limits = { cpu: number | string | null; memory: string; processes: number; rootDisk: string };
-export type ForgeConfig = { network: { ipv4Address: string }; storagePool: string; limits: Limits };
+export type ForgeConfig = {
+  network: { ipv4Address: string }; storagePool: string; limits: Limits;
+  teams: Record<string, TeamConfig>; pilot: PilotConfig | null;
+};
 
 export const DEFAULT_CONFIG: ForgeConfig = {
   network: { ipv4Address: "10.77.0.1/24" },
   storagePool: "default",
   limits: { cpu: null, memory: "75%", processes: 10000, rootDisk: "50GiB" },
+  teams: {},
+  pilot: null,
 };
 
-// An Incus size: "50GiB", "12GB", "512MiB".
-const SIZE = /^[0-9]+(\.[0-9]+)?(B|[kKMGTPE]i?B)$/;
 const PERCENT = /^([1-9][0-9]?|100)%$/;
 // limits.cpu as a string: a CPU set such as "0-3" or "0,2,4-7".
 const CPU_SET = /^[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*$/;
@@ -39,25 +44,21 @@ export function loadConfig(path: string): ForgeConfig {
 }
 
 export function parseConfig(path: string, raw: unknown): ForgeConfig {
-  const invalid = (key: string, expected: string, got: unknown) =>
-    new ForgeError(`${path}: ${key} must be ${expected}, got ${JSON.stringify(got)}`);
-
-  // An object's own keys, after refusing any key forge does not know. `key`
-  // is the object's dotted path, "" at the top level.
-  const fields = (value: unknown, key: string, known: string[]): Record<string, unknown> => {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) {
-      throw invalid(key || "the file's content", "a JSON object", value);
-    }
-    for (const k of Object.keys(value)) {
-      if (!known.includes(k)) {
-        throw new ForgeError(`${path}: unknown key ${key ? `${key}.${k}` : k} (known: ${known.join(", ")})`);
-      }
-    }
-    return value as Record<string, unknown>;
-  };
+  const { invalid, fields } = configHelpers(path);
 
   const config = structuredClone(DEFAULT_CONFIG);
-  const top = fields(raw, "", ["network", "storagePool", "limits"]);
+  const top = fields(raw, "", ["network", "storagePool", "limits", "teams", "pilot"]);
+
+  if (top.teams !== undefined) config.teams = parseTeams(path, top.teams);
+  if (top.pilot !== undefined) {
+    config.pilot = parsePilot(path, top.pilot);
+    // The Pilot talks to teams: a name that is not a declared team is a typo.
+    for (const t of config.pilot?.talkTo ?? []) {
+      if (!(t in config.teams)) {
+        throw invalid("pilot.talkTo", `a list of declared team names (${Object.keys(config.teams).join(", ") || "none declared"})`, t);
+      }
+    }
+  }
 
   if (top.network !== undefined) {
     const network = fields(top.network, "network", ["ipv4Address"]);
