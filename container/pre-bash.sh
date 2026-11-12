@@ -52,6 +52,19 @@ if [ -z "$FORGE_MODE_FILE" ]; then
 fi
 FORGE_MODE=$(cat "$FORGE_MODE_FILE" 2>/dev/null || echo autonomous)
 
+# Règles git et gh (push, gh, checkout main, merge, rebase) : appliquées dans
+# tous les modes sauf supervised. Dans un container supervisé, aucune
+# credential n'existe et origin est un miroir en lecture seule : ces règles ne
+# protègent rien, le contrôle est aux sorties (seules les branches agent/*
+# sortent, forge ship les rejoue et les signe ; spec DX 5, décision 9). Le test
+# porte sur "supervised" exactement : un marqueur absent, vide ou inconnu garde
+# toutes les règles.
+POLICE_GIT=1
+if [ "$FORGE_MODE" = "supervised" ]; then
+  POLICE_GIT=0
+fi
+if [ "$POLICE_GIT" = 1 ]; then
+
 # Politique git push : default-deny.
 # Seule forme autorisée : git push [-u] origin agent/<branche>
 # (éventuellement comme segment d'une chaîne && ou ;).
@@ -63,12 +76,6 @@ FORGE_MODE=$(cat "$FORGE_MODE_FILE" 2>/dev/null || echo autonomous)
 # (variables, scripts intermédiaires, appels API via curl) et ne prétend pas le faire.
 GIT_PUSH_RE='git[[:space:]]+(-[^[:space:]]+([[:space:]]+[^-][^[:space:]]*)?[[:space:]]+)*push([[:space:];&|]|$)'
 if echo "$COMMAND" | grep -qE "$GIT_PUSH_RE"; then
-  # Container supervisé : aucune credential GitHub n'existe jamais ici, donc
-  # aucun push n'a de cible légitime. Bloqué sans exception, avant même les
-  # politiques par forme ci-dessous (qui ne s'appliquent qu'en autonomous).
-  if [ "$FORGE_MODE" = "supervised" ]; then
-    block "git push non autorisé : container supervisé, aucune credential GitHub n'existe."
-  fi
   # VM de dev : aucune credential non plus, le relais publie à la place.
   if [ "$FORGE_MODE" = "contributor" ]; then
     block "git push non autorisé : sur la VM de dev, le relais est le seul chemin vers GitHub."
@@ -96,12 +103,6 @@ if echo "$COMMAND" | grep -qE "$GIT_PUSH_RE"; then
   done <<< "$(printf '%s\n' "$COMMAND" | tr ';&|' '\n\n\n')"
 fi
 
-# gh : en mode supervised, aucune credential n'existe, donc aucune
-# sous-commande gh n'a d'usage légitime — bloqué sans exception, avant les
-# règles par sous-commande ci-dessous (qui ne s'appliquent qu'en autonomous).
-if [ "$FORGE_MODE" = "supervised" ] && echo "$COMMAND" | grep -qE '(^|[[:space:];&|])gh([[:space:]]|$)'; then
-  block "gh non autorisé : container supervisé, gh n'est jamais authentifié."
-fi
 # VM de dev : même règle, le relais est le seul chemin vers GitHub.
 if [ "$FORGE_MODE" = "contributor" ] && echo "$COMMAND" | grep -qE '(^|[[:space:];&|])gh([[:space:]]|$)'; then
   block "gh non autorisé : sur la VM de dev, le relais est le seul chemin vers GitHub."
@@ -156,6 +157,8 @@ fi
 if echo "$COMMAND" | grep -qE 'git[[:space:]]+rebase([[:space:]]|$)'; then
   block "git rebase non autorisé."
 fi
+
+fi # POLICE_GIT
 
 # Bloquer le détournement des git hooks via git config
 # Empêche: git config --global core.hooksPath /tmp

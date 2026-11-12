@@ -28,7 +28,8 @@ Ce fichier décrit la v2, sortie sur `main` (la v1, LXD, n'est plus maintenue). 
 - Messages conventionnels : `feat:`, `fix:`, `chore:`, `docs:`, `test:`.
 - **Dans un container forge v2** (mode `supervised`, le seul mode de container de la v2 ; la VM de dev a le sien, `contributor`, plus bas) :
   - tu commites sur `agent/<tâche>`. Les commits sont non signés et portent l'identité git de l'hôte ;
-  - tu ne pousses jamais et tu n'utilises jamais `gh` : `container/pre-bash.sh` les bloque. `origin` est un miroir en lecture seule (`/forge/origin.git`, rafraîchi par l'hôte à chaque `forge start`) : `git fetch origin` marche, `git push` non ;
+  - tu ne pousses jamais et tu n'utilises jamais `gh` : aucune credential n'existe, ils échouent (le hook ne surveille plus git dans un container supervisé). `origin` est un miroir en lecture seule (`/forge/origin.git`, rafraîchi par l'hôte à chaque `forge start`) : `git fetch origin` marche, `git push` non ;
+  - pour rafraîchir ta branche : `git fetch origin` puis `git rebase origin/main`, jamais `git merge` (un commit de merge fait refuser la branche par `forge ship`) ;
   - le mainteneur récupère ton travail depuis sa machine avec `forge fetch` dans son clone, le relit, puis `forge ship <tâche>` le re-signe, le pousse et ouvre la PR.
 - **Sur la machine de dev** (une session Claude Code dans ce repo, dont `.claude/settings.json` applique `container/pre-bash.sh`) :
   - push uniquement vers `agent/<tâche>` : `git push -u origin agent/<tâche>` ;
@@ -43,7 +44,7 @@ Ce fichier décrit la v2, sortie sur `main` (la v1, LXD, n'est plus maintenue). 
   - tu ne modifies pas le système de la VM (paquets, firewall, configuration hors de ton clone et de tes ressources de test). S'il te manque un outil, dis-le : il s'ajoute au rôle Ansible `forge_contributor`, pour que la VM se reconstruise d'une commande ;
   - tu lances tous les tests sur la VM : `npm test`, `FORGE_INTEGRATION=1 npm run test:integration` (avec `agent-base`, que tu construis par `forge image build` après un premier `forge setup`), `ansible/tests/vm-test.sh --lima`.
 - Jamais : merger une PR toi-même, pousser vers `main`, faire `git checkout main`.
-- La seule forme de `git merge` autorisée est `git merge origin/main` (ou `--no-edit`), pour rafraîchir ta branche `agent/*` depuis `main` avant de pousser — jamais l'inverse, jamais une autre branche. C'est ce que `container/pre-bash.sh` autorise.
+- La seule forme de `git merge` autorisée est `git merge origin/main` (ou `--no-edit`), pour rafraîchir ta branche `agent/*` depuis `main` avant de pousser — jamais l'inverse, jamais une autre branche. C'est ce que `container/pre-bash.sh` autorise. Cette règle vaut sur la machine du mainteneur et sur la VM de dev ; dans un container supervisé, l'agent se rafraîchit par rebase.
 - La branche longue `next`, qui a porté la v2 jusqu'à sa sortie, est retirée.
 
 ### Runtime v2

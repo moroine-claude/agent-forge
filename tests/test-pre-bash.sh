@@ -177,14 +177,25 @@ expect_block 'git rebase main'
 expect_block 'sudo apt install foo'
 expect_block 'rm -rf /workspace'
 
-# --- supervised mode: no credential exists, so every push and every gh
-# subcommand is blocked, including forms autonomous mode explicitly allows ---
-expect_block_as supervised 'git push origin agent/test-project'
-expect_block_as supervised 'git push -u origin agent/test-project'
-expect_block_as supervised 'git push origin main'
-expect_block_as supervised 'gh pr create --base main --title "x" --body "y"'
-expect_block_as supervised 'gh pr view 42'
-expect_block_as supervised 'gh auth status'
+# --- supervised mode: no credential exists and origin is a read-only mirror,
+# so git and gh are not policed (spec DX 5, decision 9); the rest still is ---
+expect_allow_as supervised 'git push origin agent/test-project'
+expect_allow_as supervised 'git push origin main'
+expect_allow_as supervised 'git push origin --delete agent/x'
+expect_allow_as supervised 'gh pr view 42'
+expect_allow_as supervised 'git checkout main'
+expect_allow_as supervised 'git merge agent/other'
+expect_allow_as supervised 'git fetch origin && git rebase origin/main'
+expect_block_as supervised 'git config core.hooksPath /tmp'
+expect_block_as supervised 'git status && rm -rf /workspace'
+expect_block_as supervised 'git rebase origin/main; sudo ls'
+
+# --- any other marker keeps every git rule ---
+expect_block_as contributor 'git rebase origin/main'
+expect_block_as contributor 'git merge agent/other'
+expect_block_as unknown-mode 'git rebase origin/main'
+expect_block_as unknown-mode 'git push origin main'
+expect_block_as '' 'git checkout main'
 
 # --- autonomous mode, explicit: unchanged from the default behavior above ---
 expect_allow_as autonomous 'git push origin agent/test-project'
