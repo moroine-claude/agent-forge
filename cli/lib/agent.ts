@@ -13,11 +13,14 @@ export type Agent = {
 
 export const AGENT: Agent = {
   herdrLabel: "claude",
-  // `exec` inside `bash -lc` so claude replaces the shell (no extra process
-  // between incus and the agent); -l restores DOCKER_HOST, exported from .bashrc.
+  // `exec` inside `bash -lc` so the launcher replaces the shell; -l restores
+  // DOCKER_HOST, exported from .bashrc. forge-agent reads the container's
+  // Claude token, exports it for claude alone and runs claude as its child,
+  // so its own command line keeps the marker. No --remote-control: the token
+  // does not allow it.
   command: (container, task, resume) => [
     "bash", "-lc",
-    `exec claude --permission-mode auto ${AGENT.marker(container, task)}${resume ? " --continue" : ""}`,
+    `exec forge-agent ${AGENT.marker(container, task)} --permission-mode auto${resume ? " --continue" : ""}`,
   ],
-  marker: (container, task) => `--remote-control ${container}-${task}`,
+  marker: (container, task) => `--forge-task ${container}-${task}`,
 };

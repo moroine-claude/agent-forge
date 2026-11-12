@@ -7,3 +7,17 @@ forge_image_aiuser_uid: 1001
 # aiuser's subordinate IDs, for rootless Docker.
 forge_image_subid_start: 200000
 forge_image_subid_count: 65536
+# herdr-core (hc), pinned (DX 5 spec §5.6). The version is also HC_VERSION in
+# cli/lib/hc.ts, which a test keeps equal to this one. The URLs and sums are
+# the release's own manifest, https://releases.herdr.dev/core/<version>/manifest.json
+# (the sums were also recomputed from the downloaded archives); they are keyed
+# by dpkg's architecture name, and the role fails on any other rather than
+# download unchecked.
+forge_image_hc_version: "0.1.20"
+forge_image_hc_target:
+  amd64: linux-x86_64
+  arm64: linux-aarch64
+forge_image_hc_url: "https://releases.herdr.dev/core/{{ forge_image_hc_version }}/herdr-core-{{ forge_image_hc_target[forge_image_arch.stdout] }}.tar.gz"
+forge_image_hc_sha256:
+  amd64: ac6b86890c451a37584620aaa438b71bc0d0bd430a2e7c1d7e095f052c414e74
+  arm64: 5f3037379d15cc76cfc72d2fd1a4262ea1c5b24df278bf7cfd8adcff7b914862

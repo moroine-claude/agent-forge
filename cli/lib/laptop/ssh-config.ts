@@ -33,6 +33,24 @@ export function sshOption(name: string, v: string): string {
   return `${name}=${value(v)}`;
 }
 
+// ControlPersist when a host sets none.
+export const DEFAULT_PERSIST = "8h";
+
+// The control sockets: a private directory of forge's own, so that a path of
+// the developer's never holds them. %C (a hash) keeps the path short enough
+// for a socket's length limit.
+function controlDir(): string {
+  return join(sshDir(), "forge-cm");
+}
+
+// ControlPersist's seconds, as `ssh -G` prints them: a bare number is
+// seconds, else a number and one of s, m, h, d, w.
+function persistSeconds(v: string): number | null {
+  const m = /^([1-9][0-9]*)([smhdw]?)$/.exec(v);
+  if (!m) return null;
+  return Number(m[1]) * { "": 1, s: 1, m: 60, h: 3600, d: 86400, w: 604800 }[m[2] as "" | "s" | "m" | "h" | "d" | "w"];
+}
+
 type SshPaths = { knownHosts: string; keyPath: (name: string) => string };
 
 // A host's block, setting by setting, unquoted: what the file says and what
@@ -47,6 +65,10 @@ function settings(h: LaptopHost, o: SshPaths): [string, string][] {
   // The dev VM is an agent's machine with full rights: it never receives the
   // maintainer's SSH agent (spec 5.3).
   s.push(["ForwardAgent", h.kind === "cloud" ? "no" : "yes"]);
+  // One connection shared by every forge command and Herdr App machine
+  // (DX 5, decision 18): one touch of the hardware key opens a master that
+  // the others reuse until ControlPersist ends.
+  s.push(["ControlMaster", "auto"], ["ControlPath", join(controlDir(), "%C")], ["ControlPersist", h.sshPersist ?? DEFAULT_PERSIST]);
   return s;
 }
 
@@ -59,9 +81,12 @@ export function renderForgeSshConfig(hosts: LaptopHost[], o: SshPaths): string {
 // directories. The temp file is a dotfile, which `Include config.d/*` skips.
 export function writeForgeSshConfig(text: string): void {
   const path = forgeSshConfigPath();
-  for (const dir of [sshDir(), join(sshDir(), "config.d")]) {
+  for (const dir of [sshDir(), join(sshDir(), "config.d"), controlDir()]) {
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
+  // A socket directory others could read would let them use the shared
+  // connection: 0700 even when it already existed.
+  chmodSync(controlDir(), 0o700);
   const tmp = join(sshDir(), "config.d", ".agent-forge.forge-tmp");
   writeFileSync(tmp, text, { mode: 0o600 });
   chmodSync(tmp, 0o600); // the umask may have narrowed the mode above
@@ -127,6 +152,10 @@ export async function overriddenSettings(ctx: Context, host: LaptopHost, o: SshP
     }
     const same = key === "HostName" ? theirs.toLowerCase() === ours.toLowerCase()
       : key === "UserKnownHostsFile" ? theirs === ours || theirs.startsWith(`${ours} `)
+      // ssh -G prints the path with %C expanded to a hash: compared by its directory.
+      : key === "ControlPath" ? theirs.startsWith(`${controlDir()}/`)
+      // ... and the duration in seconds.
+      : key === "ControlPersist" ? persistSeconds(theirs) !== null && persistSeconds(theirs) === persistSeconds(ours)
       : theirs === ours;
     if (same) continue;
     const wins = key === "IdentityFile" ? "is offered before" : "wins over";

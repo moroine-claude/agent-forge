@@ -43,7 +43,7 @@ const panes = (...p: [string, string][]) =>
 const fg = (pane: string, ...argvs: string[][]): ExecRule =>
   ({ match: `/h/herdr pane process-info --pane ${pane}`, stdout: j({ process_info: { foreground_processes: argvs.map((argv) => ({ argv })) } }) });
 const agent = (running: boolean): ExecRule =>
-  ({ match: "ps -u 1001 -o args=", stdout: running ? "claude --remote-control agent-x-cli\n" : "" });
+  ({ match: "ps -u 1001 -o args=", stdout: running ? "/bin/bash /usr/local/bin/forge-agent --forge-task agent-x-cli\n" : "" });
 
 const herdrCalls = (c: { calls: string[][] }) => c.calls.filter((a) => a[0] === "/h/herdr").map((a) => a.slice(1).join(" "));
 const has = (c: { calls: string[][] }, sub: string) => herdrCalls(c).some((l) => l.includes(sub));
@@ -194,7 +194,7 @@ const resumeRules = (): ExecRule[] => [
   { match: "agent-r user.forge.repo", stdout: "o/r" },
   { match: "agent-s user.forge.repo", stdout: "o/s" },
   worktreesOf("agent-r", "cli", "docs", "api"), worktreesOf("agent-s", "x"),
-  psOf("agent-r", "claude --remote-control agent-r-api\n"), psOf("agent-s", ""),
+  psOf("agent-r", "/bin/bash /usr/local/bin/forge-agent --forge-task agent-r-api\n"), psOf("agent-s", ""),
   ws(["w1", "o/r"], ["w2", "O/S"], ["w3", "misc"]),
   tabs(
     ["w1:t1", "cli", "w1"], ["w1:t2", "docs", "w1"], ["w1:t3", "api", "w1"], ["w1:t4", "notes", "w1"],

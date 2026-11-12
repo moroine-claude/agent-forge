@@ -32,7 +32,16 @@ function withSshDir<T>(fn: (dir: string) => T): T {
   }
 }
 
-test("renders a lima and a remote host", () => {
+async function withSshDirAsync(fn: (dir: string) => Promise<void>): Promise<void> {
+  const dir = join(mkdtempSync(join(tmpdir(), "forge-ssh-")), ".ssh");
+  const old = process.env.FORGE_SSH_DIR;
+  process.env.FORGE_SSH_DIR = dir;
+  try { await fn(dir); } finally {
+    if (old === undefined) delete process.env.FORGE_SSH_DIR; else process.env.FORGE_SSH_DIR = old;
+  }
+}
+
+test("renders a lima and a remote host", () => withSshDir((dir) => {
   assert.equal(renderForgeSshConfig([lima, remote], o), `# Managed by forge install: edits are overwritten.
 
 Host forge-local
@@ -45,6 +54,9 @@ Host forge-local
   IdentityFile /state/forge-local/forge-key.pub
   IdentitiesOnly yes
   ForwardAgent yes
+  ControlMaster auto
+  ControlPath ${dir}/forge-cm/%C
+  ControlPersist 8h
 
 Host forge-acme
   HostName 203.0.113.10
@@ -55,8 +67,17 @@ Host forge-acme
   IdentitiesOnly yes
   IdentityAgent /run/agent.sock
   ForwardAgent yes
+  ControlMaster auto
+  ControlPath ${dir}/forge-cm/%C
+  ControlPersist 8h
 `);
-});
+}));
+
+test("a host's sshPersist sets ControlPersist, and the control directory is private", () => withSshDir((dir) => {
+  assert.match(renderForgeSshConfig([{ ...lima, sshPersist: "2h" }], o), /^ {2}ControlPersist 2h$/m);
+  writeForgeSshConfig("x\n");
+  assert.equal(statSync(join(dir, "forge-cm")).mode & 0o777, 0o700);
+}));
 
 test("a path with spaces is double-quoted", () => {
   const text = renderForgeSshConfig(
@@ -240,25 +261,38 @@ const inEffect = [
   "user forge", "hostname 127.0.0.1", "port 60022", "identitiesonly yes", "stricthostkeychecking accept-new",
   "hostkeyalias forge-local", "identityagent /run/agent.sock", `identityfile ${KEY_PATH}`,
   "identityfile ~/.ssh/id_ed25519", "userknownhostsfile /state/known_hosts /home/a/.ssh/known_hosts2",
-  "forwardagent yes",
+  "forwardagent yes", "controlmaster auto", "controlpersist 28800",
 ].join("\n") + "\n";
+// ssh -G prints %C expanded to a 40-hex hash.
+const hash = "0123456789abcdef0123456789abcdef01234567";
 const withAgent: LaptopHost = { ...lima, identityAgent: "/run/agent.sock" };
 
-test("overriddenSettings is empty when forge's values are in effect", async () => {
-  const ctx = fakeContext({ rules: [{ match: "ssh -G forge-local", stdout: inEffect }] });
+test("overriddenSettings is empty when forge's values are in effect", () => withSshDirAsync(async (dir) => {
+  const ctx = fakeContext({ rules: [{ match: "ssh -G forge-local", stdout: `${inEffect}controlpath ${dir}/forge-cm/${hash}\n` }] });
   assert.deepEqual(await overriddenSettings(ctx, withAgent, o), []);
   // A host name compares without case.
   const upper = fakeContext({ rules: [{ match: "ssh -G forge-acme", stdout: "hostname host.example\nport 22\nuser forge\n" +
-    "userknownhostsfile /state/known_hosts\nidentityfile /state/forge-acme/forge-key.pub\nidentitiesonly yes\nforwardagent yes\n" }] });
+    "userknownhostsfile /state/known_hosts\nidentityfile /state/forge-acme/forge-key.pub\nidentitiesonly yes\nforwardagent yes\n" +
+    `controlmaster auto\ncontrolpath ${dir}/forge-cm/${hash}\ncontrolpersist 28800\n` }] });
   assert.deepEqual(await overriddenSettings(upper, { ...remote, address: "Host.Example", identityAgent: undefined }, o), []);
-});
+}));
 
-test("overriddenSettings names each setting of the developer's that wins over forge's", async () => {
+test("overriddenSettings reports another ControlPath or ControlPersist", () => withSshDirAsync(async (dir) => {
+  const other = inEffect.replace("controlpersist 28800", "controlpersist 600") + "controlpath /tmp/other\n";
+  const ctx = fakeContext({ rules: [{ match: "ssh -G forge-local", stdout: other }] });
+  assert.deepEqual(await overriddenSettings(ctx, withAgent, o), [
+    `\`ControlPath /tmp/other\` from your ~/.ssh/config wins over forge's \`ControlPath ${dir}/forge-cm/%C\``,
+    "`ControlPersist 600` from your ~/.ssh/config wins over forge's `ControlPersist 8h`",
+  ]);
+}));
+
+test("overriddenSettings names each setting of the developer's that wins over forge's", () => withSshDirAsync(async (dir) => {
   // The review's probe: Host * with these values, then Match all and the Include.
   const probe = [
     "user me", "hostname 127.0.0.1", "port 60022", "identitiesonly yes", "stricthostkeychecking yes",
     "hostkeyalias forge-local", "identityagent /run/other.sock", "identityfile ~/.ssh/id1", "identityfile ~/.ssh/id2",
     `identityfile ${KEY_PATH}`, "userknownhostsfile /home/a/.ssh/other /state/known_hosts", "forwardagent no",
+    "controlmaster auto", `controlpath ${dir}/forge-cm/${hash}`, "controlpersist 28800",
   ].join("\n") + "\n";
   const ctx = fakeContext({ rules: [{ match: "ssh -G forge-local", stdout: probe }] });
   assert.deepEqual(await overriddenSettings(ctx, withAgent, o), [
@@ -269,7 +303,7 @@ test("overriddenSettings names each setting of the developer's that wins over fo
     "`IdentityAgent /run/other.sock` from your ~/.ssh/config wins over forge's `IdentityAgent /run/agent.sock`",
     "`ForwardAgent no` from your ~/.ssh/config wins over forge's `ForwardAgent yes`",
   ]);
-});
+}));
 
 test("overriddenSettings: forge's file not read at all, or ssh -G failing", async () => {
   const unread = fakeContext({ rules: [{ match: "ssh -G forge-local", stdout: "hostname forge-local\nport 22\nuser alice\n" }] });

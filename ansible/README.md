@@ -176,7 +176,9 @@ every run.
 
 ```bash
 ssh forge-local                        # accept the host key once
-claude auth login
+# the Claude token: run `claude setup-token` on your machine, paste what it prints
+mkdir -p ~/.config/agent-forge
+(umask 077; cat > ~/.config/agent-forge/claude-token)   # paste, Enter, Ctrl-D
 git config --global user.name "Alice Example"
 git config --global user.email "alice@example.com"
 forge setup

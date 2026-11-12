@@ -105,8 +105,9 @@ It asks little:
   on your machine, unless that file sets `[ui.toast]` or an inline
   `ui = {…}` itself (a `[ui]` table alone does not stop forge; a refusal is
   asked again on every run);
-- the Claude login, once: `claude auth login` prints a URL, you open it and
-  paste the code back.
+- the Claude token, once: run `claude setup-token` on your machine and paste
+  the token it prints (it is not echoed). The token lasts a year, covers model
+  requests only and is revocable in claude.ai.
 
 In between it does, in order:
 
@@ -122,8 +123,9 @@ In between it does, in order:
    (`~/.config/agent-forge/known_hosts`);
 5. gives the host your git identity (`user.name`, `user.email`), the one the
    agents' commits carry;
-6. runs `claude auth login` on the host, unless it is already logged in; every
-   new container reuses those credentials;
+6. stores your Claude token on the host, unless it is already there
+   (`~/.config/agent-forge/claude-token`, mode 600); every new container gets
+   its own copy, as a file only the agent can read;
 7. runs `forge setup` there: forge's Incus objects, the egress proxy and its
    allowlist when Incus is recent enough (see
    [Strict egress mode](#strict-egress-mode)), and forge's herdr key bindings
@@ -148,7 +150,9 @@ NOTICE: herdr is not installed on this host yet, which is expected before your f
 It goes away at your first `herdr --remote`.
 
 With a touch-to-use hardware key, a first install asks for about a dozen
-touches: one per SSH connection.
+touches: one per SSH connection. Once installed, one touch opens a connection
+that every later command reuses for 8 hours after its last use
+(`forge install --ssh-persist 2h` changes the duration).
 
 #### What `forge install` changes on your machine
 
@@ -159,6 +163,7 @@ touches: one per SSH connection.
 | `~/.config/agent-forge/known_hosts` | forge's own `known_hosts`: the hosts' keys, for the alias and for Ansible | Written by ssh | No |
 | `~/.local/share/agent-forge/collections` | The Ansible collections the playbook needs | Written by `ansible-galaxy` | No |
 | `~/.ssh/config.d/agent-forge.config` | forge's own SSH file: one block per host, rewritten on every run | 0600; 0700 for a directory forge creates | No |
+| `~/.ssh/forge-cm/` | The sockets of the shared SSH connections (see `ControlMaster` below) | 0700 | No |
 | `~/.ssh/config` | One line at the top, `Include config.d/agent-forge.config`, and a blank line before your own first line, only when no `Include` there reads forge's file for every host with forge's values in effect. Nothing else changes | Kept; 0600 if forge creates it | Yes |
 | `~/.config/herdr/config.toml` | A block of forge's own at the end, `[ui.toast]` then `delivery = "herdr"`, only when the file sets neither `[ui.toast]` nor an inline `ui = {…}` | Kept; 0644 if forge creates it, 0700 for a directory forge creates | Yes |
 | `~/.local/bin/forge` | A link to the checkout's `cli/forge` | A link | Yes |
@@ -183,6 +188,9 @@ Host forge-local
   IdentityFile ~/.config/agent-forge/hosts/forge-local/forge-key.pub
   IdentitiesOnly yes
   ForwardAgent yes
+  ControlMaster auto
+  ControlPath ~/.ssh/forge-cm/%C
+  ControlPersist 8h
 ```
 
 - forge writes your home's full path where this shows `~`.
@@ -193,6 +201,11 @@ Host forge-local
   your agent; `IdentitiesOnly` offers only that key.
 - An `IdentityAgent` line comes before `ForwardAgent` when your ssh uses
   another agent than `SSH_AUTH_SOCK`'s for `github.com`.
+- `ControlMaster`, `ControlPath`, `ControlPersist`: one connection per host,
+  shared by forge's commands and herdr, opened by the first and kept for the
+  time `ControlPersist` says (`forge install --ssh-persist` sets it). While it
+  lives, a program running under your account can open sessions on the host
+  without a touch. Signatures with your forwarded agent still ask for one each.
 - `ForwardAgent yes`: the host clones and fetches your repositories with your
   agent. Containers never get it.
 
@@ -523,6 +536,7 @@ Both files live on the host and are optional; `forge setup` reads them.
 | An agent drives other agents' tabs | herdr's control socket lives on the host, outside every container |
 | SSH brute force on the host | Keys only, fail2ban (not in local mode), a connection rate limit (`public`), an optional source restriction |
 | Your forwarded agent is abused on the host | Containers never receive it; a hardware key asks for a touch per use |
+| A program on your machine opens sessions on the host | While the shared SSH connection lives (8 hours after its last use by default), a program under your account can open sessions without a touch; signatures with the forwarded agent still ask. `forge install --ssh-persist` shortens it |
 
 Known limits:
 

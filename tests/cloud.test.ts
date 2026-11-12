@@ -195,7 +195,7 @@ test("rebuild of a host with no relay yet creates the relay with its metadata se
 test("rebuild-relay replaces only the relay and redoes the playbook and the relay step", async () => {
   install();
   // Confirm, accept the SSH Include, paste the new token, decline the link and herdr's notifications.
-  const ctx = laptop({ answers: [1, 1, BOT_TOKEN, 2, 2], rules: [{ match: "'sudo' 'test' '-s' '/etc/forge-relay/github-token'", code: 1 }] });
+  const ctx = laptop({ answers: [1, 1, BOT_TOKEN, 2, 2], rules: [{ match: "'sudo' 'test' '-s' '/etc/forge-relay/github-token'", code: 1 }, { match: "'test' '-s' '.config/agent-forge/claude-token'", code: 0 }] });
   // Each apply's variables and the steps recorded then, read as it runs.
   const applies: { argv: string; metadata: unknown[]; done: InstallStep[] }[] = [];
   const attach = ctx.attach;
@@ -228,7 +228,7 @@ test("rebuild-relay replaces only the relay and redoes the playbook and the rela
 test("create --host updates the listed cloud host, create alone starts a new one", async () => {
   install();
   // The Include accepted, the stored bot token kept, the link and herdr's notifications declined.
-  const ctx = laptop({ answers: [1, 1, 2, 2] });
+  const ctx = laptop({ answers: [1, 1, 2, 2], rules: [{ match: "'test' '-s' '.config/agent-forge/claude-token'", code: 0 }] });
   assert.equal(await cmdCloud(ctx, "create", { host: "forge-dev", checkout: CHECKOUT, sleep: noWait }), 0);
   // What start and stop refuse to apply, create --host shows and applies.
   const apply = attached(ctx).findIndex((a) => a.startsWith("tofu ") && a.includes(" apply ") && !a.includes("-replace"));

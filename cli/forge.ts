@@ -62,9 +62,10 @@ On the forge host:
   completion tasks <owner/repo>     List a repo's task names, one per line (machine-readable)
 
 On your laptop:
-  install [--remote <address>] [--host <name>]
+  install [--remote <address>] [--host <name>] [--ssh-persist <duration>]
                                     Install or update a forge host: the local Lima VM by default, a new
-                                    remote VM with --remote, an installed host with --host
+                                    remote VM with --remote, an installed host with --host; the shared
+                                    SSH connection lasts 8h after its last use, or --ssh-persist (30m, 2d)
   open [--host <name>]              Open herdr on a forge host
   cloud create [--host <name>]      Create the dev VM and its relay on AWS and install them (or resume
                                     that install)
@@ -82,7 +83,7 @@ A bracketed argument is asked for when you leave it out, as a numbered menu.
 With no terminal on stdin (scripts, CI) nothing is asked and the command
 exits with this usage instead.`;
 
-type LaptopOptions = { remote?: string; host?: string };
+type LaptopOptions = { remote?: string; host?: string; sshPersist?: string };
 type RelayArgs = { title?: string; bodyFile?: string };
 
 function dispatch(
@@ -141,7 +142,7 @@ async function main(): Promise<number> {
       args: process.argv.slice(2),
       options: {
         force: { type: "boolean" }, strict: { type: "boolean" }, all: { type: "boolean" },
-        remote: { type: "string" }, host: { type: "string" },
+        remote: { type: "string" }, host: { type: "string" }, "ssh-persist": { type: "string" },
         title: { type: "string" }, "body-file": { type: "string" },
         help: { type: "boolean", short: "h" },
       },
@@ -167,7 +168,10 @@ async function main(): Promise<number> {
     if ((values.title !== undefined || values["body-file"] !== undefined) && cmd !== "relay") {
       throw new ForgeError("--title and --body-file only go with relay: forge relay pr <task> --title <text> --body-file <file>");
     }
-    const laptop = { remote: values.remote, host: values.host };
+    if (values["ssh-persist"] !== undefined && cmd !== "install") {
+      throw new ForgeError("--ssh-persist only goes with install: forge install --ssh-persist 2h");
+    }
+    const laptop = { remote: values.remote, host: values.host, sshPersist: values["ssh-persist"] };
     const code = await dispatch(ctx, positionals, values.force === true, values.strict === true, values.all === true, laptop,
       { title: values.title, bodyFile: values["body-file"] });
     // Politique d'acquittement de la popup herdr, qui se ferme avec le processus :

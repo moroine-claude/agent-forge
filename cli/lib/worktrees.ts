@@ -48,7 +48,7 @@ export function parseAgentBranches(refs: string): string[] {
 }
 
 // Une tâche tourne tant que le processus de son agent existe : sa ligne de
-// commande porte `--remote-control <container>-<task>` (AGENT.marker). Le nom
+// commande porte `--forge-task <container>-<task>` (AGENT.marker), celle du lanceur forge-agent. Le nom
 // doit finir à un blanc ou en fin de ligne, sinon `agent-x-a;rm` passerait pour
 // la tâche « a » ; un nom hors du charset sûr est ignoré.
 export function parseRunningTasks(ps: string, container: string): Set<string> {

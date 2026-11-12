@@ -40,7 +40,7 @@ test("an existing worktree is attached, not refused", async () => {
 test("an existing worktree whose agent already runs is refused outside herdr", async () => {
   const c = fakeContext({ rules: rules([
     { match: "test -e /workspace/.trees/cli", code: 0 },
-    { match: "ps -u 1001 -o args=", stdout: "claude --remote-control agent-alice-project-cli\n" },
+    { match: "ps -u 1001 -o args=", stdout: "/bin/bash /usr/local/bin/forge-agent --forge-task agent-alice-project-cli\n" },
   ]) });
   await assert.rejects(() => cmdStart(c, "alice/project", "cli"), /the agent for cli already runs in agent-alice-project/);
   assert.equal(c.attachCalls.length, 0);
@@ -51,7 +51,7 @@ test("the task's agent is attached in the foreground outside herdr", async () =>
   await cmdStart(c, "alice/project", "fresh");
   const attach = c.attachCalls.at(-1)?.argv ?? [];
   assert.deepEqual(attach.slice(-3), [
-    "bash", "-lc", "exec claude --permission-mode auto --remote-control agent-alice-project-fresh",
+    "bash", "-lc", "exec forge-agent --forge-task agent-alice-project-fresh --permission-mode auto",
   ]);
   assert.ok(c.err_lines.includes("outside herdr: the agent stops when this terminal closes"), c.err_lines.join(" | "));
 });
@@ -82,7 +82,7 @@ test("the transcript-folder guard stays quiet for an existing worktree", async (
 test("start names the stored repo, not the case typed", async () => {
   const c = fakeContext({ rules: rules([
     { match: "test -e /workspace/.trees/cli", code: 0 },
-    { match: "ps -u 1001 -o args=", stdout: "claude --remote-control agent-alice-project-cli\n" },
+    { match: "ps -u 1001 -o args=", stdout: "/bin/bash /usr/local/bin/forge-agent --forge-task agent-alice-project-cli\n" },
   ]) });
   await assert.rejects(() => cmdStart(c, "Alice/Project", "cli"), /'forge stop alice\/project'\./);
 });
@@ -168,8 +168,8 @@ test("no host git touches the workspace", async () => {
 
 test("right after a fresh mirror clone, start does not fetch GitHub again", async () => {
   const home = mkdtempSync(join(tmpdir(), "forge-start-"));
-  mkdirSync(join(home, ".claude"), { recursive: true });
-  writeFileSync(join(home, ".claude", ".credentials.json"), "{}");
+  mkdirSync(join(home, ".config", "agent-forge"), { recursive: true });
+  writeFileSync(join(home, ".config", "agent-forge", "claude-token"), "tok-test\n");
   process.env.FORGE_HOME = home;
   process.env.FORGE_REPO_DIR = process.cwd();
   process.env.FORGE_WORKSPACES = join(home, "workspaces");
@@ -198,8 +198,8 @@ test("right after a fresh mirror clone, start does not fetch GitHub again", asyn
 // The very first prefix+f: no forge container yet, nothing typed on a command line.
 test("with no forge container yet, start asks owner/repo and provisions it", async () => {
   const home = mkdtempSync(join(tmpdir(), "forge-start-"));
-  mkdirSync(join(home, ".claude"), { recursive: true });
-  writeFileSync(join(home, ".claude", ".credentials.json"), "{}");
+  mkdirSync(join(home, ".config", "agent-forge"), { recursive: true });
+  writeFileSync(join(home, ".config", "agent-forge", "claude-token"), "tok-test\n");
   process.env.FORGE_HOME = home;
   process.env.FORGE_REPO_DIR = process.cwd();
   process.env.FORGE_WORKSPACES = join(home, "workspaces");
@@ -237,8 +237,8 @@ function halfProvisioned(): FakeIncus {
 
 test("a half-provisioned container is recreated on yes, then provisioned again", async () => {
   const home = mkdtempSync(join(tmpdir(), "forge-start-"));
-  mkdirSync(join(home, ".claude"), { recursive: true });
-  writeFileSync(join(home, ".claude", ".credentials.json"), "{}");
+  mkdirSync(join(home, ".config", "agent-forge"), { recursive: true });
+  writeFileSync(join(home, ".config", "agent-forge", "claude-token"), "tok-test\n");
   process.env.FORGE_HOME = home;
   process.env.FORGE_REPO_DIR = process.cwd();
   process.env.FORGE_WORKSPACES = join(home, "workspaces");
@@ -498,7 +498,7 @@ test("start applies the strict settings after starting and before attaching", as
   const l = flatCalls(c);
   const started = l.findIndex((x) => / start agent-o-r/.test(x));
   const push = l.findIndex((x) => x.includes("file push") && x.includes("agent-forge-proxy.sh"));
-  const attach = l.findIndex((x) => x.includes("exec claude"));
+  const attach = l.findIndex((x) => x.includes("exec forge-agent"));
   assert.ok(started >= 0 && push > started && attach > push, l.join("\n"));
 });
 
@@ -512,14 +512,14 @@ test("start of a container marked strict whose eth0 lost the filter is refused b
   inst.devices = {};
   const c = fakeContext({ incus: fake, rules: egressRules });
   await assert.rejects(() => cmdStart(c, "o/r", "t"), /refusing to start agent-o-r: .*user\.forge\.egress=strict.*forge egress o\/r strict/);
-  assert.ok(!flatCalls(c).some((x) => / start agent-o-r|file push|exec claude/.test(x)), flatCalls(c).join("\n"));
+  assert.ok(!flatCalls(c).some((x) => / start agent-o-r|file push|exec forge-agent/.test(x)), flatCalls(c).join("\n"));
 });
 
 test("a strict container starts with a warning when the proxy is gone", async () => {
   const c = fakeContext({ incus: egressFake({ mode: "strict", proxy: false }), rules: egressRules });
   assert.equal(await cmdStart(c, "o/r", "t"), 0);
   assert.ok(c.err_lines.some((x) => /forge setup/.test(x)));
-  assert.ok(flatCalls(c).some((x) => x.includes("exec claude")));
+  assert.ok(flatCalls(c).some((x) => x.includes("exec forge-agent")));
 });
 
 test("start of a container switched to open clears forge's files before attaching", async () => {
@@ -527,7 +527,7 @@ test("start of a container switched to open clears forge's files before attachin
   await cmdStart(c, "o/r", "t");
   const l = flatCalls(c);
   const rm = l.findIndex((x) => x.includes("rm -f"));
-  assert.ok(rm >= 0 && rm < l.findIndex((x) => x.includes("exec claude")), l.join("\n"));
+  assert.ok(rm >= 0 && rm < l.findIndex((x) => x.includes("exec forge-agent")), l.join("\n"));
 });
 
 test("start --strict on a new repo provisions it strict", async () => {
@@ -535,8 +535,8 @@ test("start --strict on a new repo provisions it strict", async () => {
   fake.acls.set("forge-egress-strict", { name: "forge-egress-strict", description: "", config: {}, ingress: [], egress: [] });
   fake.addInstance("agent-forge", "forge-proxy", { config: { "user.forge.proxy_recipe": "1" } });
   const home = mkdtempSync(join(tmpdir(), "forge-start-home-"));
-  mkdirSync(join(home, ".claude"), { recursive: true });
-  writeFileSync(join(home, ".claude", ".credentials.json"), "{}");
+  mkdirSync(join(home, ".config", "agent-forge"), { recursive: true });
+  writeFileSync(join(home, ".config", "agent-forge", "claude-token"), "tok-test\n");
   process.env.FORGE_HOME = home;
   process.env.FORGE_REPO_DIR = process.cwd();
   process.env.FORGE_WORKSPACES = join(home, "workspaces");
@@ -550,7 +550,7 @@ test("start --strict on a new repo provisions it strict", async () => {
     ] });
     await cmdStart(c, "o/r", "t", { strict: true });
     assert.equal(fake.instances.get("agent-forge")!.get("agent-o-r")!.config["user.forge.egress"], "strict");
-    assert.ok(flatCalls(c).some((x) => x.includes("exec claude")));
+    assert.ok(flatCalls(c).some((x) => x.includes("exec forge-agent")));
   } finally {
     delete process.env.FORGE_HOME; delete process.env.FORGE_REPO_DIR; delete process.env.FORGE_WORKSPACES;
     rmSync(home, { recursive: true, force: true });

@@ -20,7 +20,7 @@ import {
   loadCloudSettings, saveCloudSettings,
 } from "../laptop/cloud.ts";
 import {
-  ensureClaudeLogin, ensureClaudeToken, ensureGitIdentity, ensureImage, ensureRelayCredentials, runSetup,
+  ensureClaudeToken, ensureGitIdentity, ensureImage, ensureRelayCredentials, runSetup,
 } from "../laptop/host-steps.ts";
 import { renderInventory, renderRelayInventory, writeInventoryOnce } from "../laptop/inventory.ts";
 import { chooseKey, githubAgent, keyLabel, listAgentKeys } from "../laptop/keys.ts";
@@ -36,14 +36,14 @@ import {
 } from "../laptop/ssh-config.ts";
 import {
   forgeKeyPath, forgetHost, hostDir, inventoryPath, knownHostsPath, loadHosts, relayClientKeyPath, relayInventoryPath,
-  relayLinkPath, saveHost, selectHost, validHostName, type InstallStep, type LaptopHost,
+  PERSIST, relayLinkPath, saveHost, selectHost, validHostName, type InstallStep, type LaptopHost,
 } from "../laptop/state.ts";
 import { cmdOpen } from "./open.ts";
 
 // `lima` lets the tests skip ensureLimaVm's waits, `sleep` the wait for a
 // cloud VM's sshd. `cloud` installs a new cloud host (forge cloud create).
 export type InstallOptions = {
-  remote?: string; host?: string; cloud?: boolean; checkout?: string; lima?: LimaOptions;
+  remote?: string; host?: string; cloud?: boolean; checkout?: string; lima?: LimaOptions; sshPersist?: string;
   sleep?: (ms: number) => Promise<void>;
 };
 
@@ -66,7 +66,7 @@ const stepsFor = (kind: LaptopHost["kind"]): InstallStep[] => (kind === "cloud" 
 const UPDATE: InstallStep[] = ["playbook", "setup", "image", "relay"];
 const LABELS: Record<InstallStep, string> = {
   vm: "VM", inventory: "inventory", playbook: "playbook", ssh: "SSH configuration", identity: "git identity",
-  claude: "Claude login", setup: "forge setup", image: "agent-base image", relay: "relay setup",
+  claude: "Claude token", setup: "forge setup", image: "agent-base image", relay: "relay setup",
 };
 const USER_NAME = /^[a-z_][a-z0-9_-]*$/;
 // A host name or an IP address: never an ssh option, never user@host.
@@ -77,12 +77,9 @@ const CLOUD_ADMIN = "ubuntu";
 const SSH_WAIT_MS = 5000;
 const SSH_TRIES = 36;
 
-// A remote's VM step is its first connection (it has no VM to create); a cloud
-// host's Claude step stores a token, not a login.
+// A remote's VM step is its first connection (it has no VM to create).
 const label = (step: InstallStep, kind: LaptopHost["kind"]): string =>
-  step === "vm" && kind === "remote" ? "first SSH connection"
-    : step === "claude" && kind === "cloud" ? "Claude token"
-    : LABELS[step];
+  step === "vm" && kind === "remote" ? "first SSH connection" : LABELS[step];
 
 // The command that resumes a host's install.
 const resumeCommand = (host: LaptopHost): string =>
@@ -92,6 +89,9 @@ const resumeCommand = (host: LaptopHost): string =>
 
 export async function cmdInstall(ctx: Context, opts: InstallOptions = {}): Promise<number> {
   const checkout = opts.checkout ?? repoRoot();
+  if (opts.sshPersist !== undefined && !PERSIST.test(opts.sshPersist)) {
+    throw new ForgeError(`--ssh-persist takes a number and s, m, h, d or w (30m, 8h, 2d), not ${opts.sshPersist}`);
+  }
   // 1-3. Which host, the laptop's tools, the key GitHub accepts.
   const target = await whichHost(ctx, opts);
   await checkPrerequisites(ctx, target.kind);
@@ -107,6 +107,13 @@ export async function cmdInstall(ctx: Context, opts: InstallOptions = {}): Promi
   if (target.kind === "lima") ({ host, vm } = await limaHost(ctx, target.listed, key, agent));
   else if (target.kind === "cloud") host = target.listed ?? (await newCloudHost(ctx, key, agent));
   else host = target.listed ?? (await newRemoteHost(ctx, target.address, key, agent));
+
+  // The shared SSH connection's duration, kept on the host record: the ssh
+  // step below writes it into forge's SSH file.
+  if (opts.sshPersist !== undefined && host.sshPersist !== opts.sshPersist) {
+    host.sshPersist = opts.sshPersist;
+    saveHost(host);
+  }
 
   const steps = stepsFor(host.kind);
   const finished = steps.every((s) => host.done.includes(s));
@@ -174,9 +181,10 @@ export async function cmdInstall(ctx: Context, opts: InstallOptions = {}): Promi
   await step("ssh", () => sshConfig(ctx, host), true);
   // 10. The host's account and runtime, over the alias.
   await step("identity", async () => ((await ensureGitIdentity(ctx, host)) === "set" ? "done" : "already there"));
-  await step("claude", async () => (host.kind === "cloud"
-    ? ((await ensureClaudeToken(ctx, host)) === "stored" ? "done" : "already there")
-    : ((await ensureClaudeLogin(ctx, host)) === "logged-in" ? "done" : "already there")));
+  // Every run: a host installed before the token has this step recorded done
+  // with a login and no token file. The call probes first, so a host that has
+  // its token is not asked again.
+  await step("claude", async () => ((await ensureClaudeToken(ctx, host)) === "stored" ? "done" : "already there"), true);
   await step("setup", async () => { await runSetup(ctx, host); return "done"; });
   await step("image", async () => ((await ensureImage(ctx, host, checkout)) === "built" ? "done" : "already there"));
   // A cloud host's relay: the bot's token, then its setup, as the admin.

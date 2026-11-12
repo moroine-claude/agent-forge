@@ -1,0 +1,40 @@
+---
+# herdr-core: one binary, pinned and checked against the release's SHA-256.
+# `hc` is a link to it, as the release's own installer makes it. Both go in
+# /usr/local/bin, root-owned, so every user's PATH (aiuser's login included)
+# finds them.
+- name: Refuse an architecture hc has no checksum for
+  ansible.builtin.assert:
+    that: forge_image_arch.stdout in forge_image_hc_sha256
+    fail_msg: "no pinned herdr-core checksum for {{ forge_image_arch.stdout }}; refusing to download unchecked."
+    quiet: true
+
+- name: Download herdr-core
+  ansible.builtin.get_url:
+    url: "{{ forge_image_hc_url }}"
+    dest: "/var/tmp/herdr-core-{{ forge_image_hc_version }}-{{ forge_image_arch.stdout }}.tar.gz"
+    checksum: "sha256:{{ forge_image_hc_sha256[forge_image_arch.stdout] }}"
+    mode: "0644"
+
+- name: Install the herdr-core binary
+  ansible.builtin.unarchive:
+    src: "/var/tmp/herdr-core-{{ forge_image_hc_version }}-{{ forge_image_arch.stdout }}.tar.gz"
+    dest: /usr/local/bin
+    remote_src: true
+    include: [herdr-core]
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Link hc to herdr-core
+  ansible.builtin.file:
+    src: herdr-core
+    dest: /usr/local/bin/hc
+    state: link
+    owner: root
+    group: root
+
+- name: Remove the downloaded archive
+  ansible.builtin.file:
+    path: "/var/tmp/herdr-core-{{ forge_image_hc_version }}-{{ forge_image_arch.stdout }}.tar.gz"
+    state: absent

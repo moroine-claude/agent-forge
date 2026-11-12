@@ -15,14 +15,14 @@ const list = (status: string) => JSON.stringify([{ name: "agent-x", status }]);
 
 test("AGENT.command adds --continue only when resuming", () => {
   assert.deepEqual(AGENT.command("agent-x", "cli", false), [
-    "bash", "-lc", "exec claude --permission-mode auto --remote-control agent-x-cli",
+    "bash", "-lc", "exec forge-agent --forge-task agent-x-cli --permission-mode auto",
   ]);
   const resumed = AGENT.command("agent-x", "cli", true);
-  assert.equal(resumed[2], "exec claude --permission-mode auto --remote-control agent-x-cli --continue");
+  assert.equal(resumed[2], "exec forge-agent --forge-task agent-x-cli --permission-mode auto --continue");
 });
 
-test("AGENT.marker is the remote-control flag", () => {
-  assert.equal(AGENT.marker("agent-x", "cli"), "--remote-control agent-x-cli");
+test("AGENT.marker is the forge-task flag", () => {
+  assert.equal(AGENT.marker("agent-x", "cli"), "--forge-task agent-x-cli");
   assert.equal(AGENT.herdrLabel, "claude");
 });
 
@@ -151,7 +151,7 @@ test("attachTask adds --continue only when a conversation exists", async () => {
 });
 
 // One agent per worktree: the guard sits in attachTask, under every caller.
-const PS_CLI = { match: "ps -u 1001 -o args=", stdout: "claude --permission-mode auto --remote-control agent-x-cli\n" };
+const PS_CLI = { match: "ps -u 1001 -o args=", stdout: "/bin/bash /usr/local/bin/forge-agent --forge-task agent-x-cli\n" };
 
 test("attachTask refuses when the task's agent already runs, before attaching", async () => {
   const c = fakeContext({ rules: [PS_CLI] });
@@ -170,7 +170,7 @@ test("attachTask without the repo words the way out without it", async () => {
 });
 
 test("attachTask ignores another task's agent", async () => {
-  const c = fakeContext({ rules: [{ match: "ps -u 1001 -o args=", stdout: "claude --remote-control agent-x-cli-2\n" }] });
+  const c = fakeContext({ rules: [{ match: "ps -u 1001 -o args=", stdout: "/bin/bash /usr/local/bin/forge-agent --forge-task agent-x-cli-2\n" }] });
   assert.equal(await attachTask(c, "agent-x", "cli", "o/r"), 0);
   assert.equal(c.attachCalls.length, 1);
 });
@@ -186,15 +186,15 @@ test("attachTask fails closed when the probe fails", async () => {
 test("stopAgent escapes the regex metacharacters of the task name", async () => {
   const c = fakeContext();
   await stopAgent(c, "agent-x", "v1.2");
-  assert.deepEqual(c.calls[0].slice(-4), ["pkill", "-f", "--", "--remote-control agent-x-v1\\.2( |$)"]);
+  assert.deepEqual(c.calls[0].slice(-4), ["pkill", "-f", "--", "--forge-task agent-x-v1\\.2( |$)"]);
   const pattern = new RegExp(c.calls[0].at(-1) as string);
-  assert.ok(pattern.test("claude --remote-control agent-x-v1.2 --continue"));
-  assert.ok(!pattern.test("claude --remote-control agent-x-v1x2"));
+  assert.ok(pattern.test("/bin/bash /usr/local/bin/forge-agent --forge-task agent-x-v1.2 --continue"));
+  assert.ok(!pattern.test("/bin/bash /usr/local/bin/forge-agent --forge-task agent-x-v1x2"));
 });
 
 // The agent's cwd is the worktree finish removes next: stopAgent returns once
 // the agent is gone, never right after SIGTERM.
-const AGENT_PS = "claude --permission-mode auto --remote-control agent-x-cli\n";
+const AGENT_PS = "/bin/bash /usr/local/bin/forge-agent --forge-task agent-x-cli\n";
 function psSequence(running: number) {
   const c = fakeContext();
   const base = c.exec;

@@ -13,8 +13,8 @@ import { provisioningMarker } from "../cli/lib/containers.ts";
 let home: string;
 beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), "forge-prov-"));
-  mkdirSync(join(home, ".claude"), { recursive: true });
-  writeFileSync(join(home, ".claude", ".credentials.json"), "{}");
+  mkdirSync(join(home, ".config", "agent-forge"), { recursive: true });
+  writeFileSync(join(home, ".config", "agent-forge", "claude-token"), "tok-test\n");
   process.env.FORGE_HOME = home;
   process.env.FORGE_REPO_DIR = process.cwd();
   process.env.FORGE_WORKSPACES = join(home, "workspaces");
@@ -71,12 +71,37 @@ test("a new container is launched from agent-base under the agent-forge profile,
   assert.ok(launch >= 0 && ready > launch, calls.join("\n"));
 });
 
-test("it refuses without host Claude credentials, before creating anything", async () => {
-  rmSync(join(home, ".claude", ".credentials.json"));
+test("without a token file, provisioning stops before launch", async () => {
+  rmSync(join(home, ".config", "agent-forge", "claude-token"));
   const { ctx, run } = provision();
-  await assert.rejects(run, /credentials\.json not found/);
+  await assert.rejects(run, /forge install/);
   assert.equal(launched(ctx), false);
 });
+
+test("the forge-agent launcher is pushed, root-owned and executable", async () => {
+  const { fake, run } = provision();
+  await run();
+  const launcher = fake.files.get("agent-forge/agent-x/usr/local/bin/forge-agent");
+  assert.ok(launcher, [...fake.files.keys()].join("\n"));
+  assert.deepEqual([launcher.uid, launcher.gid, launcher.mode], ["0", "0", "755"]);
+});
+
+test("the token is pushed, mode 600, and no credentials file", async () => {
+  const { fake, ctx, run } = provision();
+  await run();
+  const token = fake.files.get("agent-forge/agent-x/home/aiuser/.config/forge/claude-token");
+  assert.ok(token, [...fake.files.keys()].join("\n"));
+  assert.deepEqual([token.uid, token.gid, token.mode], ["1001", "1001", "600"]);
+  assert.ok(![...fake.files.keys()].some((k) => k.endsWith(".credentials.json")));
+  // The directory is private, made as the agent, before the push.
+  const calls = flat(ctx);
+  const mkdir = calls.findIndex((c) => c.includes("mkdir -p -m 700 /home/aiuser/.config/forge"));
+  const push = calls.findIndex((c) => c.includes("file push") && c.includes("claude-token"));
+  assert.ok(mkdir >= 0 && push > mkdir, calls.join("\n"));
+  // The value is never in an argv.
+  assert.ok(!calls.some((c) => c.includes("tok-test")));
+});
+
 
 test("it refuses without a host git identity, with the commands to run", async () => {
   const { ctx, run } = provision({ rules: [{ match: "git config --global --includes user.email", code: 1 }] });
@@ -231,14 +256,6 @@ test("provisioning prints no retrieval hint", async () => {
   await run();
   assert.ok(!ctx.err_lines.some((l) => l.includes("git remote add")), ctx.err_lines.join("\n"));
   assert.deepEqual(ctx.notified, []);
-});
-
-test("the plugin marketplace is added over HTTPS, never over SSH", async () => {
-  const { ctx, run } = provision();
-  await run();
-  const add = flat(ctx).find((l) => l.includes("plugin marketplace add"));
-  assert.ok(add?.includes("https://github.com/anthropics/claude-plugins-official"), add);
-  assert.ok(!add?.includes("git@github.com"), add);
 });
 
 // Kept from v1: the LFS filters are fatal, the repo's own hooks best-effort,
@@ -399,14 +416,14 @@ test("--strict launches with every override in the same call; there is no launch
     ...strictLaunchArgs(proxyPlan("10.77.0.1/24", 0), egressNames("agent-forge"))]);
 });
 
-test("--strict applies the settings right after waitReady, before the plugin install", async () => {
+test("--strict applies the settings right after waitReady, before the token push", async () => {
   const { ctx, run } = strictProvision();
   await run();
   const calls = flat(ctx);
   const ready = calls.findIndex((l) => l.includes("is-system-running --wait"));
   const settings = calls.findIndex((l) => l.includes("file push") && l.includes("agent-x/etc/profile.d/agent-forge-proxy.sh"));
-  const plugin = calls.findIndex((l) => l.includes("claude plugin marketplace add"));
-  assert.ok(ready >= 0 && settings > ready && settings < plugin, calls.join("\n"));
+  const token = calls.findIndex((l) => l.includes("file push") && l.includes("claude-token"));
+  assert.ok(ready >= 0 && settings > ready && settings < token, calls.join("\n"));
 });
 
 for (const [what, fake] of [
@@ -421,13 +438,6 @@ for (const [what, fake] of [
   });
 }
 
-test("--strict: a failed plugin install is a warning naming the GitHub group", async () => {
-  const { fake, ctx, run } = strictProvision({ rules: [{ match: "claude plugin", code: 1, stderr: "fetch failed\n" }] });
-  await run();
-  assert.ok(ctx.err_lines.some((l) => /WARNING: .*superpowers.*fetch failed.*egress-allowlist.*forge setup/.test(l)), ctx.err_lines.join("\n"));
-  assert.equal(fake.instances.get("agent-forge")!.get("agent-x")!.config["user.forge.repo"], "o/r");
-});
-
 test("--strict: the Claude refresh reads only Anthropic's apt source", async () => {
   const { ctx, run } = strictProvision();
   await run();
@@ -436,9 +446,17 @@ test("--strict: the Claude refresh reads only Anthropic's apt source", async () 
   assert.ok(flat(ctx).some((l) => l.endsWith("-- apt-get install --only-upgrade -y claude-code")));
 });
 
+test("no plugin is installed, in either mode (DX 5 decision 15)", async () => {
+  for (const make of [provision, strictProvision]) {
+    const { ctx, run } = make();
+    await run();
+    assert.ok(!flat(ctx).some((l) => l.includes("claude plugin")), flat(ctx).join("\n"));
+  }
+});
+
 test("without --strict, provisioning is unchanged", async () => {
-  const { ctx, run } = provision({ rules: [{ match: "claude plugin", code: 1, stderr: "fetch failed\n" }] });
-  await assert.rejects(run, /install Claude plugins/);
+  const { ctx, run } = provision();
+  await run();
   assert.ok(!flat(ctx).some((l) => l.includes(" launch ") && l.includes(" -d ")));
   assert.ok(!flat(ctx).some((l) => l.includes("agent-forge-proxy.sh")));
 });

@@ -12,6 +12,8 @@ const STEPS: readonly string[] = ["vm", "inventory", "playbook", "ssh", "identit
 const KINDS: readonly string[] = ["lima", "remote", "cloud"];
 const EXPOSURES: readonly string[] = ["local", "public", "lan"];
 
+export const PERSIST = /^[1-9][0-9]*[smhdw]?$/;
+
 export type LaptopHost = {
   name: string;
   kind: "lima" | "remote" | "cloud";
@@ -24,6 +26,9 @@ export type LaptopHost = {
   adminKey: string;
   exposure: "local" | "public" | "lan";
   identityAgent?: string;
+  // How long the shared SSH connection outlives its last use (OpenSSH's
+  // ControlPersist: a number and s, m, h, d or w); absent means 8h.
+  sshPersist?: string;
   // A cloud host's relay, by its public address (an Elastic IP, kept when the
   // relay is rebuilt); recorded once OpenTofu has created it.
   relayAddress?: string;
@@ -82,6 +87,7 @@ function isHost(h: unknown): h is LaptopHost {
     str("kind") && KINDS.includes(o.kind as string) &&
     str("exposure") && EXPOSURES.includes(o.exposure as string) &&
     (o.identityAgent === undefined || typeof o.identityAgent === "string") &&
+    (o.sshPersist === undefined || (typeof o.sshPersist === "string" && PERSIST.test(o.sshPersist))) &&
     (o.relayAddress === undefined || typeof o.relayAddress === "string") &&
     (o.deployed === undefined || typeof o.deployed === "string") &&
     Array.isArray(o.done) && o.done.every((s) => typeof s === "string" && STEPS.includes(s));

@@ -1,0 +1,48 @@
+#!/bin/bash
+# Lanceur de l'agent : lit le token Claude du container, l'exporte pour le seul
+# processus de claude, puis lance claude avec les arguments restants (DX 5,
+# décision 20). Le token n'est ni dans un profil, ni dans .bashrc, ni dans
+# l'environnement d'Incus ou du core hc : seul ce processus et son enfant le voient.
+# Usage : forge-agent [--forge-task <nom>] [arguments de claude…]
+# `--forge-task <nom>` est le marqueur de la tâche : claude ne le reçoit pas, mais
+# il reste dans la ligne de commande de ce script, que `forge list`, `stop` et
+# `finish` lisent dans `ps` (et que `forge stop` vise par `pkill -f`). D'où pas
+# de `exec` : claude tourne en enfant et ce script reste en vie tant que l'agent
+# tourne, en lui transmettant les signaux qu'il reçoit.
+set -e
+
+# FORGE_TOKEN_FILE n'est surchargé que par les tests.
+TOKEN_FILE="${FORGE_TOKEN_FILE:-/home/aiuser/.config/forge/claude-token}"
+
+if [ "${1:-}" = "--forge-task" ]; then
+  shift
+  if [ "$#" -gt 0 ]; then shift; fi
+fi
+
+if [ ! -s "$TOKEN_FILE" ] || [ ! -r "$TOKEN_FILE" ]; then
+  echo "forge-agent: token Claude introuvable ($TOKEN_FILE). Lance forge install depuis ta machine, puis recrée ce container." >&2
+  exit 1
+fi
+
+CLAUDE_CODE_OAUTH_TOKEN="$(cat "$TOKEN_FILE")"
+export CLAUDE_CODE_OAUTH_TOKEN
+
+# Un avant-plan ne verrait pas les signaux avant la fin de claude : bash diffère
+# ses trappes jusqu'à la fin de la commande, et sans trappe un TERM tuerait ce
+# script en laissant claude orphelin (forge stop croirait la tâche arrêtée).
+# claude tourne donc en arrière-plan, avec son stdin explicite (un travail
+# d'arrière-plan d'un shell non interactif lirait /dev/null sinon) ; bash ne
+# fait pas de contrôle de tâches ici, claude reste dans le groupe du terminal.
+claude "$@" <&0 &
+child=$!
+for sig in TERM HUP INT; do
+  trap 'kill -s '"$sig"' "$child" 2> /dev/null || true' "$sig"
+done
+
+# wait rend la main à chaque signal reçu : on réattend jusqu'à la fin réelle de
+# claude, dont le statut est celui du lanceur.
+rc=0
+while kill -0 "$child" 2> /dev/null; do
+  wait "$child" || rc=$?
+done
+exit "$rc"

@@ -22,12 +22,12 @@ test("resume attaches the task's agent", async () => {
   assert.ok(attach, "no attach happened");
   const cwd = attach.indexOf("--cwd");
   assert.equal(attach[cwd + 1], "/workspace/.trees/cli");
-  assert.match(attach.at(-1) ?? "", /^exec claude /);
+  assert.match(attach.at(-1) ?? "", /^exec forge-agent /);
 });
 
 test("resume outside herdr refuses while the task's agent already runs", async () => {
   const c = fakeContext({ rules: [
-    { match: "ps -u 1001 -o args=", stdout: "claude --remote-control agent-alice-project-cli\n" },
+    { match: "ps -u 1001 -o args=", stdout: "/bin/bash /usr/local/bin/forge-agent --forge-task agent-alice-project-cli\n" },
     ...BASE, { match: "test -e", code: 0 },
   ] });
   await assert.rejects(() => cmdResume(c, "alice/project", "cli"),
@@ -38,7 +38,7 @@ test("resume outside herdr refuses while the task's agent already runs", async (
 // runTask reçoit le user.forge.repo enregistré : c'est lui que nomme la sortie.
 test("resume names the stored repo, not the case typed", async () => {
   const c = fakeContext({ rules: [
-    { match: "ps -u 1001 -o args=", stdout: "claude --remote-control agent-alice-project-cli\n" },
+    { match: "ps -u 1001 -o args=", stdout: "/bin/bash /usr/local/bin/forge-agent --forge-task agent-alice-project-cli\n" },
     ...BASE, { match: "test -e", code: 0 },
   ] });
   await assert.rejects(() => cmdResume(c, "Alice/Project", "cli"), /'forge stop alice\/project'\./);
@@ -117,7 +117,7 @@ test("finish keeps the branch, stops the agent, removes the worktree, then moves
   const aside = c.calls.findIndex((call) => call.includes("sh") && call.join(" ").includes(".finished-"));
   assert.ok(pkill >= 0 && pkill < remove && remove < aside, `order: ${pkill} ${remove} ${aside}`);
   assert.deepEqual(c.calls[pkill], [
-    ...CONTAINER_PREFIX, "pkill", "-f", "--", "--remote-control agent-alice-project-cli( |$)",
+    ...CONTAINER_PREFIX, "pkill", "-f", "--", "--forge-task agent-alice-project-cli( |$)",
   ]);
   const move = c.calls[aside];
   assert.equal(move.at(-2), "/home/aiuser/.claude/projects/-workspace--trees-cli");
@@ -232,13 +232,13 @@ test("resume applies the strict settings before attaching", async () => {
   await cmdResume(c, "o/r", "t");
   const l = lines(c);
   const push = l.findIndex((x) => x.includes("file push") && x.includes("agent-forge-proxy.sh"));
-  assert.ok(push >= 0 && push < l.findIndex((x) => x.includes("exec claude")), l.join("\n"));
+  assert.ok(push >= 0 && push < l.findIndex((x) => x.includes("exec forge-agent")), l.join("\n"));
 });
 
 test("resume of a container marked open whose eth0 is still strict is refused before any start", async () => {
   const c = fakeContext({ incus: egressFake({ mode: "open", nic: "strict" }), rules: EG });
   await assert.rejects(() => cmdResume(c, "o/r", "t"), /eth0 is strict.*forge egress o\/r strict/);
-  assert.ok(!lines(c).some((l) => / start agent-o-r|rm -f|exec claude/.test(l)), lines(c).join("\n"));
+  assert.ok(!lines(c).some((l) => / start agent-o-r|rm -f|exec forge-agent/.test(l)), lines(c).join("\n"));
 });
 
 test("resume of a container switched to open clears forge's files before attaching", async () => {
@@ -246,7 +246,7 @@ test("resume of a container switched to open clears forge's files before attachi
   await cmdResume(c, "o/r", "t");
   const l = lines(c);
   const rm = l.findIndex((x) => x.includes("rm -f"));
-  assert.ok(rm >= 0 && rm < l.findIndex((x) => x.includes("exec claude")), l.join("\n"));
+  assert.ok(rm >= 0 && rm < l.findIndex((x) => x.includes("exec forge-agent")), l.join("\n"));
 });
 
 test("resume --all outside herdr is refused", async () => {

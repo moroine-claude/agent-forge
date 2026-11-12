@@ -21,7 +21,7 @@ function ctx() {
       { match: "agent-acme-super-long-repository-name user.forge.mode", stdout: "supervised" },
       { match: "incus --project agent-forge list", stdout: LIST },
       { match: "git worktree list", stdout: "worktree /workspace\nworktree /workspace/.trees/cli\nworktree /workspace/.trees/docs\nworktree /workspace/.trees/api\n" },
-      { match: "ps -u 1001 -o args=", stdout: "claude --permission-mode auto --remote-control agent-alice-project-cli\n" },
+      { match: "ps -u 1001 -o args=", stdout: "/bin/bash /usr/local/bin/forge-agent --forge-task agent-alice-project-cli\n" },
     ],
   });
 }

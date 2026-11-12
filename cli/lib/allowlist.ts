@@ -27,9 +27,9 @@ downloads.claude.ai    # Claude Code's apt repository (refresh at provisioning) 
 # every service those connectors reach.
 #mcp-proxy.anthropic.com
 
-# GitHub: the superpowers plugin needs it. Anyone can publish there (repos,
-# gists, releases): a hijacked agent can fetch from all of it, and push to it
-# with a token it is handed.
+# GitHub: nothing forge installs needs it, but your repositories' own tooling
+# may. Anyone can publish there (repos, gists, releases): a hijacked agent can
+# fetch from all of it, and push to it with a token it is handed.
 #github.com
 #codeload.github.com
 #objects.githubusercontent.com
