@@ -64,8 +64,8 @@ test("matching sides, completion and unknown commands pass", () => {
   requireSide("bogus", "host");
 });
 
-test("team runs on the host: the laptop is pointed there", () => {
-  assert.equal(commandSide("team"), "host");
-  assert.throws(() => requireSide("team", "laptop"), (e: Error) => e instanceof ForgeError && /forge team runs on the forge host/.test(e.message));
+test("team runs on both sides, each its own", () => {
+  assert.equal(commandSide("team"), currentSide());
   requireSide("team", "host");
+  requireSide("team", "laptop");
 });

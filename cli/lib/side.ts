@@ -23,14 +23,16 @@ const HOST_COMMANDS = [
   "setup", "start", "resume", "finish", "stop", "delete", "list", "egress", "attach", "upload-pack", "task-base", "image", "relay", "team", "hc-exec",
 ] as const;
 
-// `completion` is for both sides: it is the current side's own.
+// `completion` and `team` are for both sides: each is the current side's own
+// (on the laptop, `team` forwards to the host and registers Herdr App's machines).
 export function commandSide(cmd: string): Side {
-  if (cmd === "completion") return currentSide();
+  if (cmd === "completion" || cmd === "team") return currentSide();
   return (LAPTOP_COMMANDS as readonly string[]).includes(cmd) ? "laptop" : "host";
 }
 
 // Unknown commands pass: dispatch reports them with the usage.
 export function requireSide(cmd: string, side: Side): void {
+  if (cmd === "team") return;
   const known = (LAPTOP_COMMANDS as readonly string[]).includes(cmd) || (HOST_COMMANDS as readonly string[]).includes(cmd);
   if (!known || commandSide(cmd) === side) return;
   if (side === "host") {

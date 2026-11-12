@@ -26,6 +26,7 @@ import { cmdFetch } from "./lib/commands/fetch.ts";
 import { cmdShip } from "./lib/commands/ship.ts";
 import { cmdRelay } from "./lib/commands/relay.ts";
 import { cmdTeam } from "./lib/commands/team.ts";
+import { cmdTeamLaptop } from "./lib/commands/team-laptop.ts";
 import { cmdHcVia } from "./lib/commands/hc-via.ts";
 import { cmdHcExec } from "./lib/commands/hc-exec.ts";
 import { currentSide, requireSide } from "./lib/side.ts";
@@ -84,6 +85,8 @@ On your laptop:
                                     Replace the relay with a new one: a new bot token, push key and
                                     signing key
   fetch [--host <name>]             Fetch the agents' branches into this clone and list the tasks
+  team up [<team>] [--host <name>]  Converge the teams on the host, then add each agent as a Herdr App machine
+                                    (team assign, release, status and sync also work from here, over SSH)
   ship <task> [--host <name>]       Re-sign a task's new commits, push agent/<task> and open its PR
                                     (a stacked task ships with the tasks under it, bottom first)
 
@@ -113,7 +116,9 @@ function dispatch(
     case "upload-pack": return cmdUploadPack(ctx, a);
     case "task-base": return cmdTaskBase(ctx, a, b);
     case "relay": return cmdRelay(ctx, a, positionals.slice(2), relay);
-    case "team": return cmdTeam(ctx, positionals.slice(1), { json: relay.json });
+    case "team": return currentSide() === "laptop"
+      ? cmdTeamLaptop(ctx, positionals.slice(1), { host: laptop.host, json: relay.json })
+      : cmdTeam(ctx, positionals.slice(1), { json: relay.json });
     case "hc-via": return cmdHcVia(ctx, a, b, positionals[3]);
     case "hc-exec": return cmdHcExec(ctx, a, b);
     case "image": return cmdImage(ctx, a, b);
@@ -173,8 +178,8 @@ async function main(): Promise<number> {
     if (values.remote !== undefined && cmd !== "install") {
       throw new ForgeError("--remote only goes with install: forge install --remote <address>");
     }
-    if (values.host !== undefined && !["install", "open", "fetch", "ship", "cloud"].includes(cmd)) {
-      throw new ForgeError("--host only goes with install, open, fetch, ship and cloud: forge install --host <name>, " +
+    if (values.host !== undefined && !["install", "open", "fetch", "ship", "cloud", "team"].includes(cmd)) {
+      throw new ForgeError("--host only goes with install, open, fetch, ship, cloud and team: forge install --host <name>, " +
         "forge open --host <name>, forge fetch --host <name>, forge ship <task> --host <name>, forge cloud start --host <name>");
     }
     if ((values.title !== undefined || values["body-file"] !== undefined) && cmd !== "relay") {

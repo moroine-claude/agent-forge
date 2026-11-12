@@ -98,6 +98,12 @@ test("a small team: converge, assign, publish through the team mirror, read it, 
   const session = run(hcArgv(DEV1, ["get", "agent"])[0], hcArgv(DEV1, ["get", "agent"]).slice(1));
   assert.equal(session.status, 0, raw("hc get agent in dev-1", session));
 
+  // Herdr App's transport, host end: `su - aiuser -c <line>` must reach the same
+  // core as the session forge started through `hc run`.
+  const viaExec = run(FORGE, ["hc-exec", DEV1, "hc get agent"], { env: { ...env, FORGE_SIDE: "host" } });
+  assert.equal(viaExec.status, 0, raw("hc get agent through forge hc-exec", viaExec));
+  assert.match(viaExec.stdout, /"agent"|claude/);
+
   // The developer commits; forge team status brings the branch into the team mirror.
   must("commit in dev-1", asAgent(PROJECT, DEV1, "git -C /workspace commit --allow-empty -q -m integration"));
   must("team status", team(["status"]));
