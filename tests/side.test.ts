@@ -23,28 +23,22 @@ test("commandSide: laptop commands, host commands, completion", () => {
   for (const c of LAPTOP_COMMANDS) assert.equal(commandSide(c), "laptop");
   assert.equal(commandSide("cloud"), "laptop");
   assert.equal(commandSide("list"), "host");
-  assert.equal(commandSide("start"), "host");
+  assert.equal(commandSide("stop"), "host");
   const here = currentSide();
   assert.equal(commandSide("completion"), here);
-});
-
-test("forge start on the laptop names the herdr way in", () => {
-  assert.throws(() => requireSide("start", "laptop"), (e: unknown) =>
-    e instanceof ForgeError &&
-    e.message === "forge start runs on the forge host: in herdr (forge open), press prefix+f.");
 });
 
 test("another host command on the laptop names ssh", () => {
   assert.throws(() => requireSide("list", "laptop"), (e: unknown) =>
     e instanceof ForgeError &&
-    e.message === "forge list runs on the forge host: ssh <host> forge list, or from herdr.");
+    e.message === "forge list runs on the forge host: ssh <host> forge list.");
 });
 
 test("the host commands that forge fetch and ship call over SSH say where they run", () => {
   for (const cmd of ["upload-pack", "task-base"]) {
     assert.throws(() => requireSide(cmd, "laptop"), (e: unknown) =>
       e instanceof ForgeError &&
-      e.message === `forge ${cmd} runs on the forge host: ssh <host> forge ${cmd}, or from herdr.`);
+      e.message === `forge ${cmd} runs on the forge host: ssh <host> forge ${cmd}.`);
     requireSide(cmd, "host");
   }
 });
@@ -64,8 +58,8 @@ test("matching sides, completion and unknown commands pass", () => {
   requireSide("bogus", "host");
 });
 
-test("team runs on the host: the laptop is pointed there", () => {
-  assert.equal(commandSide("team"), "host");
-  assert.throws(() => requireSide("team", "laptop"), (e: Error) => e instanceof ForgeError && /forge team runs on the forge host/.test(e.message));
+test("team runs on both sides, each its own", () => {
+  assert.equal(commandSide("team"), currentSide());
   requireSide("team", "host");
+  requireSide("team", "laptop");
 });

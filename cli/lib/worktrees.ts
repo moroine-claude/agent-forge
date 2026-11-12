@@ -96,7 +96,7 @@ export async function branchExists(ctx: Context, container: string, ref: string)
 export type RunningProbe = { ok: true; tasks: Set<string> } | { ok: false; error: string };
 
 // Sonde qui rapporte son échec : c'est sur elle que repose le refus d'un second
-// agent (attachTask), qui doit échouer fermé. `ps` tourne en uid 1001 et se
+// agent (une session d'équipe), qui doit échouer fermé. `ps` tourne en uid 1001 et se
 // liste lui-même : un code non nul est une vraie panne, pas « rien ne tourne ».
 export async function probeRunningTasks(ctx: Context, container: string): Promise<RunningProbe> {
   const r = await execAsAgentArgv(ctx, container, ["ps", "-u", "1001", "-o", "args="]);

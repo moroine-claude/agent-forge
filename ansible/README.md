@@ -189,12 +189,11 @@ exit
 Then `herdr --remote forge-local --remote-keybindings server` (for a remote
 host, your alias: `herdr --remote forge-vm --remote-keybindings server`).
 
-On your machine, turn herdr's notifications on, or the start popup's warnings
-go unseen: put `[ui.toast]` then `delivery = "herdr"` in
-`~/.config/herdr/config.toml`, unless that file already sets `[ui.toast]` or
-an inline `ui = {…}`. It is a setting of the client: the host's herdr config changes
-nothing. `forge install` adds those two lines in a block of its own, after
-asking.
+Declare a team in `~/.config/agent-forge/config.json` on the host and run
+`forge team converge` there (README, step 3). To see its agents in Herdr App
+without `forge team up`, add each container yourself, on your machine, with
+your `hc` at the version forge pins:
+`hc machine add --name <alias>-<container without agent-> --via '<path to forge> hc-via <alias> <container>'`.
 
 ### Fetch the agents' branches by hand
 
@@ -202,19 +201,21 @@ asking.
 your clone of the repository, with your SSH alias in place of `forge-local`:
 
 ```bash
-git remote add agent-acme-widgets forge-local:agent-acme-widgets
-git config remote.agent-acme-widgets.uploadpack "forge upload-pack agent-acme-widgets"
-git config remote.agent-acme-widgets.tagOpt --no-tags
-git config remote.agent-acme-widgets.pruneTags false
-git fetch agent-acme-widgets
+git remote add forge-web forge-local:team-web
+git config remote.forge-web.uploadpack "forge team upload-pack web"
+git config remote.forge-web.tagOpt --no-tags
+git config remote.forge-web.pruneTags false
+git fetch forge-web
 ```
 
-`forge upload-pack` runs on the host and serves the repository from inside the
-container, so the host never runs git in the agent's workspace. `tagOpt` and
-`pruneTags` keep the agent's tags out of your clone, even with
-`fetch.pruneTags` in your git configuration: a tag named `origin/main` would
-take that branch's place in `git log origin/main..` and other git commands.
-Review the branch, then sign and push it yourself.
+(`web` is the team's name in the host's configuration.) `forge team
+upload-pack` runs on the host: it refreshes the team mirror, a repository of
+the host's own that holds the branches the developers own, and serves it, so
+the host never runs git in an agent's workspace. `tagOpt` and `pruneTags` keep
+the agent's tags out of your clone, even with `fetch.pruneTags` in your git
+configuration: a tag named `origin/main` would take that branch's place in
+`git log origin/main..` and other git commands. Review the branch, then sign
+and push it yourself.
 
 ### Troubleshooting a manual install
 

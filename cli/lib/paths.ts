@@ -45,6 +45,7 @@ function configDir(): string {
 // La config herdr de l'utilisateur forge : HERDR_CONFIG_PATH, sinon
 // $XDG_CONFIG_HOME/herdr/config.toml (herdr 0.9.5 honore XDG_CONFIG_HOME),
 // sinon <home forge>/.config/herdr/config.toml. Une valeur vide compte comme absente.
+// Seul `forge setup` la lit encore, pour retirer les raccourcis d'avant les équipes.
 export function herdrConfigPath(): string {
   return process.env.HERDR_CONFIG_PATH ||
     join(process.env.XDG_CONFIG_HOME || join(forgeHome(), ".config"), "herdr", "config.toml");

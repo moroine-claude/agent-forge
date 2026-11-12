@@ -74,3 +74,35 @@ test("status --json prints one JSON array and nothing else on stdout", async () 
   assert.deepEqual(rows.map((r) => r.name), ["agent-web-dev-1", "agent-web-dev-2"]);
   assert.deepEqual(rows.map((r) => r.busy), [null, null]);
 });
+
+test("for-repo prints the team that holds the repository, and nothing (exit 1) for another", async () => {
+  const { ctx } = setup();
+  assert.equal(await cmdTeam(ctx, ["for-repo", "o/web"]), 0);
+  assert.deepEqual(ctx.out_lines, ["web"]);
+  const none = setup();
+  assert.equal(await cmdTeam(none.ctx, ["for-repo", "o/none"]), 1);
+  assert.deepEqual(none.ctx.out_lines, []);
+});
+
+test("task-base prints one sorted <task><TAB><base> line per owned task, dropping an unsafe ref", async () => {
+  const { fake, ctx } = setup();
+  const keys = (n: string) => fake.instances.get("agent-forge")!.get(n)!.config;
+  Object.assign(keys("agent-web-dev-1"), { "user.forge.base.fix-login": "origin/main" });
+  fake.addInstance("agent-forge", "agent-web-dev-2", {
+    status: "Running", config: { "user.forge.base.export-csv": "origin/main", "user.forge.base.bad": "--upload-pack=x" },
+  });
+  assert.equal(await cmdTeam(ctx, ["task-base", "web"]), 0);
+  assert.deepEqual(ctx.out_lines, ["export-csv\torigin/main", "fix-login\torigin/main"]);
+});
+
+test("upload-pack writes nothing to stdout, then attaches git upload-pack on the team mirror with hooks off", async () => {
+  const { ctx } = setup();
+  const code = await cmdTeam(ctx, ["upload-pack", "web", "/ignored/path"]);
+  assert.equal(code, 0);
+  assert.deepEqual(ctx.out_lines, []);
+  assert.equal(ctx.attachCalls.length, 1);
+  const argv = ctx.attachCalls[0].argv;
+  assert.deepEqual(argv.slice(0, 4), ["git", "-c", "core.hooksPath=/dev/null", "upload-pack"]);
+  assert.ok(argv[4].endsWith("team-web.agents.git") && argv.length === 5, argv.join(" "));
+  await assert.rejects(() => cmdTeam(setup().ctx, ["upload-pack", "nope"]), /not a declared team/);
+});

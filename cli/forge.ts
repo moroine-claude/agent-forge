@@ -1,21 +1,14 @@
 // Point d'entrée : argv vers une commande, et une seule place où les erreurs
 // deviennent un message et un code de sortie.
 import { parseArgs } from "node:util";
-import { createInterface } from "node:readline";
-import { herdrEnv, showNotification } from "./lib/herdr.ts";
-import { ackAfterRun, collectNotices, noticeBody } from "./lib/popup.ts";
 import type { Context } from "./lib/context.ts";
 import { createContext, ForgeError } from "./lib/context.ts";
 import { cmdSetup } from "./lib/commands/setup.ts";
-import { cmdStart } from "./lib/commands/start.ts";
-import { cmdResume } from "./lib/commands/resume.ts";
-import { cmdFinish } from "./lib/commands/finish.ts";
 import { cmdStop } from "./lib/commands/stop.ts";
 import { cmdDelete } from "./lib/commands/delete.ts";
 import { cmdList } from "./lib/commands/list.ts";
 import { cmdEgress } from "./lib/commands/egress.ts";
 import { cmdImage } from "./lib/commands/image.ts";
-import { cmdAttach } from "./lib/commands/attach.ts";
 import { cmdTaskBase } from "./lib/commands/task-base.ts";
 import { cmdUploadPack } from "./lib/commands/upload-pack.ts";
 import { cmdCompletion } from "./lib/commands/completion.ts";
@@ -26,6 +19,9 @@ import { cmdFetch } from "./lib/commands/fetch.ts";
 import { cmdShip } from "./lib/commands/ship.ts";
 import { cmdRelay } from "./lib/commands/relay.ts";
 import { cmdTeam } from "./lib/commands/team.ts";
+import { cmdTeamLaptop } from "./lib/commands/team-laptop.ts";
+import { cmdHcVia } from "./lib/commands/hc-via.ts";
+import { cmdHcExec } from "./lib/commands/hc-exec.ts";
 import { currentSide, requireSide } from "./lib/side.ts";
 
 const USAGE = `Usage: forge <command> [args]
@@ -33,10 +29,6 @@ const USAGE = `Usage: forge <command> [args]
 On the forge host:
   setup                             Create or update forge's Incus project, bridge, ACLs and profiles,
                                     the egress proxy (forge-proxy) and its allowlist
-  start [--strict] [<owner/repo>] [<task>]
-                                    Provision (if needed) and start/attach a task session
-  resume [<owner/repo>] [<task>]    Re-attach a task's agent (--all: every forge tab left bare by a herdr restart)
-  finish [<owner/repo>] [<task>]    Remove a finished task's worktree
   stop [<owner/repo>] [--force]     Stop a container (blocked on dirty/unpushed WIP unless --force)
   delete [<owner/repo>] [--force]   Delete a container (blocked on dirty/unpushed WIP unless --force; --force also skips
                                     the "no forge metadata" confirmation)
@@ -45,7 +37,6 @@ On the forge host:
                                     Show or switch a stopped container's egress
   egress log [<owner/repo>]         Show the proxy's recent requests (old lines may name the
                                     wrong container: addresses are reused)
-  attach <container> <task>         Run a task's agent in this terminal (what herdr tabs run)
   upload-pack <container> [<path>]  Serve a container's repository to git fetch (see the README, "Get the work back")
   task-base <container> [<task>]    Print the ref a task started from (every task, tab-separated, without <task>)
   team converge [<team>]            Create or start the agents of the configured teams (and the Pilot), refresh the team mirror
@@ -65,7 +56,6 @@ On the forge host:
   image commit                      Print the commit agent-base was built from (nothing if no image)
   completion bash                   Print a bash completion function (eval it in ~/.bashrc)
   completion repos                  List managed owner/repo, one per line (machine-readable)
-  completion tasks <owner/repo>     List a repo's task names, one per line (machine-readable)
 
 On your laptop:
   install [--remote <address>] [--host <name>] [--ssh-persist <duration>]
@@ -82,6 +72,8 @@ On your laptop:
                                     Replace the relay with a new one: a new bot token, push key and
                                     signing key
   fetch [--host <name>]             Fetch the agents' branches into this clone and list the tasks
+  team up [<team>] [--host <name>]  Converge the teams on the host, then add each agent as a Herdr App machine
+                                    (team assign, release, status and sync also work from here, over SSH)
   ship <task> [--host <name>]       Re-sign a task's new commits, push agent/<task> and open its PR
                                     (a stacked task ships with the tasks under it, bottom first)
 
@@ -93,27 +85,25 @@ type LaptopOptions = { remote?: string; host?: string; sshPersist?: string };
 type RelayArgs = { title?: string; bodyFile?: string; json?: boolean };
 
 function dispatch(
-  ctx: Context, positionals: string[], force: boolean, strict: boolean, all: boolean, laptop: LaptopOptions, relay: RelayArgs,
+  ctx: Context, positionals: string[], force: boolean, laptop: LaptopOptions, relay: RelayArgs,
 ): Promise<number> {
   const [cmd, a, b] = positionals;
-  // --strict ne vaut que pour `start` (création d'un container strict).
-  if (strict && cmd !== "start") throw new ForgeError(`--strict only applies to 'forge start'\n${USAGE}`);
   switch (cmd) {
     case "setup": return cmdSetup(ctx);
-    case "start": return cmdStart(ctx, a, b, { strict });
-    case "resume": return cmdResume(ctx, a, b, all);
-    case "finish": return cmdFinish(ctx, a, b, force);
     case "stop": return cmdStop(ctx, a, force);
     case "delete": return cmdDelete(ctx, a, force);
     case "list": return cmdList(ctx);
     case "egress": return cmdEgress(ctx, a, b);
-    case "attach": return cmdAttach(ctx, a, b);
     case "upload-pack": return cmdUploadPack(ctx, a);
     case "task-base": return cmdTaskBase(ctx, a, b);
     case "relay": return cmdRelay(ctx, a, positionals.slice(2), relay);
-    case "team": return cmdTeam(ctx, positionals.slice(1), { json: relay.json });
+    case "team": return currentSide() === "laptop"
+      ? cmdTeamLaptop(ctx, positionals.slice(1), { host: laptop.host, json: relay.json })
+      : cmdTeam(ctx, positionals.slice(1), { json: relay.json });
+    case "hc-via": return cmdHcVia(ctx, a, b, positionals[3]);
+    case "hc-exec": return cmdHcExec(ctx, a, b);
     case "image": return cmdImage(ctx, a, b);
-    case "completion": return cmdCompletion(ctx, a, b);
+    case "completion": return cmdCompletion(ctx, a);
     case "install": return cmdInstall(ctx, laptop);
     case "cloud": return cmdCloud(ctx, a, { host: laptop.host });
     case "open": return cmdOpen(ctx, { host: laptop.host });
@@ -123,32 +113,13 @@ function dispatch(
   }
 }
 
-// Une ligne, ou la fin de stdin.
-function waitForLine(): Promise<void> {
-  return new Promise((done) => {
-    const rl = createInterface({ input: process.stdin });
-    const finish = () => { rl.close(); done(); };
-    rl.once("line", finish);
-    rl.once("close", finish);
-  });
-}
-
-// Un onglet herdr lance `exec forge attach …` : le pane se ferme avec forge.
-// Dans un pane (HERDR_ENV=1 et HERDR_PANE_ID), un attach qui échoue ou un
-// agent sorti en erreur laisse donc de quoi lire avant la fermeture.
-function attachInHerdrPane(cmd: string | undefined): boolean {
-  return cmd === "attach" && process.env.HERDR_ENV === "1" && !!process.env.HERDR_PANE_ID;
-}
-
 async function main(): Promise<number> {
-  const base = createContext();
-  const { ctx, notices } = collectNotices(base);
-  let cmd: string | undefined;
+  const ctx = createContext();
   try {
     const { values, positionals } = parseArgs({
       args: process.argv.slice(2),
       options: {
-        force: { type: "boolean" }, strict: { type: "boolean" }, all: { type: "boolean" },
+        force: { type: "boolean" },
         remote: { type: "string" }, host: { type: "string" }, "ssh-persist": { type: "string" },
         title: { type: "string" }, "body-file": { type: "string" },
         json: { type: "boolean" },
@@ -160,17 +131,15 @@ async function main(): Promise<number> {
       ctx.out(USAGE);
       return 0;
     }
-    cmd = positionals[0];
+    const cmd = positionals[0];
     // Chaque commande a son côté : la mauvaise machine reçoit une ligne qui dit où aller.
     requireSide(cmd, currentSide());
-    // Seul resume connaît --all : ailleurs, il serait ignoré en silence.
-    if (values.all && cmd !== "resume") throw new ForgeError("--all only goes with resume: forge resume --all");
     // De même pour les options des commandes du laptop.
     if (values.remote !== undefined && cmd !== "install") {
       throw new ForgeError("--remote only goes with install: forge install --remote <address>");
     }
-    if (values.host !== undefined && !["install", "open", "fetch", "ship", "cloud"].includes(cmd)) {
-      throw new ForgeError("--host only goes with install, open, fetch, ship and cloud: forge install --host <name>, " +
+    if (values.host !== undefined && !["install", "open", "fetch", "ship", "cloud", "team"].includes(cmd)) {
+      throw new ForgeError("--host only goes with install, open, fetch, ship, cloud and team: forge install --host <name>, " +
         "forge open --host <name>, forge fetch --host <name>, forge ship <task> --host <name>, forge cloud start --host <name>");
     }
     if ((values.title !== undefined || values["body-file"] !== undefined) && cmd !== "relay") {
@@ -181,46 +150,12 @@ async function main(): Promise<number> {
       throw new ForgeError("--ssh-persist only goes with install: forge install --ssh-persist 2h");
     }
     const laptop = { remote: values.remote, host: values.host, sshPersist: values["ssh-persist"] };
-    const code = await dispatch(ctx, positionals, values.force === true, values.strict === true, values.all === true, laptop,
+    return await dispatch(ctx, positionals, values.force === true, laptop,
       { title: values.title, bodyFile: values["body-file"], json: values.json });
-    // Politique d'acquittement de la popup herdr, qui se ferme avec le processus :
-    // - un code de sortie non nul, ou une exception : on attend Entrée ;
-    // - un succès sans rien à lire : elle se ferme aussitôt ;
-    // - un succès qui a écrit des WARNING/NOTICE ou appelé ctx.notify : ces lignes
-    //   partent en une notification herdr (voir cli/lib/popup.ts). On n'attend
-    //   Entrée que si herdr répond shown:false (aucun client herdr attaché) ou a échoué ;
-    //   avec un client attaché elle répond shown:true, toast affiché ou non.
-    const popup = !!herdrEnv()?.popup;
-    const attachPane = attachInHerdrPane(cmd);
-    const ack = ackAfterRun({ popup, attachPane, code, threw: false, notices: notices.length });
-    if (ack === "wait") {
-      if (code !== 0 && attachPane) ctx.err(`the agent exited with code ${code}`);
-      ctx.err("Press Enter to close");
-      await waitForLine();
-    } else if (ack === "notify") {
-      let shown = false;
-      try {
-        shown = await showNotification(ctx, herdrEnv()!, `forge ${cmd}`, noticeBody(notices));
-      } catch (e) {
-        // Le contexte de base : cette ligne ne doit pas être collectée.
-        base.err(`herdr notification failed: ${e instanceof Error ? e.message : String(e)}`);
-      }
-      if (!shown) {
-        ctx.err("Press Enter to close");
-        await waitForLine();
-      }
-    }
-    return code;
   } catch (e) {
     // Le préfixe "Error: " est ajouté ici, une seule fois : une ForgeError ne
     // porte que son message.
     ctx.err(`Error: ${e instanceof Error ? e.message : String(e)}`);
-    // Dans la popup herdr, la fenêtre se ferme avec le processus : on laisse
-    // le temps de lire l'erreur. De même pour un attach dans un pane herdr.
-    if (ackAfterRun({ popup: !!herdrEnv()?.popup, attachPane: attachInHerdrPane(cmd), code: null, threw: true, notices: notices.length }) === "wait") {
-      ctx.err("Press Enter to close");
-      await waitForLine();
-    }
     return 1;
   }
 }

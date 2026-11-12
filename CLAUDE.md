@@ -3,16 +3,16 @@
 ## Contexte
 Tu travailles sur `agent-forge`, un repo d'infrastructure pour faire tourner des agents Claude Code dans des containers Incus isolés, sur un hôte provisionné par Ansible : une VM distante (cloud ou LAN), ou une VM Lima locale sur la machine de dev (mode local, macOS ou Ubuntu).
 
-Ce fichier décrit la v2, sortie sur `main` (la v1, LXD, n'est plus maintenue). Les cinq sous-projets de la v2 sont livrés : hôte Ansible, runtime Incus, mode strict (liste blanche de sortie), orchestration herdr, mode local et docs. Le `README.md` est le guide d'installation par mode (local Lima, distant), par `forge install` ; les étapes manuelles sont dans `ansible/README.md`.
+Ce fichier décrit la v2, sortie sur `main` (la v1, LXD, n'est plus maintenue). Les cinq sous-projets de la v2 sont livrés : hôte Ansible, runtime Incus, mode strict (liste blanche de sortie), orchestration herdr, mode local et docs ; l'orchestration est ensuite devenue celle des équipes (herdr-core). Le `README.md` est le guide d'installation par mode (local Lima, distant), par `forge install` ; les étapes manuelles sont dans `ansible/README.md`.
 
 ## Stack
 - **Hôte** : Ubuntu 26.04 LTS, Incus 7.0 LTS (dépôt Zabbly), nftables (table `inet forge_host`), fail2ban (sauf en `forge_exposure: local`) — provisionné par `ansible/site.yml`. En local, la VM vient du template Lima `ansible/lima/forge.yaml`
 - **Runtime Incus** : projet `agent-forge`, bridge `forgebr0`, ACL `forge-egress`, profil `agent-forge` ; pour le mode strict, le container `forge-proxy`, son profil, les ACL `forge-proxy` et `forge-egress-strict` — tous créés par `forge setup`
 - **Image** `agent-base` : `images:ubuntu/26.04`, Node.js 24, pnpm, Claude Code, Google Chrome headless + `chrome-devtools-mcp`, Docker rootless — construite par `forge image build`
-- **Orchestration** : herdr, client sur la machine de dev (`herdr --remote <hôte> --remote-keybindings server`), serveur sur l'hôte ; chaque tâche tourne dans un onglet herdr via `forge attach`
-- **CLI** : `forge`, en TypeScript exécuté par Node (`cli/`) : des commandes hôte (`setup`, `start`, …) et des commandes laptop (`install`, `open`), lancées depuis le checkout sur la machine de dev
+- **Orchestration** : des équipes d'agents (DX 5). Une équipe se déclare dans `~/.config/agent-forge/config.json` de l'hôte (`teams`, `pilot`) ; chaque agent est un container, avec son propre core herdr-core (`hc`, version épinglée dans `cli/lib/hc.ts`) ; `forge team up` (machine de dev) converge l'hôte puis ajoute chaque container comme machine de Herdr App, par `forge hc-via` (machine de dev) et `forge hc-exec` (hôte). Le TUI herdr (`forge open`) reste
+- **CLI** : `forge`, en TypeScript exécuté par Node (`cli/`) : des commandes hôte (`setup`, `team converge`, `team assign`, …) et des commandes laptop (`install`, `open`, `team up`, `fetch`, `ship`), lancées depuis le checkout sur la machine de dev
 - **User agent** : `aiuser` (UID/GID 1001, no sudo, scoped to `/workspace`)
-- **Auth** : une clé SSH (une clé matérielle par exemple), transmise à l'hôte par l'agent SSH ; aucune credential GitHub dans les containers (l'hôte clone et fetch avec l'agent SSH transmis)
+- **Auth** : une clé SSH (une clé matérielle par exemple), transmise à l'hôte par l'agent SSH ; aucune credential GitHub dans les containers (l'hôte clone et fetch avec l'agent SSH transmis). Le token Claude (`claude setup-token`) vit sur l'hôte et dans chaque container, un fichier de mode 600 que le lanceur `forge-agent` exporte au seul processus de l'agent
 
 ## Périmètre
 - CLI dans `cli/` (`cli/forge`, `cli/forge.ts`, `cli/lib/`)
@@ -28,7 +28,7 @@ Ce fichier décrit la v2, sortie sur `main` (la v1, LXD, n'est plus maintenue). 
 - Messages conventionnels : `feat:`, `fix:`, `chore:`, `docs:`, `test:`.
 - **Dans un container forge v2** (mode `supervised`, le seul mode de container de la v2 ; la VM de dev a le sien, `contributor`, plus bas) :
   - tu commites sur `agent/<tâche>`. Les commits sont non signés et portent l'identité git de l'hôte ;
-  - tu ne pousses jamais et tu n'utilises jamais `gh` : aucune credential n'existe, ils échouent (le hook ne surveille plus git dans un container supervisé). `origin` est un miroir en lecture seule (`/forge/origin.git`, rafraîchi par l'hôte à chaque `forge start`) : `git fetch origin` marche, `git push` non ;
+  - tu ne pousses jamais et tu n'utilises jamais `gh` : aucune credential n'existe, ils échouent (le hook ne surveille plus git dans un container supervisé). `origin` est un miroir en lecture seule (`/forge/origin.git`, rafraîchi par l'hôte, `forge team sync`) : `git fetch origin` marche, `git push` non ;
   - pour rafraîchir ta branche : `git fetch origin` puis `git rebase origin/main`, jamais `git merge` (un commit de merge fait refuser la branche par `forge ship`) ;
   - le mainteneur récupère ton travail depuis sa machine avec `forge fetch` dans son clone, le relit, puis `forge ship <tâche>` le re-signe, le pousse et ouvre la PR.
 - **Sur la machine de dev** (une session Claude Code dans ce repo, dont `.claude/settings.json` applique `container/pre-bash.sh`) :
@@ -65,7 +65,7 @@ strict), `docs/superpowers/specs/2026-10-17-v2-orchestration-herdr-design.md`
   machine). Il vérifie en lecture seule le contrat hôte (pas root, firewall
   nftables, sysctls userns, pool de stockage, `ip_forward`), converge les
   objets Incus (ceux du mode strict seulement avec un Incus assez récent), puis
-  écrit son bloc de raccourcis dans la config herdr de l'utilisateur.
+  retire, une fois, l'ancien bloc de raccourcis herdr de la config de l'utilisateur.
 - `forge image build` pilote le cycle de vie de l'image : instance
   `forge-image-build`, publication sous `agent-base`, marquage
   `user.forge.commit`. La configuration de l'instance est faite par Ansible,
@@ -76,15 +76,16 @@ strict), `docs/superpowers/specs/2026-10-17-v2-orchestration-herdr-design.md`
   non-objectifs de la v2.0. Le concept de mode reste (marqueur
   `~/.claude/forge-mode`, règles autonomous de `container/pre-bash.sh`).
 - Sortie réseau : ouverte par défaut (plages privées bloquées par
-  `forge-egress`) ; mode strict par container (`forge start --strict`,
-  `forge egress`), à travers `forge-proxy` et la liste blanche.
+  `forge-egress`) ; mode strict par rôle (`strict: true` dans la config de l'équipe) ou par container
+  (`forge egress`), à travers `forge-proxy` et la liste blanche.
 - Les commits de l'agent portent l'identité git de l'hôte (`user.name` et
   `user.email` du `git config --global` de l'utilisateur forge) et sont non
   signés (`commit.gpgsign=false`). L'utilisateur les re-signe en publiant.
-- herdr remplace tmux : `forge start` ouvre ou montre l'onglet de la tâche,
-  `forge resume --all` relance les agents après un redémarrage du serveur
-  herdr. Hors herdr, l'agent tourne au premier plan, sans persistance.
-- Les tests unitaires tournent avec un faux `incus` et un faux herdr. Les tests
+- Les équipes remplacent `forge start`, `attach`, `resume` et `finish` : `forge team
+  converge` crée ou démarre les containers, `forge team assign` donne une tâche
+  (une session neuve dans le `hc` du container), `release` la libère. Chaque agent
+  garde son terminal hc, qui survit à la fermeture de la machine de dev.
+- Les tests unitaires tournent avec un faux `incus`. Les tests
   d'intégration réels (`FORGE_INTEGRATION=1`) demandent un Incus de test
   jetable (une VM Lima ou une VM cloud) ; le playbook se teste avec
   `ansible/tests/vm-test.sh` (`--host`, `--lima`, ou une VM sur un hôte
@@ -106,7 +107,7 @@ Les suites restent légères.
 
 ### Sécurité
 - Ne jamais hardcoder de credentials, clés, tokens
-- Aucune valeur personnelle (nom, login, chemin, UID, identité, hôte, adresse) dans le repo — code, tests, docs — ni dans l'image : tout ce qui est personnel est injecté au `forge start` ou vit dans la config de l'utilisateur. Seule exception : l'adresse GitHub du projet et ses références de PR (`<owner>/agent-forge#N`), qui désignent le projet lui-même
+- Aucune valeur personnelle (nom, login, chemin, UID, identité, hôte, adresse) dans le repo — code, tests, docs — ni dans l'image : tout ce qui est personnel est injecté à la création du container ou vit dans la config de l'utilisateur. Seule exception : l'adresse GitHub du projet et ses références de PR (`<owner>/agent-forge#N`), qui désignent le projet lui-même
 - Aucune clé SSH ni credential GitHub dans les containers ou dans l'image : l'hôte clone avec l'agent SSH de l'utilisateur
 - UID mapping : le `raw.idmap` du profil `agent-forge` est calculé par `forge setup` depuis l'UID/GID de l'utilisateur forge (`uid <uid> 1001`, `gid <gid> 1001`). Un fichier créé par `aiuser` dans `/workspace` appartient à l'utilisateur forge sur l'hôte. Aucun UID en dur ; `forge` refuse de tourner en root
 - Toute nouvelle règle nftables (rôle `firewall`, table `inet forge_host`) ou d'ACL Incus doit être justifiée en commentaire ; jamais de `flush ruleset`, qui effacerait les tables d'Incus

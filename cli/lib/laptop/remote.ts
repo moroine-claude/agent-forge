@@ -1,14 +1,14 @@
 // Commands run on the forge host from the laptop, over the SSH alias forge
 // wrote in ~/.ssh/config.d/agent-forge.config; and the admin's, by address,
 // on a machine that has no alias (yet).
-import type { Context, ExecResult } from "../context.ts";
+import { ForgeError, type Context, type ExecResult } from "../context.ts";
 import { shellQuote } from "../shell.ts";
 import { sshOption } from "./ssh-config.ts";
 import { knownHostsPath, type LaptopHost } from "./state.ts";
 
 // ssh joins its arguments with spaces and hands them to the remote shell: each
 // word is quoted so it arrives as one.
-const remoteCommand = (argv: string[]): string => argv.map(shellQuote).join(" ");
+export const remoteCommand = (argv: string[]): string => argv.map(shellQuote).join(" ");
 
 // The alias forwards the agent, for the agents' clones under herdr; none of
 // install's steps on the host needs it, so they turn it off.
@@ -24,6 +24,14 @@ export function remoteExec(ctx: Context, host: LaptopHost, argv: string[], input
 // Inherits the terminal; `tty` for a command that asks the user something.
 export function remoteAttach(ctx: Context, host: LaptopHost, argv: string[], tty = false): Promise<number> {
   return ctx.attach(["ssh", ...NO_AGENT, ...(tty ? ["-t"] : []), host.name, "--", remoteCommand(argv)]);
+}
+
+// The agent forwarded, for the host commands that reach GitHub with it (the
+// team's origin mirror): `forge team up` and `forge team sync`. A cloud host
+// never gets it: its VM holds no key of the developer's.
+export function remoteAttachForwarding(ctx: Context, host: LaptopHost, argv: string[]): Promise<number> {
+  if (host.kind === "cloud") throw new ForgeError(`${host.name} is a cloud host: it never gets your SSH agent, so this command is not for it.`);
+  return ctx.attach(["ssh", "-A", host.name, "--", remoteCommand(argv)]);
 }
 
 // The admin's `ssh … <command>` to `address` (the host's, or its relay's),

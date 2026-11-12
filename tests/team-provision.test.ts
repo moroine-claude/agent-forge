@@ -105,7 +105,7 @@ test("pushed files: token, team instructions plus the role prompt, settings with
   const file = (path: string) => fake.files.get(`agent-forge/agent-web-reviewer${path}`);
   assert.equal(file("/home/aiuser/.config/forge/claude-token")?.mode, "600");
   const claudeMd = file("/home/aiuser/.claude/CLAUDE.md")!.content;
-  assert.equal(claudeMd, `${readFileSync("container/CLAUDE.team.md", "utf8")}\nTu relis le code.\n`);
+  assert.equal(claudeMd, `${readFileSync("container/CLAUDE.md", "utf8")}\nTu relis le code.\n`);
   const settings = JSON.parse(file("/home/aiuser/.claude/settings.json")!.content);
   assert.deepEqual(settings.enabledPlugins, { "superpowers@claude-plugins-official": true });
   assert.deepEqual(settings.hooks, JSON.parse(readFileSync("container/settings.json", "utf8")).hooks);

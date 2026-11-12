@@ -1,7 +1,7 @@
 // Layer 2: real git and git-lfs, in a temporary HOME. The container's
 // workspace is cloned from a mirror that holds no LFS object; the two
 // `git lfs install` commands forge runs must leave LFS files as pointers, so
-// that `git worktree add` (what `forge start` runs for a task) succeeds.
+// that `git worktree add` (what a task's worktree needs) succeeds.
 // Skipped when git-lfs is absent, except under CI where it fails.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";

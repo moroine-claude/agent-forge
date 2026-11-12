@@ -6,11 +6,10 @@ import { fakeContext } from "./lib/fake-context.ts";
 import { FakeIncus } from "./lib/fake-incus.ts";
 import {
   listInstances, instanceStatus, instanceExists, configGet, configSet, imageProperty,
-  execAsAgent, startInstance, stopInstance, deleteInstance, attachArgv, forgeProject, waitReady,
+  execAsAgent, startInstance, stopInstance, deleteInstance, forgeProject, waitReady,
   pushText, pullText, configSetMany, configUnset, deviceOverride, deviceSet, deviceRemove,
   restartInstance, execArgv,
 } from "../cli/lib/incus.ts";
-import { AGENT } from "../cli/lib/agent.ts";
 
 const P = ["incus", "--project", "agent-forge"];
 const LIST_JSON = JSON.stringify([
@@ -41,7 +40,6 @@ test("FORGE_INCUS_PROJECT points every call at another project", async () => {
   const ctx = fakeContext();
   await configSet(ctx, "c", "k", "v");
   assert.deepEqual(ctx.calls[0], ["incus", "--project", "forge-selftest", "config", "set", "c", "k", "v"]);
-  assert.deepEqual(attachArgv("c", "t", "xterm", ["bash"]).slice(0, 3), ["incus", "--project", "forge-selftest"]);
 });
 
 test("listInstances parses incus list -f json without jq", async () => {
@@ -103,19 +101,6 @@ test("deleteInstance always forces, since the caller has already decided", async
   const ctx = fakeContext();
   await deleteInstance(ctx, "agent-x");
   assert.deepEqual(ctx.calls[0], [...P, "delete", "agent-x", "--force"]);
-});
-
-test("attachArgv runs the agent command directly under incus exec", () => {
-  const argv = attachArgv("agent-x", "cli", "xterm-256color", AGENT.command("agent-x", "cli", false));
-  assert.deepEqual(argv, [
-    ...P, "exec", "agent-x",
-    "--user", "1001", "--group", "1001",
-    "--cwd", "/workspace/.trees/cli",
-    "--env", "TERM=xterm-256color",
-    "--", "bash", "-lc", "exec forge-agent --forge-task agent-x-cli --permission-mode auto",
-  ]);
-  // Invariant du commit c34a145 : aucun `su` entre incus exec et l'agent.
-  assert.ok(!argv.includes("su"));
 });
 
 test("the fake incus answers the transport, project included", async () => {
