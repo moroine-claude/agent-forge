@@ -25,6 +25,7 @@ import { cmdOpen } from "./lib/commands/open.ts";
 import { cmdFetch } from "./lib/commands/fetch.ts";
 import { cmdShip } from "./lib/commands/ship.ts";
 import { cmdRelay } from "./lib/commands/relay.ts";
+import { cmdTeam } from "./lib/commands/team.ts";
 import { currentSide, requireSide } from "./lib/side.ts";
 
 const USAGE = `Usage: forge <command> [args]
@@ -47,6 +48,11 @@ On the forge host:
   attach <container> <task>         Run a task's agent in this terminal (what herdr tabs run)
   upload-pack <container> [<path>]  Serve a container's repository to git fetch (see the README, "Get the work back")
   task-base <container> [<task>]    Print the ref a task started from (every task, tab-separated, without <task>)
+  team converge [<team>]            Create or start the agents of the configured teams (and the Pilot), refresh the team mirror
+  team assign <container> [<task>]  Give a team member a task, the instruction read from stdin (a fresh session)
+  team release <container>          Free a team member
+  team status [--json]              Each member's task and session (refreshes the team mirror first)
+  team sync <team>                  Refresh the team's origin mirror (needs the forwarded SSH agent), then the team mirror
   relay publish [<task>]            On the contributor's dev VM: publish agent/<task> through the relay
   relay pr <task> --title <text> --body-file <file|->
                                     Open the task's pull request (the body from a file, or stdin with -)
@@ -84,7 +90,7 @@ With no terminal on stdin (scripts, CI) nothing is asked and the command
 exits with this usage instead.`;
 
 type LaptopOptions = { remote?: string; host?: string; sshPersist?: string };
-type RelayArgs = { title?: string; bodyFile?: string };
+type RelayArgs = { title?: string; bodyFile?: string; json?: boolean };
 
 function dispatch(
   ctx: Context, positionals: string[], force: boolean, strict: boolean, all: boolean, laptop: LaptopOptions, relay: RelayArgs,
@@ -105,6 +111,7 @@ function dispatch(
     case "upload-pack": return cmdUploadPack(ctx, a);
     case "task-base": return cmdTaskBase(ctx, a, b);
     case "relay": return cmdRelay(ctx, a, positionals.slice(2), relay);
+    case "team": return cmdTeam(ctx, positionals.slice(1), { json: relay.json });
     case "image": return cmdImage(ctx, a, b);
     case "completion": return cmdCompletion(ctx, a, b);
     case "install": return cmdInstall(ctx, laptop);
@@ -144,6 +151,7 @@ async function main(): Promise<number> {
         force: { type: "boolean" }, strict: { type: "boolean" }, all: { type: "boolean" },
         remote: { type: "string" }, host: { type: "string" }, "ssh-persist": { type: "string" },
         title: { type: "string" }, "body-file": { type: "string" },
+        json: { type: "boolean" },
         help: { type: "boolean", short: "h" },
       },
       allowPositionals: true,
@@ -168,12 +176,13 @@ async function main(): Promise<number> {
     if ((values.title !== undefined || values["body-file"] !== undefined) && cmd !== "relay") {
       throw new ForgeError("--title and --body-file only go with relay: forge relay pr <task> --title <text> --body-file <file>");
     }
+    if (values.json && cmd !== "team") throw new ForgeError("--json only goes with team status: forge team status --json");
     if (values["ssh-persist"] !== undefined && cmd !== "install") {
       throw new ForgeError("--ssh-persist only goes with install: forge install --ssh-persist 2h");
     }
     const laptop = { remote: values.remote, host: values.host, sshPersist: values["ssh-persist"] };
     const code = await dispatch(ctx, positionals, values.force === true, values.strict === true, values.all === true, laptop,
-      { title: values.title, bodyFile: values["body-file"] });
+      { title: values.title, bodyFile: values["body-file"], json: values.json });
     // Politique d'acquittement de la popup herdr, qui se ferme avec le processus :
     // - un code de sortie non nul, ou une exception : on attend Entrée ;
     // - un succès sans rien à lire : elle se ferme aussitôt ;
