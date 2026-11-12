@@ -30,7 +30,7 @@ export function completionScript(forgeBin: string): string {
   cmd="\${COMP_WORDS[1]}"
 
   if [ "$COMP_CWORD" -eq 1 ]; then
-    COMPREPLY=($(compgen -W "setup start resume finish stop delete list egress image completion" -- "$cur"))
+    COMPREPLY=($(compgen -W "setup start resume finish stop delete list egress image team completion" -- "$cur"))
     return
   fi
 
@@ -67,6 +67,7 @@ export function completionScript(forgeBin: string): string {
       esac
       ;;
     image)      [ "$COMP_CWORD" -eq 2 ] && COMPREPLY=($(compgen -W "build" -- "$cur")) ;;
+    team)       [ "$COMP_CWORD" -eq 2 ] && COMPREPLY=($(compgen -W "converge assign release status sync" -- "$cur")) ;;
     completion) [ "$COMP_CWORD" -eq 2 ] && COMPREPLY=($(compgen -W "bash repos tasks" -- "$cur")) ;;
   esac
   return 0

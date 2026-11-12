@@ -68,10 +68,7 @@ export async function provisionContainer(
 ): Promise<{ mirror: "created" | "kept" }> {
   const strict = opts.strict === true;
   // Préconditions, toutes vérifiées avant de rien créer.
-  const tokenFile = join(forgeHome(), CLAUDE_TOKEN_FILE);
-  if (!existsSync(tokenFile) || statSync(tokenFile).size === 0) {
-    throw new ForgeError(`${tokenFile} not found or empty. Run 'forge install' from your machine to store the Claude token.`);
-  }
+  requireClaudeToken();
   const identity = await hostGitIdentity(ctx);
   await requireRuntime(ctx);
   const plan = strict ? await requireStrictRuntime(ctx) : null;
@@ -131,13 +128,7 @@ export async function provisionContainer(
     await mustSucceed(`git config ${key}`, execAsAgentArgv(ctx, container, ["git", "config", "--global", key, value]));
   }
 
-  // Le token est poussé comme fichier (incus file push lit le fichier hôte) :
-  // jamais dans un argv, un journal ou la mémoire de forge.
-  ctx.out("Pushing the Claude token...");
-  await mustSucceed("create .claude directory", execAsAgent(ctx, container, "mkdir -p /home/aiuser/.claude"));
-  await mustSucceed("create token directory",
-    execAsAgentArgv(ctx, container, ["mkdir", "-p", "-m", "700", CONTAINER_TOKEN_DIR]));
-  await pushFile(ctx, "push Claude token", tokenFile, container, CONTAINER_TOKEN_PATH, 1001, "600");
+  await pushClaudeToken(ctx, container);
 
   ctx.out("Pre-accepting Claude Code onboarding...");
   await pushFile(ctx, "push onboarding state", join(repoRoot(), "container", "claude.json"),
@@ -211,10 +202,29 @@ export async function provisionContainer(
   return { mirror: mirrorOutcome };
 }
 
+// Le token Claude de l'hôte : exigé avant de créer quoi que ce soit.
+export function requireClaudeToken(): string {
+  const tokenFile = join(forgeHome(), CLAUDE_TOKEN_FILE);
+  if (!existsSync(tokenFile) || statSync(tokenFile).size === 0) {
+    throw new ForgeError(`${tokenFile} not found or empty. Run 'forge install' from your machine to store the Claude token.`);
+  }
+  return tokenFile;
+}
+
+// Le token est poussé comme fichier (incus file push lit le fichier hôte) :
+// jamais dans un argv, un journal ou la mémoire de forge. Crée aussi ~/.claude.
+export async function pushClaudeToken(ctx: Context, container: string): Promise<void> {
+  ctx.out("Pushing the Claude token...");
+  await mustSucceed("create .claude directory", execAsAgent(ctx, container, "mkdir -p /home/aiuser/.claude"));
+  await mustSucceed("create token directory",
+    execAsAgentArgv(ctx, container, ["mkdir", "-p", "-m", "700", CONTAINER_TOKEN_DIR]));
+  await pushFile(ctx, "push Claude token", requireClaudeToken(), container, CONTAINER_TOKEN_PATH, 1001, "600");
+}
+
 // Sondes : un code non nul veut dire « pas réglé ». Depuis HOST_GIT_CWD : lancé
 // dans ~/workspaces/<c>, git y découvrirait le dépôt de l'agent (les includeIf
 // de la config globale s'évaluent contre lui).
-async function hostGitIdentity(ctx: Context): Promise<{ name: string; email: string }> {
+export async function hostGitIdentity(ctx: Context): Promise<{ name: string; email: string }> {
   const opts = { cwd: HOST_GIT_CWD };
   const name = (await ctx.exec(["git", "config", "--global", "--includes", "user.name"], opts)).stdout.trim();
   const email = (await ctx.exec(["git", "config", "--global", "--includes", "user.email"], opts)).stdout.trim();
@@ -230,7 +240,7 @@ async function hostGitIdentity(ctx: Context): Promise<{ name: string; email: str
 
 // `forge start` vérifie, avant de rien créer, que `forge setup` et
 // `forge image build` sont passés.
-async function requireRuntime(ctx: Context): Promise<void> {
+export async function requireRuntime(ctx: Context): Promise<void> {
   if (!(await listObjects(ctx, "profile")).some((p) => p.name === PROFILE)) {
     throw new ForgeError(`profile ${PROFILE} not found in Incus project ${forgeProject()}. Run 'forge setup' first.`);
   }
@@ -249,7 +259,7 @@ async function requireRuntime(ctx: Context): Promise<void> {
 const hookProbe = (command: string) =>
   `printf '%s' '{"tool_name":"Bash","tool_input":{"command":"${command}"}}' | /home/aiuser/.claude/hooks/pre-bash.sh`;
 
-async function requireHookBlocks(ctx: Context, container: string, ownerRepo: string): Promise<void> {
+export async function requireHookBlocks(ctx: Context, container: string, ownerRepo: string): Promise<void> {
   ctx.out("Checking that the security hook guards the agent...");
   // Le container porte encore ses marqueurs de provisioning : `forge delete`
   // sait le retirer.
@@ -277,7 +287,7 @@ async function requireHookBlocks(ctx: Context, container: string, ownerRepo: str
 
 // `incus file push` avec propriétaire et mode. uid 0 : fichier que l'agent ne
 // peut pas modifier.
-function pushFile(ctx: Context, step: string, source: string, container: string, dest: string, uid: 0 | 1001, mode: string) {
+export function pushFile(ctx: Context, step: string, source: string, container: string, dest: string, uid: 0 | 1001, mode: string) {
   return mustSucceed(step, ctx.exec(incus("file", "push", source, `${container}${dest}`,
     "--uid", String(uid), "--gid", String(uid), "--mode", mode)));
 }
@@ -286,7 +296,7 @@ function pushFile(ctx: Context, step: string, source: string, container: string,
 // avertissement, pas une raison d'abandonner le provisioning.
 // En strict, apt ne lit que la source d'Anthropic (les dépôts Ubuntu ne sont
 // pas dans la liste blanche), sans purger les listes des autres.
-async function refreshClaude(ctx: Context, container: string, strict: boolean): Promise<void> {
+export async function refreshClaude(ctx: Context, container: string, strict: boolean): Promise<void> {
   ctx.out("Updating Claude Code...");
   const apt = (...args: string[]) =>
     ctx.exec(incus("exec", container, "--env", "DEBIAN_FRONTEND=noninteractive", "--", "apt-get", ...args));
@@ -307,7 +317,7 @@ async function refreshClaude(ctx: Context, container: string, strict: boolean): 
 //   - non vide, miroir du même repo -> on le réutilise (le travail supervised
 //     non récupéré est la seule copie qui existe : on n'efface rien) ;
 //   - autre chose non vide -> on s'arrête sans y toucher.
-function workspaceIsReusable(workspaceDir: string, mirror: string, ownerRepo: string, existing: string | null): boolean {
+export function workspaceIsReusable(workspaceDir: string, mirror: string, ownerRepo: string, existing: string | null): boolean {
   if (!existsSync(workspaceDir) || readdirSync(workspaceDir).length === 0) return false;
   if (existing !== ownerRepo.toLowerCase()) {
     throw new ForgeError(

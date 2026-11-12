@@ -6,10 +6,11 @@
 // mirror, outside the workspaces directory, and only ever runs git on it.
 // The mirror is mounted read-only in the container, which clones from it.
 import { existsSync, mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import type { Context, ExecResult } from "./context.ts";
 import { ForgeError } from "./context.ts";
 import { deviceNames, execAsAgentArgv } from "./incus.ts";
+import { mirrorsDir } from "./paths.ts";
 import { validateRepo } from "./validate.ts";
 
 export const MIRROR_MOUNT = "/forge/origin.git";
@@ -108,4 +109,29 @@ export function pointOriginAtMirror(ctx: Context, container: string): Promise<Ex
 
 export async function hasOriginDevice(ctx: Context, container: string): Promise<boolean> {
   return (await deviceNames(ctx, container)).includes(ORIGIN_DEVICE);
+}
+
+// The team mirror (DX 5, §5.5): a bare repository forge fills with the agent
+// branches of a team's developers, and that read-team members mount read-only.
+// It is not a mirror of GitHub: nothing here comes from the network.
+export const TEAM_MOUNT = "/forge/team.git";
+export const TEAM_DEVICE = "team";
+
+export function teamMirrorPath(team: string): string {
+  return join(mirrorsDir(), `team-${team}.agents.git`);
+}
+
+// The hooks are off and received objects are checked: what an agent pushes
+// into this repository is data, and nothing in it may run on the host.
+export async function ensureTeamMirror(ctx: Context, team: string): Promise<"created" | "kept"> {
+  const mirror = teamMirrorPath(team);
+  if (existsSync(mirror)) return "kept";
+  mkdirSync(dirname(mirror), { recursive: true });
+  const init = await ctx.exec(["git", "init", "--bare", "--quiet", mirror], GIT_OPTS);
+  if (init.code !== 0) throw new ForgeError(`create team mirror failed: ${init.stderr.trim() || `exit code ${init.code}`}`);
+  for (const [key, value] of [["core.hooksPath", "/dev/null"], ["fetch.fsckObjects", "true"]]) {
+    const r = await ctx.exec(["git", `--git-dir=${mirror}`, "config", key, value], GIT_OPTS);
+    if (r.code !== 0) throw new ForgeError(`configure team mirror failed: ${r.stderr.trim() || `exit code ${r.code}`}`);
+  }
+  return "created";
 }

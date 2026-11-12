@@ -3,7 +3,10 @@
 # processus de claude, puis lance claude avec les arguments restants (DX 5,
 # décision 20). Le token n'est ni dans un profil, ni dans .bashrc, ni dans
 # l'environnement d'Incus ou du core hc : seul ce processus et son enfant le voient.
-# Usage : forge-agent [--forge-task <nom>] [arguments de claude…]
+# Usage : forge-agent [--forge-task <nom>] [--instruction-file <fichier>] [arguments de claude…]
+# `--instruction-file` : le contenu du fichier, s'il est non vide, est le premier
+# message de claude (dernier argument). Un texte d'agent ne passe jamais par un
+# argv de l'hôte : il arrive en fichier, et c'est ce lanceur qui le lit.
 # `--forge-task <nom>` est le marqueur de la tâche : claude ne le reçoit pas, mais
 # il reste dans la ligne de commande de ce script, que `forge list`, `stop` et
 # `finish` lisent dans `ps` (et que `forge stop` vise par `pkill -f`). D'où pas
@@ -19,6 +22,15 @@ if [ "${1:-}" = "--forge-task" ]; then
   if [ "$#" -gt 0 ]; then shift; fi
 fi
 
+INSTRUCTION=""
+if [ "${1:-}" = "--instruction-file" ]; then
+  if [ "$#" -lt 2 ]; then echo "forge-agent: --instruction-file demande un fichier." >&2; exit 1; fi
+  if [ -s "$2" ]; then INSTRUCTION="$(cat "$2")"; fi
+  shift 2
+fi
+# Un message qui commencerait par « - » serait lu par claude comme une option.
+case "$INSTRUCTION" in -*) INSTRUCTION=" $INSTRUCTION" ;; esac
+
 if [ ! -s "$TOKEN_FILE" ] || [ ! -r "$TOKEN_FILE" ]; then
   echo "forge-agent: token Claude introuvable ($TOKEN_FILE). Lance forge install depuis ta machine, puis recrée ce container." >&2
   exit 1
@@ -33,6 +45,8 @@ export CLAUDE_CODE_OAUTH_TOKEN
 # claude tourne donc en arrière-plan, avec son stdin explicite (un travail
 # d'arrière-plan d'un shell non interactif lirait /dev/null sinon) ; bash ne
 # fait pas de contrôle de tâches ici, claude reste dans le groupe du terminal.
+# Le message de l'instruction, s'il y en a un, est le dernier argument.
+if [ -n "$INSTRUCTION" ]; then set -- "$@" "$INSTRUCTION"; fi
 claude "$@" <&0 &
 child=$!
 for sig in TERM HUP INT; do

@@ -1,0 +1,76 @@
+import { test, beforeEach, afterEach } from "node:test";
+import assert from "node:assert/strict";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fakeContext, type ExecRule } from "./lib/fake-context.ts";
+import { FakeIncus } from "./lib/fake-incus.ts";
+import { cmdTeam } from "../cli/lib/commands/team.ts";
+
+let home: string;
+beforeEach(() => {
+  home = mkdtempSync(join(tmpdir(), "forge-team-cmd-"));
+  mkdirSync(join(home, "agent-forge"), { recursive: true });
+  writeFileSync(join(home, "agent-forge", "config.json"), JSON.stringify({
+    teams: { web: { repo: "o/web", roles: { dev: { count: 2, capabilities: ["repo", "publish"] } } } },
+  }));
+  mkdirSync(join(home, ".config", "agent-forge"), { recursive: true });
+  writeFileSync(join(home, ".config", "agent-forge", "claude-token"), "tok-test\n");
+  process.env.XDG_CONFIG_HOME = home;
+  process.env.FORGE_HOME = home;
+  process.env.FORGE_REPO_DIR = process.cwd();
+  process.env.FORGE_WORKSPACES = join(home, "workspaces");
+  process.env.FORGE_MIRRORS = join(home, "mirrors");
+});
+afterEach(() => {
+  rmSync(home, { recursive: true, force: true });
+  for (const k of ["XDG_CONFIG_HOME", "FORGE_HOME", "FORGE_REPO_DIR", "FORGE_WORKSPACES", "FORGE_MIRRORS"]) delete process.env[k];
+});
+
+const RULES: ExecRule[] = [
+  { match: "git config --global --includes user.name", stdout: "Host User\n" },
+  { match: "git config --global --includes user.email", stdout: "host@example.com\n" },
+  { match: "forge-hook-probe-deny", code: 2, stderr: "BLOCKED.\n" },
+];
+
+function setup() {
+  const fake = FakeIncus.withRuntime();
+  fake.addInstance("agent-forge", "agent-web-dev-1", { status: "Running" });
+  const ctx = fakeContext({ incus: fake, rules: RULES });
+  return { fake, ctx };
+}
+
+test("assign reads the instruction from stdin and gives the task on behalf of the human", async () => {
+  const { fake, ctx } = setup();
+  const code = await cmdTeam(ctx, ["assign", "agent-web-dev-1", "fix-login"], { stdin: async () => "Corrige le login\n" });
+  assert.equal(code, 0);
+  const keys = fake.instances.get("agent-forge")!.get("agent-web-dev-1")!.config;
+  assert.deepEqual([keys["user.forge.task"], keys["user.forge.assigned_by"]], ["fix-login", "human"]);
+  assert.equal(fake.files.get("agent-forge/agent-web-dev-1/home/aiuser/.forge/instruction.md")!.content, "Corrige le login");
+});
+
+test("an empty instruction is refused before any Incus call", async () => {
+  const { ctx } = setup();
+  await assert.rejects(() => cmdTeam(ctx, ["assign", "agent-web-dev-1", "fix-login"], { stdin: async () => "  \n" }), /instruction is empty/);
+  assert.deepEqual(ctx.calls, []);
+});
+
+test("converge launches only the missing members and reports a stray one without deleting it", async () => {
+  const { fake, ctx } = setup();
+  fake.addInstance("agent-forge", "agent-web-dev-9", { status: "Stopped", config: { "user.forge.team": "web" } });
+  await cmdTeam(ctx, ["converge"]);
+  const launches = ctx.calls.filter((c) => c.includes("launch")).map((c) => c[c.indexOf("launch") + 2]);
+  assert.deepEqual(launches, ["agent-web-dev-2"]);
+  assert.ok(ctx.out_lines.some((l) => l.startsWith("agent-web-dev-9") && l.includes("not in the config, left as is")), ctx.out_lines.join("\n"));
+  assert.ok(fake.instances.get("agent-forge")!.has("agent-web-dev-9"));
+  assert.ok(!ctx.calls.some((c) => c.includes("delete")));
+});
+
+test("status --json prints one JSON array and nothing else on stdout", async () => {
+  const { ctx } = setup();
+  await cmdTeam(ctx, ["status"], { json: true });
+  assert.equal(ctx.out_lines.length, 1);
+  const rows = JSON.parse(ctx.out_lines[0]) as { name: string; session: string; busy: unknown }[];
+  assert.deepEqual(rows.map((r) => r.name), ["agent-web-dev-1", "agent-web-dev-2"]);
+  assert.deepEqual(rows.map((r) => r.busy), [null, null]);
+});
