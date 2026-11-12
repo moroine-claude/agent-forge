@@ -74,6 +74,12 @@ test("a developer: launched with its keys and limits, origin mounted read-only, 
   assert.equal(fake.instances.get("agent-forge")!.get("agent-web-dev-1")!.config["user.forge.provisioning"], undefined);
 });
 
+test("the hook's audit log is excluded from the clone's status, so a fresh clone is clean", async () => {
+  const { ctx, run } = provision("agent-web-dev-1");
+  await run();
+  assert.ok(flat(ctx).some((c) => c.includes("/.claude/bash-audit.log") && c.includes(".git/info/exclude")));
+});
+
 test("a read-team member mounts the team mirror read-only and adds the team remote", async () => {
   const { fake, ctx, run } = provision("agent-web-reviewer");
   await run();

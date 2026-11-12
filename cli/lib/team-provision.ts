@@ -105,6 +105,13 @@ export async function provisionMember(ctx: Context, cfg: ForgeConfig, m: Member)
     }
   }
 
+  if (origin !== null) {
+    // Le hook écrit son journal d'audit dans /workspace/.claude : sans cette
+    // exclusion, un clone neuf paraîtrait sale à l'assignation d'une tâche.
+    await mustSucceed("audit log exclude", execAsAgent(ctx, m.name,
+      "cd /workspace && { grep -qxF '/.claude/bash-audit.log' .git/info/exclude || echo '/.claude/bash-audit.log' >> .git/info/exclude; }"));
+  }
+
   ctx.out("Configuring git (the team's identity, unsigned commits)...");
   for (const [key, value] of [["user.name", identity.name], ["user.email", identity.email], ["commit.gpgsign", "false"]]) {
     await mustSucceed(`git config ${key}`, execAsAgentArgv(ctx, m.name, ["git", "config", "--global", key, value]));
