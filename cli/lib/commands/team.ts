@@ -5,7 +5,7 @@ import type { Context } from "../context.ts";
 import { ForgeError } from "../context.ts";
 import type { ForgeConfig } from "../config.ts";
 import { loadConfig } from "../config.ts";
-import { provisioningMarker } from "../containers.ts";
+import { baseKey, provisioningMarker } from "../containers.ts";
 import { listInstances, type Instance } from "../incus.ts";
 import { refreshMirror } from "../mirror.ts";
 import { configPath } from "../paths.ts";
@@ -16,12 +16,15 @@ import { columnWidths, formatRow } from "../table.ts";
 import { members, type Member } from "../team.ts";
 import { originMirrorPath, provisionMember } from "../team-provision.ts";
 import { refreshTeamMirror } from "../team-mirror.ts";
+import { teamMirrorPath } from "../mirror.ts";
+import { containerConfig, safeRef } from "./task-base.ts";
 
 const USAGE = `Usage: forge team converge [<team>]
        forge team assign <container> [<task>]   (the instruction is read from stdin)
        forge team release <container>
        forge team status [--json]
-       forge team sync <team>`;
+       forge team sync <team>
+       forge team for-repo <owner/repo> | task-base <team> | upload-pack <team>   (read by forge fetch and forge ship)`;
 
 // Une consigne ne dépasse pas ceci : c'est du texte, pas un fichier.
 const MAX_INSTRUCTION = 64 * 1024;
@@ -42,8 +45,12 @@ async function readStdin(): Promise<string> {
 export async function cmdTeam(ctx: Context, args: string[], opts: TeamOptions = {}): Promise<number> {
   const [sub, a, b] = args;
   if (opts.json && sub !== "status") throw new ForgeError(`--json only goes with status: forge team status --json\n${USAGE}`);
-  if (!["converge", "assign", "release", "status", "sync"].includes(sub ?? "")) throw new ForgeError(USAGE);
+  if (!["converge", "assign", "release", "status", "sync", "for-repo", "task-base", "upload-pack"].includes(sub ?? "")) {
+    throw new ForgeError(USAGE);
+  }
   const cfg = loadConfig(configPath());
+  // Lu par une machine (forge fetch) : sans équipe, pas de message sur stdout.
+  if (sub === "for-repo") return forRepo(ctx, cfg, a);
   if (Object.keys(cfg.teams).length === 0 && cfg.pilot === null) {
     throw new ForgeError(`no team in ${configPath()}: declare "teams" (and optionally "pilot") there first.`);
   }
@@ -52,6 +59,8 @@ export async function cmdTeam(ctx: Context, args: string[], opts: TeamOptions = 
     case "assign": return assignCommand(ctx, cfg, a, b, opts.stdin ?? readStdin);
     case "release": return releaseCommand(ctx, cfg, a);
     case "status": return status(ctx, cfg, opts.json === true);
+    case "task-base": return taskBase(ctx, cfg, a);
+    case "upload-pack": return uploadPack(ctx, cfg, a);
     default: return sync(ctx, cfg, a);
   }
 }
@@ -177,4 +186,49 @@ async function sync(ctx: Context, cfg: ForgeConfig, team: string | undefined): P
   for (const failed of r.failed) ctx.err(`WARNING: could not refresh the team mirror from ${failed}.`);
   ctx.out(`Synced ${name}.`);
   return 0;
+}
+
+// Le laptop demande quelle équipe tient un dépôt : le nom sur stdout, ou rien et 1.
+async function forRepo(ctx: Context, cfg: ForgeConfig, ownerRepo: string | undefined): Promise<number> {
+  if (ownerRepo === undefined) throw new ForgeError(`an owner/repo is required.\n${USAGE}`);
+  const found = Object.entries(cfg.teams).find(([, t]) => t.repo.toLowerCase() === ownerRepo.toLowerCase());
+  if (!found) return 1;
+  ctx.out(found[0]);
+  return 0;
+}
+
+// Une ligne `<tâche>\t<base>` par tâche que les développeurs de l'équipe
+// possèdent, triées ; stdout est lu par une machine. Une base qui n'est pas une
+// ref sûre est lue comme inconnue (task-base.ts).
+async function taskBase(ctx: Context, cfg: ForgeConfig, team: string | undefined): Promise<number> {
+  const name = requireTeam(cfg, team);
+  const owned = new Map<string, string>();
+  for (const m of members(cfg).filter((x) => x.team === name && x.capabilities.includes("publish"))) {
+    const config = await containerConfig(ctx, m.name);
+    for (const key of Object.keys(config)) {
+      if (!key.startsWith(baseKey(""))) continue;
+      const base = safeRef(config[key]);
+      const task = key.slice(baseKey("").length);
+      if (base && !owned.has(task)) owned.set(task, base);
+    }
+  }
+  for (const task of [...owned.keys()].sort()) ctx.out(`${task}\t${owned.get(task)}`);
+  return 0;
+}
+
+// Invoqué par le `git fetch` du laptop (remote.<c>.uploadpack = "forge team
+// upload-pack <team>") : le miroir d'équipe est rafraîchi, puis servi. stdout
+// porte le protocole git : rien n'y est écrit avant l'attach, les avertissements
+// vont sur stderr. Le chemin que git ajoute est ignoré.
+async function uploadPack(ctx: Context, cfg: ForgeConfig, team: string | undefined): Promise<number> {
+  const name = requireTeam(cfg, team);
+  try {
+    const r = await refreshTeamMirror(ctx, cfg, name);
+    for (const failed of r.failed) ctx.err(`WARNING: could not refresh the team mirror from ${failed}.`);
+  } catch (e) {
+    ctx.err(`WARNING: could not refresh the team mirror of ${name}: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  const protocol = process.env.GIT_PROTOCOL;
+  const env = protocol !== undefined && /^version=[0-9]$/.test(protocol) ? { GIT_PROTOCOL: protocol } : undefined;
+  return ctx.attach(["git", "-c", "core.hooksPath=/dev/null", "upload-pack", teamMirrorPath(name)], env ? { env } : undefined);
 }
