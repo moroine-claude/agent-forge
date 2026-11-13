@@ -96,3 +96,53 @@ export async function startSession(ctx: Context, m: Member, task: string, instru
   ])));
   await requireStarted(ctx, m.name);
 }
+
+export const MESSAGES_DIR = "/home/aiuser/.forge/messages";
+// hc refuse un envoi tant que la sortie du terminal n'a pas fini de bouger :
+// une dizaine de regards d'une seconde, puis un refus clair.
+const SEND_ATTEMPTS = 10;
+const SEND_WAIT_MS = 1000;
+
+// Un message de l'API (DX 5, §5.4) : le corps, s'il y en a un, devient un
+// fichier du container du destinataire ; la session ne reçoit qu'une ligne, que
+// forge seul écrit : son préfixe, un identifiant de journal, le nom de
+// l'expéditeur (tiré de la socket) et le résumé, que le protocole a vérifié
+// contre sa liste de caractères. Aucun corps ne passe par un argv ni par un
+// terminal. L'avis est tapé tout de suite, même pendant un tour : Claude Code
+// le reçoit à sa prochaine frontière d'outil, dans le tour en cours.
+export async function deliverMessage(
+  ctx: Context, container: string, from: string, id: number, summary: string, body: string | null,
+): Promise<{ turn: number }> {
+  const path = `${MESSAGES_DIR}/${id}.md`;
+  if (body !== null) {
+    const pushed = await pushText(ctx, container, path, body, { uid: 1001, gid: 1001, mode: "600" });
+    if (pushed.code !== 0) {
+      throw new ForgeError(`delivery to ${container} failed: ${firstLine(pushed.stderr) || `exit code ${pushed.code}`}`);
+    }
+  }
+  const notice = `[forge] message ${id} from ${from}: ${summary}${body === null ? "" : ` (detail: ${path})`}`;
+  const sleep = ctx.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  for (let attempt = 1; ; attempt++) {
+    const r = await ctx.exec(hcArgv(container, ["send", "--json", SESSION, notice]));
+    if (r.code === 0) return { turn: sentTurn(container, r.stdout) };
+    if (r.stderr.includes("has finished")) throw new ForgeError(`${container} has no live session`);
+    if (r.stderr.includes("is still starting") && attempt < SEND_ATTEMPTS) {
+      await sleep(SEND_WAIT_MS);
+      continue;
+    }
+    throw new ForgeError(`delivery to ${container} failed: ${firstLine(r.stderr) || `exit code ${r.code}`}`);
+  }
+}
+
+const firstLine = (s: string) => s.trim().split("\n")[0];
+
+// La réponse de `hc send --json` (`hc schema`, SendResult) : le numéro de tour.
+function sentTurn(container: string, stdout: string): number {
+  try {
+    const turn = (JSON.parse(stdout) as { turn?: unknown }).turn;
+    if (typeof turn === "number") return turn;
+  } catch {
+    // Traité comme une réponse illisible, plus bas.
+  }
+  throw new ForgeError(`delivery to ${container} failed: hc send answered something forge cannot read`);
+}
