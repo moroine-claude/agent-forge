@@ -6,8 +6,9 @@ import { ForgeError } from "../context.ts";
 import { apiDataDir } from "../paths.ts";
 import type { Op } from "./protocol.ts";
 
+// `op` est null pour une ligne que le protocole n'a pas pu lire : elle n'a pas de verbe.
 export type Entry = {
-  id: number; time: string; caller: string; op: Op; to: string | null; task: string | null;
+  id: number; time: string; caller: string; op: Op | null; to: string | null; task: string | null;
   outcome: "ok" | "refused"; error: string | null;
   summary: string | null; // message, ask-human
   text: string | null; // le corps d'un message ou d'une question, la consigne d'un assign
