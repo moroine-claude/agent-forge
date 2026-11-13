@@ -150,7 +150,7 @@ test("status lists the lead's talk-to, with who each one waits on until its sess
   const rows = async () => {
     const r = await call(LEAD, { op: "status" });
     assert.ok(r.ok);
-    return (r as { team: { name: string; role: string; busy: boolean; task: string | null; session: string; waitingOn: string | null }[] }).team;
+    return (r as unknown as { team: { name: string; role: string; busy: boolean; task: string | null; session: string; waitingOn: string | null }[] }).team;
   };
   assert.deepEqual((await rows()).map((r) => r.name), [PILOT, DEV1, DEV2, REV]);
   const dev1 = (await rows()).find((r) => r.name === DEV1)!;
