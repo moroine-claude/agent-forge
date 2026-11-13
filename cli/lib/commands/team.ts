@@ -83,15 +83,17 @@ async function converge(ctx: Context, cfg: ForgeConfig, team: string | undefined
     const instance = existing.get(m.name);
     if (!instance) {
       await provisionMember(ctx, cfg, m);
-      continue;
-    }
-    if (await provisioningMarker(ctx, m.name) !== null) {
+    } else if (await provisioningMarker(ctx, m.name) !== null) {
       ctx.err(`WARNING: ${m.name} is half-provisioned: left as is. Delete it (incus --project ${forgeProject()} delete ${m.name} --force) and run converge again.`);
       continue;
+    } else if (instance.status !== "Running") {
+      await ensureRunning(ctx, m.name);
     }
-    if (instance.status !== "Running") await ensureRunning(ctx, m.name);
-    // Le Pilote a une session permanente : elle repart si elle manque.
-    if (m.role === "pilot" && await sessionState(ctx, m.name) === "none") await startSession(ctx, m, "-", "");
+    // Le Pilote a une session permanente : elle repart si elle manque ou si elle
+    // est morte (startSession retire d'abord l'ancien terminal).
+    if (m.role === "pilot" && ["none", "exited"].includes(await sessionState(ctx, m.name))) {
+      await startSession(ctx, m, "-", "");
+    }
   }
   for (const t of Object.keys(cfg.teams).filter((x) => team === undefined || x === team)) {
     const r = await refreshTeamMirror(ctx, cfg, t);
@@ -182,7 +184,7 @@ async function sync(ctx: Context, cfg: ForgeConfig, team: string | undefined): P
   const origin = await refreshMirror(ctx, originMirrorPath(name), cfg.teams[name].repo);
   if (origin.code !== 0) {
     throw new ForgeError(`refreshing the mirror of ${cfg.teams[name].repo} failed: ${origin.stderr.trim() || `exit code ${origin.code}`}\n` +
-      "Is your SSH agent forwarded? Attach with ForwardAgent yes and run the command again.");
+      `Did your SSH agent reach the host? Run forge team sync ${name} from your machine: it forwards the agent.`);
   }
   const r = await refreshTeamMirror(ctx, cfg, name);
   for (const failed of r.failed) ctx.err(`WARNING: could not refresh the team mirror from ${failed}.`);

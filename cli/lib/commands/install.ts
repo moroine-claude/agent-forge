@@ -572,7 +572,7 @@ async function firstConnection(ctx: Context, host: LaptopHost, address: string):
 // agent's role, then its relay's.
 async function playbook(ctx: Context, host: LaptopHost, checkout: string): Promise<void> {
   const collections = join(laptopDataDir(), "collections");
-  const opts = { env: { ANSIBLE_COLLECTIONS_PATH: collections }, cwd: checkout };
+  const opts = { env: { ANSIBLE_COLLECTIONS_PATH: collections, ANSIBLE_PIPELINING: "True" }, cwd: checkout };
   const requirements = join(checkout, "ansible", "requirements.yml");
   const galaxy = await ctx.attach(["ansible-galaxy", "collection", "install", "-r", requirements, "-p", collections], opts);
   if (galaxy !== 0) throw new ForgeError(`ansible-galaxy collection install failed (exit code ${galaxy})`);
