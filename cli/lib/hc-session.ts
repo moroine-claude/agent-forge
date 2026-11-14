@@ -3,7 +3,7 @@
 // shell. Le texte d'une consigne arrive comme fichier, jamais dans un argv.
 import type { Context, ExecResult } from "./context.ts";
 import { ForgeError, mustSucceed } from "./context.ts";
-import { incus, pushText } from "./incus.ts";
+import { execAsAgentArgv, incus, pushText } from "./incus.ts";
 import { egressAfterStart, egressBeforeStart } from "./strict.ts";
 import type { Member } from "./team.ts";
 
@@ -80,6 +80,7 @@ export async function startSession(ctx: Context, m: Member, task: string, instru
   // Leur échec est sans importance : il n'y avait peut-être pas de session.
   await ctx.exec(hcArgv(m.name, ["kill", SESSION]));
   await ctx.exec(hcArgv(m.name, ["rm", SESSION]));
+  await clearMessages(ctx, m.name);
   await mustSucceed("push the instruction",
     pushText(ctx, m.name, INSTRUCTION_PATH, instruction, { uid: 1001, gid: 1001, mode: "600" }));
   const marker = `${m.name}-${task === "-" ? "session" : task}`;
@@ -102,6 +103,13 @@ export const MESSAGES_DIR = "/home/aiuser/.forge/messages";
 // une dizaine de regards d'une seconde, puis un refus clair.
 const SEND_ATTEMPTS = 10;
 const SEND_WAIT_MS = 1000;
+
+// Les messages ne valent que pour la session qui les a reçus : `assign` et
+// `release` vident le dossier. Un échec est sans importance (il peut ne pas
+// exister) : il ne doit pas arrêter une assignation.
+export async function clearMessages(ctx: Context, container: string): Promise<void> {
+  await execAsAgentArgv(ctx, container, ["find", MESSAGES_DIR, "-mindepth", "1", "-delete"]);
+}
 
 // Un message de l'API (DX 5, §5.4) : le corps, s'il y en a un, devient un
 // fichier du container du destinataire ; la session ne reçoit qu'une ligne, que
