@@ -1,6 +1,7 @@
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import { spawn } from "node:child_process";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -89,4 +90,27 @@ test("aborting closes every listener and removes the socket files", async () => 
   stop.abort();
   await served;
   assert.ok(paths.every((p) => !existsSync(p)));
+});
+
+// Un hôte sans équipe : le service ne sort pas (systemd le relancerait en
+// boucle), et s'arrête proprement sur SIGTERM.
+test("forge api serve with no team keeps running, and stops cleanly on SIGTERM", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "forge-api-idle-"));
+  try {
+    const child = spawn(join(import.meta.dirname, "..", "cli", "forge"), ["api", "serve"], {
+      env: { ...process.env, FORGE_SIDE: "host", FORGE_HOME: dir, XDG_CONFIG_HOME: join(dir, "c"), XDG_DATA_HOME: join(dir, "d"), FORGE_API_RUNTIME: join(dir, "run") },
+    });
+    let exited: number | null | undefined;
+    child.on("close", (code) => { exited = code; });
+    let out = "";
+    child.stdout.on("data", (c) => (out += c));
+    for (let i = 0; i < 100 && !out.includes("serving 0 socket(s)"); i++) await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(exited, undefined, "the service exited by itself");
+    child.kill("SIGTERM");
+    for (let i = 0; i < 100 && exited === undefined; i++) await new Promise((r) => setTimeout(r, 50));
+    assert.equal(exited, 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

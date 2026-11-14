@@ -93,6 +93,10 @@ export async function serveApi(d: ApiDeps, signal: AbortSignal): Promise<void> {
     await close();
     throw e;
   }
+  // Sans membre qui ait besoin d'une socket (un hôte sans équipe), rien ne
+  // retiendrait le process : un minuteur le garde en vie jusqu'au signal.
+  const alive = setInterval(() => {}, 2 ** 30);
   if (!signal.aborted) await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+  clearInterval(alive);
   await close();
 }
