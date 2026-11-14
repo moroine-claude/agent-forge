@@ -71,7 +71,7 @@ async function run(d: ApiDeps, caller: Member, req: ApiRequest, reserve: (id: nu
   const mayTalkTo = (to: string) => {
     if (!caller.talkTo.includes(to)) throw new ForgeError(`${caller.name} may not talk to ${to}`);
   };
-  const require = (capability: "assign" | "ask-human") => {
+  const needCapability = (capability: "assign" | "ask-human") => {
     if (!caller.capabilities.includes(capability)) throw new ForgeError(`${caller.name} has no ${capability} capability`);
   };
   switch (req.op) {
@@ -97,7 +97,7 @@ async function run(d: ApiDeps, caller: Member, req: ApiRequest, reserve: (id: nu
       return { id, reply: (n) => ({ ok: true, id: n, ...(warning === null ? {} : { warning }) }) };
     }
     case "assign":
-      require("assign");
+      needCapability("assign");
       mayTalkTo(req.to);
       await exclusive(() => assign(ctx, cfg, { to: req.to, task: req.task, text: req.text, by: caller.name }));
       return { reply: (id) => ({ ok: true, id }) };
@@ -105,7 +105,7 @@ async function run(d: ApiDeps, caller: Member, req: ApiRequest, reserve: (id: nu
       await exclusive(() => release(ctx, cfg, { to: req.to, by: caller.name }));
       return { reply: (id) => ({ ok: true, id }) };
     case "ask-human":
-      require("ask-human");
+      needCapability("ask-human");
       return { reply: (id) => ({ ok: true, id }) };
     case "status": {
       const team: Record<string, unknown>[] = [];

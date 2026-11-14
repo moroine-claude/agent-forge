@@ -26,9 +26,10 @@ export const INSTRUCTION_MAX = 65536; // des octets UTF-8
 // forge : cette liste n'a ni `[` `]` `@`, ni accent grave, `$`, `\`, `<` `>`,
 // ni caractère de contrôle. Il ne peut donc ni imiter le préfixe, ni joindre un
 // fichier, ni appuyer sur une touche.
-export const SUMMARY_ALLOWED = /^[\p{L}\p{M}\p{N} .,;:!?'"()\-_/#+=%&*’«»]+$/u;
+const SUMMARY_CHARS = String.raw`[\p{L}\p{M}\p{N} .,;:!?'"()\-_/#+=%&*’«»]`;
+export const SUMMARY_ALLOWED = new RegExp(`^${SUMMARY_CHARS}+$`, "u");
 // Le même jeu, pour un seul caractère : de quoi nommer le fautif.
-const SUMMARY_CHAR = /^[\p{L}\p{M}\p{N} .,;:!?'"()\-_/#+=%&*’«»]$/u;
+const SUMMARY_CHAR = new RegExp(`^${SUMMARY_CHARS}$`, "u");
 
 const PUT_IN_A_FILE = "put it in a file of your branch and send its path";
 
