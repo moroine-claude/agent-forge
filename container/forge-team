@@ -70,13 +70,19 @@ async function request() {
   }
 }
 
+// La requête part sans fermer l'écriture : le device proxy d'Incus prend la fin
+// du flux d'un côté pour la fin de la connexion, et la réponse serait perdue.
+// La réponse est une ligne, que l'on attend jusqu'à son saut de ligne.
 function call(req) {
   return new Promise((resolve) => {
     const socket = net.connect(SOCKET);
     let out = "";
     socket.setEncoding("utf8");
-    socket.on("connect", () => socket.end(`${JSON.stringify(req)}\n`));
-    socket.on("data", (chunk) => { out += chunk; });
+    socket.on("connect", () => socket.write(`${JSON.stringify(req)}\n`));
+    socket.on("data", (chunk) => {
+      out += chunk;
+      if (out.includes("\n")) socket.destroy();
+    });
     socket.on("error", (e) => {
       process.stderr.write(`forge-team: cannot reach the forge API at ${SOCKET}: ${e.code || e.message}\n`);
       process.exit(2);

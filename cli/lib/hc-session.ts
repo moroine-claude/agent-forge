@@ -1,7 +1,7 @@
 // Les sessions d'un membre d'équipe tournent dans le core hc de son container
 // (DX 5, §5.8) : forge les pilote par `incus exec` avec un argv, jamais par un
 // shell. Le texte d'une consigne arrive comme fichier, jamais dans un argv.
-import type { Context } from "./context.ts";
+import type { Context, ExecResult } from "./context.ts";
 import { ForgeError, mustSucceed } from "./context.ts";
 import { incus, pushText } from "./incus.ts";
 import { egressAfterStart, egressBeforeStart } from "./strict.ts";
@@ -125,16 +125,30 @@ export async function deliverMessage(
   for (let attempt = 1; ; attempt++) {
     const r = await ctx.exec(hcArgv(container, ["send", "--json", SESSION, notice]));
     if (r.code === 0) return { turn: sentTurn(container, r.stdout) };
-    if (r.stderr.includes("has finished")) throw new ForgeError(`${container} has no live session`);
-    if (r.stderr.includes("is still starting") && attempt < SEND_ATTEMPTS) {
+    const why = hcError(r);
+    if (why.includes("has finished")) throw new ForgeError(`${container} has no live session`);
+    if (why.includes("is still starting") && attempt < SEND_ATTEMPTS) {
       await sleep(SEND_WAIT_MS);
       continue;
     }
-    throw new ForgeError(`delivery to ${container} failed: ${firstLine(r.stderr) || `exit code ${r.code}`}`);
+    throw new ForgeError(`delivery to ${container} failed: ${why || `exit code ${r.code}`}`);
   }
 }
 
 const firstLine = (s: string) => s.trim().split("\n")[0];
+
+// Avec --json, hc écrit son erreur sur stdout, en JSON
+// (`{"error":{"kind":"finished","message":"t2 has finished"}}`, code 11) ; sans,
+// c'est une ligne sur stderr. Le message se lit des deux façons.
+function hcError(r: ExecResult): string {
+  try {
+    const message = (JSON.parse(r.stdout) as { error?: { message?: unknown } }).error?.message;
+    if (typeof message === "string") return firstLine(message);
+  } catch {
+    // Pas du JSON : la ligne de stderr.
+  }
+  return firstLine(r.stderr);
+}
 
 // La réponse de `hc send --json` (`hc schema`, SendResult) : le numéro de tour.
 function sentTurn(container: string, stdout: string): number {

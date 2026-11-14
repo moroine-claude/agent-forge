@@ -9,6 +9,7 @@
 // session that announces its own status: no Claude token is needed.
 import { test, after, type TestContext } from "node:test";
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,9 +18,9 @@ import { ensureApiAccess } from "../../cli/lib/api/access.ts";
 import { hostSocketPath, serveApi } from "../../cli/lib/api/server.ts";
 import { parseConfig } from "../../cli/lib/config.ts";
 import { createContext } from "../../cli/lib/context.ts";
-import { hcArgv, MESSAGES_DIR } from "../../cli/lib/hc-session.ts";
+import { deliverMessage, hcArgv, MESSAGES_DIR } from "../../cli/lib/hc-session.ts";
 import { memberNamed } from "../../cli/lib/team.ts";
-import { ENABLED, PREFIX, incus, launch, must, raw, run, waitReady } from "./lib.ts";
+import { ENABLED, PREFIX, incus, launch, must, raw, run, waitReady, type Run } from "./lib.ts";
 
 const PROJECT = "agent-forge";
 // `agent-forge-selftest-…`: the name prefix the teardown guard recognises.
@@ -52,8 +53,21 @@ after(async () => {
 });
 
 const hasImage = () => ENABLED && incus(PROJECT, ["image", "info", "agent-base"]).status === 0;
-const asAiuser = (name: string, argv: string[]) =>
-  incus(PROJECT, ["exec", name, "--user", "1001", "--group", "1001", "--env", "HOME=/home/aiuser", "--", ...argv]);
+// The API runs in this process: a call that waits for it must not block the
+// event loop (lib.ts's `run` is spawnSync), or the server never answers.
+function runAsync(cmd: string, args: string[], input = ""): Promise<Run> {
+  return new Promise((resolve) => {
+    const child = spawn(cmd, args);
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (c) => (stdout += c));
+    child.stderr.on("data", (c) => (stderr += c));
+    child.on("close", (status) => resolve({ status, stdout, stderr }));
+    child.stdin.end(input);
+  });
+}
+const asAiuser = (name: string, argv: string[], input = "") =>
+  runAsync("incus", ["--project", PROJECT, "exec", name, "--user", "1001", "--group", "1001", "--env", "HOME=/home/aiuser", "--", ...argv], input);
 const hc = (name: string, args: string[]) => {
   const argv = hcArgv(name, args);
   return run(argv[0], argv.slice(1));
@@ -84,9 +98,9 @@ test("the API over a real proxy device: identity by socket, a message as a file 
   for (let i = 0; i < 100 && !NAMES.every((n) => existsSync(hostSocketPath(n))); i++) await new Promise((r) => setTimeout(r, 50));
 
   // The API knows the caller by the socket: each container is answered as itself.
-  const leadStatus = must("forge-team status in the lead", asAiuser(LEAD, ["forge-team", "status"]));
+  const leadStatus = must("forge-team status in the lead", await asAiuser(LEAD, ["forge-team", "status"]));
   assert.match(leadStatus.stdout, new RegExp(`^${DEV} role=dev`, "m"), raw("the lead's status", leadStatus));
-  const devStatus = must("forge-team status in the developer", asAiuser(DEV, ["forge-team", "status"]));
+  const devStatus = must("forge-team status in the developer", await asAiuser(DEV, ["forge-team", "status"]));
   assert.match(devStatus.stdout, new RegExp(`^${LEAD} role=lead`, "m"), raw("the developer's status", devStatus));
   assert.doesNotMatch(devStatus.stdout, new RegExp(`^${DEV} `, "m"));
 
@@ -100,8 +114,7 @@ test("the API over a real proxy device: identity by socket, a message as a file 
   must("a fake session in the lead", hc(LEAD, ["run", "--bg", "--name", "agent", "--cwd", "/workspace",
     "sh", "-c", "printf '\\033]7501;state=idle:app=fake\\033\\\\'; cat"]));
   const body = "Détail : Esc \u001b, fin de collage \u001b[201~\n";
-  const sent = must("forge-team message", run("incus", ["--project", PROJECT, "exec", DEV, "--user", "1001", "--group", "1001",
-    "--env", "HOME=/home/aiuser", "--", "forge-team", "message", LEAD, "Fini, branche agent/x"], { input: body }));
+  const sent = must("forge-team message", await asAiuser(DEV, ["forge-team", "message", LEAD, "Fini, branche agent/x"], body));
   const id = /^ok (\d+)$/m.exec(sent.stdout)?.[1];
   assert.ok(id, raw("the message's id", sent));
   const path = `${MESSAGES_DIR}/${id}.md`;
@@ -111,9 +124,13 @@ test("the API over a real proxy device: identity by socket, a message as a file 
   assert.ok(screen.includes(`[forge] message ${id} from ${DEV}: Fini, branche agent/x (detail: ${path})`), raw("the lead's screen", { status: 0, stdout: screen, stderr: "" }));
   assert.ok(!screen.includes("201~"), "a byte of the body reached the terminal");
 
+  // hc's own words for a session that has ended: deliverMessage reads them as "no live session".
+  must("kill the session", hc(LEAD, ["kill", "agent"]));
+  await assert.rejects(deliverMessage(ctx, LEAD, DEV, 99, "Fini", null), new RegExp(`${LEAD} has no live session`));
+
   // The socket comes back with the container.
   must("incus restart", incus(PROJECT, ["restart", LEAD]));
   waitReady(PROJECT, LEAD);
-  const again = must("forge-team status after the restart", asAiuser(LEAD, ["forge-team", "status"]));
+  const again = must("forge-team status after the restart", await asAiuser(LEAD, ["forge-team", "status"]));
   assert.match(again.stdout, new RegExp(`^${DEV} role=dev`, "m"));
 });

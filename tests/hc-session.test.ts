@@ -168,4 +168,11 @@ test("deliverMessage gives up after ten attempts, and refuses a finished termina
   assert.equal(a.sends.length, 10);
   const b = scriptedSend(withLead(), [{ code: 1, stderr: "error: t1 has finished" }]);
   await assert.rejects(deliverMessage(b.ctx, LEAD, DEV, 7, "Fini", null), /agent-web-lead has no live session/);
+  // Ce que hc écrit vraiment avec --json : l'erreur est du JSON sur stdout.
+  const finished = { code: 11, stdout: '{"error":{"hint":"hc read t2","kind":"finished","message":"t2 has finished"}}' };
+  await assert.rejects(deliverMessage(scriptedSend(withLead(), [finished]).ctx, LEAD, DEV, 7, "Fini", null), /agent-web-lead has no live session/);
+  const startingJson = { code: 1, stdout: '{"error":{"kind":"starting","message":"t1 is still starting: its output has not settled"}}' };
+  const c = scriptedSend(withLead(), [startingJson, OK]);
+  assert.deepEqual(await deliverMessage(c.ctx, LEAD, DEV, 7, "Fini", null), { turn: 3 });
+  assert.equal(c.sleeps.length, 1);
 });
