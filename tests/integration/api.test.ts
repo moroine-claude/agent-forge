@@ -70,7 +70,7 @@ const asAiuser = (name: string, argv: string[], input = "") =>
   runAsync("incus", ["--project", PROJECT, "exec", name, "--user", "1001", "--group", "1001", "--env", "HOME=/home/aiuser", "--", ...argv], input);
 const hc = (name: string, args: string[]) => {
   const argv = hcArgv(name, args);
-  return run(argv[0], argv.slice(1));
+  return run("incus", argv.slice(1));
 };
 
 test("the API over a real proxy device: identity by socket, a message as a file and a notice, a restart", { skip: !ENABLED }, async (t: TestContext) => {
